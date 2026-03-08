@@ -24,6 +24,13 @@ CMD_TYPE_MAP = {
     0x39: ("climate", {"target_temp", "current_temp"}),
 }
 
+# Some deployments encode device family in address byte (legacy F7 stream)
+ADDR_TYPE_MAP = {
+    0x30: ("light", {"on_off"}),
+    0x39: ("climate", {"target_temp", "current_temp"}),
+    0x60: ("gas_valve", {"on_off"}),
+}
+
 
 @dataclass(slots=True)
 class DeviceState:
@@ -41,6 +48,8 @@ class DeviceRegistry:
 
     def upsert_from_frame(self, addr: int, cmd: int, payload: bytes, raw_hex: str) -> tuple[DeviceState, bool]:
         kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
+        if kind == "unknown":
+            kind, caps = ADDR_TYPE_MAP.get(addr, (kind, caps))
         key = f"{addr:02X}_{kind}"
         is_new = key not in self.devices
 
