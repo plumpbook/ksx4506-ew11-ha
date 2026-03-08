@@ -11,6 +11,7 @@ class KsFrame:
     payload: bytes
     checksum: int
     raw: bytes
+    sub_id: int = 0
 
 
 class Ksx4506Codec:
@@ -70,7 +71,7 @@ class Ksx4506Codec:
 
             return out
 
-        # Fallback: legacy F7 stream framing.
+        # Fallback: legacy F7 framing (f7 devId subId cmd len data xor add)
         while True:
             try:
                 s = self._buf.index(0xF7)
@@ -81,25 +82,40 @@ class Ksx4506Codec:
             if s > 0:
                 del self._buf[:s]
 
-            if len(self._buf) < 4:
+            # header+dev+sub+cmd+len+xor+add => minimum 7 bytes
+            if len(self._buf) < 7:
                 break
 
-            # Find next frame start as current frame boundary.
-            try:
-                n = self._buf.index(0xF7, 1)
-            except ValueError:
+            dev_id = self._buf[1]
+            sub_id = self._buf[2]
+            cmd = self._buf[3]
+            length = self._buf[4]
+            total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
+            if len(self._buf) < total:
                 break
 
-            frame_raw = bytes(self._buf[:n])
-            del self._buf[:n]
+            frame_raw = bytes(self._buf[:total])
+            del self._buf[:total]
 
-            if len(frame_raw) < 4:
-                continue
+            payload = frame_raw[5 : 5 + length]
+            recv_xor = frame_raw[5 + length]
+            recv_add = frame_raw[6 + length]
 
-            addr = frame_raw[1]
-            cmd = frame_raw[2]
-            payload = frame_raw[3:]
-            out.append(KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=0, raw=frame_raw))
+            src = [frame_raw[0], dev_id, sub_id, cmd, length, *payload]
+            calc_xor = 0
+            for v in src:
+                calc_xor ^= v & 0xFF
+            calc_xor &= 0xFF
+
+            calc_add = 0
+            for v in [*src, calc_xor]:
+                calc_add = (calc_add + (v & 0xFF)) & 0xFF
+
+            # Keep frame even on checksum mismatch for diagnostics/learning.
+            checksum_ok = recv_xor == calc_xor and recv_add == calc_add
+            checksum = recv_add if checksum_ok else 0
+
+            out.append(KsFrame(addr=dev_id, sub_id=sub_id, cmd=cmd, payload=payload, checksum=checksum, raw=frame_raw))
 
         return out
 

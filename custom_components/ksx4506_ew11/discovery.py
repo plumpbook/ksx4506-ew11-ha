@@ -24,16 +24,15 @@ CMD_TYPE_MAP = {
     0x39: ("climate", {"target_temp", "current_temp"}),
 }
 
-# Some deployments encode device family in address byte (legacy F7 stream)
-ADDR_TYPE_MAP = {
-    # User-verified mapping from existing implementation (suroup)
+# Device ID mapping from suroup/ezville reference.
+DEVICE_ID_MAP = {
     0x0E: ("light", {"on_off"}),
+    0x12: ("gas_valve", {"on_off"}),
     0x30: ("switch", {"on_off"}),
+    0x33: ("switch", {"on_off"}),  # breaker
     0x36: ("climate", {"target_temp", "current_temp"}),
-
-    # Keep previously observed families as fallback diagnostics
-    0x39: ("climate", {"target_temp", "current_temp"}),
-    0x60: ("gas_valve", {"on_off"}),
+    0x39: ("switch", {"on_off"}),  # outlet
+    0x60: ("sensor", {"state"}),
 }
 
 
@@ -51,11 +50,13 @@ class DeviceRegistry:
     def __init__(self) -> None:
         self.devices: dict[str, DeviceState] = {}
 
-    def upsert_from_frame(self, addr: int, cmd: int, payload: bytes, raw_hex: str) -> tuple[DeviceState, bool]:
+    def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> tuple[DeviceState, bool]:
         kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
         if kind == "unknown":
-            kind, caps = ADDR_TYPE_MAP.get(addr, (kind, caps))
-        key = f"{addr:02X}_{kind}"
+            kind, caps = DEVICE_ID_MAP.get(addr, (kind, caps))
+
+        # Keep per-device-group separation with sub_id.
+        key = f"{addr:02X}{sub_id:02X}_{kind}"
         is_new = key not in self.devices
 
         if is_new:
@@ -67,14 +68,23 @@ class DeviceRegistry:
         return dev, is_new
 
     def _apply_state(self, dev: DeviceState, cmd: int, payload: bytes) -> None:
-        if dev.kind in {"light", "switch", "gas_valve"} and payload:
-            dev.state["on"] = payload[0] == 0x01
+        # ACK state packets in KS X 4506 deployments are often 0x81.
+        if dev.kind in {"light", "switch", "gas_valve"}:
+            if payload:
+                # ignore first error/status byte when present
+                state_bytes = payload[1:] if len(payload) > 1 else payload
+                dev.state["on"] = any((b & 0x0F) > 0 for b in state_bytes)
+
         elif dev.kind == "fan" and payload:
-            dev.state["on"] = payload[0] > 0
-            dev.state["speed"] = payload[0]
-        elif dev.kind == "climate" and payload:
-            dev.state["target_temp"] = payload[0]
-            if len(payload) > 1:
-                dev.state["current_temp"] = payload[1]
-        elif dev.kind in {"sensor", "unknown"}:
+            v = payload[-1]
+            dev.state["on"] = v > 0
+            dev.state["speed"] = v
+
+        elif dev.kind == "climate":
+            # Suroup reference: per-zone [setTemp, curTemp] pairs in payload tail.
+            if len(payload) >= 2:
+                dev.state["target_temp"] = payload[-2]
+                dev.state["current_temp"] = payload[-1]
+
+        if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
