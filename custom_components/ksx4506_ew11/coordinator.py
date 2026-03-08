@@ -49,6 +49,13 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         await self._client.stop()
 
     async def _on_frame(self, frame: KsFrame) -> None:
+        _LOGGER.debug(
+            "RX frame addr=0x%02X cmd=0x%02X len=%d raw=%s",
+            frame.addr,
+            frame.cmd,
+            len(frame.payload),
+            frame.raw.hex(),
+        )
         dev, is_new = self.registry.upsert_from_frame(
             frame.addr,
             frame.cmd,

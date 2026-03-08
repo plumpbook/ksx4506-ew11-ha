@@ -5,12 +5,23 @@ from typing import Any
 
 # cmd value는 프로젝트 진행 중 실측 캡처로 보정 필요
 CMD_TYPE_MAP = {
+    # Generic guesses
     0x10: ("light", {"on_off"}),
     0x20: ("switch", {"on_off"}),
     0x30: ("climate", {"target_temp", "hvac_mode"}),
     0x40: ("fan", {"on_off", "speed"}),
     0x50: ("sensor", {"state"}),
     0x60: ("gas_valve", {"on_off"}),
+
+    # Observed on EW11 captures (KS X 4506 deployments)
+    0x11: ("light", {"on_off"}),
+    0x12: ("switch", {"on_off"}),
+    0x13: ("switch", {"on_off"}),
+    0x14: ("switch", {"on_off"}),
+    0x15: ("switch", {"on_off"}),
+    0x1F: ("sensor", {"state"}),
+    0x33: ("switch", {"on_off"}),
+    0x39: ("climate", {"target_temp", "current_temp"}),
 }
 
 
