@@ -63,14 +63,20 @@ class Ew11Client:
                 _LOGGER.info("EW11 connected")
 
                 while self._running:
-                    data = await asyncio.wait_for(self._reader.read(1024), timeout=self._timeout)
+                    try:
+                        data = await asyncio.wait_for(self._reader.read(1024), timeout=self._timeout)
+                    except TimeoutError:
+                        # EW11/RS485 can stay idle for a while; this is not a connection failure.
+                        continue
+
                     if not data:
                         raise ConnectionError("EW11 connection closed")
+
                     for frame in self._codec.feed(data):
                         await self._on_frame(frame)
 
             except Exception as exc:
-                _LOGGER.warning("EW11 loop error: %s", exc)
+                _LOGGER.warning("EW11 loop error (%s:%s): %r", self._host, self._port, exc)
                 await self._close()
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 15)
