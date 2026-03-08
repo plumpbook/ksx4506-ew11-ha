@@ -26,7 +26,12 @@ CMD_TYPE_MAP = {
 
 # Some deployments encode device family in address byte (legacy F7 stream)
 ADDR_TYPE_MAP = {
-    0x30: ("light", {"on_off"}),
+    # User-verified mapping from existing implementation (suroup)
+    0x0E: ("light", {"on_off"}),
+    0x30: ("switch", {"on_off"}),
+    0x36: ("climate", {"target_temp", "current_temp"}),
+
+    # Keep previously observed families as fallback diagnostics
     0x39: ("climate", {"target_temp", "current_temp"}),
     0x60: ("gas_valve", {"on_off"}),
 }
