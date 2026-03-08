@@ -15,17 +15,26 @@ CMD_SET_CLIMATE = 0x31
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
+    added_keys: set[str] = set()
 
-    def build():
+    def build_all():
         return [KsxClimate(coordinator, d) for d in coordinator.registry.devices.values() if d.kind == "climate"]
 
-    async_add_entities(build())
+    init_ents = build_all()
+    if init_ents:
+        async_add_entities(init_ents)
+        added_keys.update(e.dev_key for e in init_ents)
 
     @callback
-    def on_added(_key: str):
-        ents = build()
-        if ents:
-            async_add_entities(ents)
+    def on_added(dev_key: str):
+        if dev_key in added_keys:
+            return
+        d = coordinator.registry.devices.get(dev_key)
+        if not d or d.kind != "climate":
+            return
+        ent = KsxClimate(coordinator, d)
+        async_add_entities([ent])
+        added_keys.add(dev_key)
 
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_DEVICE_ADDED, on_added))
 
