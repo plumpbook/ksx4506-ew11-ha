@@ -80,6 +80,9 @@ class DeviceRegistry:
                 elif (sub_id & 0xF0) != 0:
                     # standard single reply (e.g., 0x12) maps to group key 0x1F channel2
                     canonical_sub_id = (sub_id & 0xF0) | 0x0F
+                elif (sub_id & 0x0F) != 0:
+                    # single-group variant (e.g., 0x03 means group3 single channel)
+                    canonical_sub_id = ((sub_id & 0x0F) << 4) | 0x0F
                 else:
                     canonical_sub_id = sub_id
 
@@ -87,7 +90,11 @@ class DeviceRegistry:
                 if is_group or len(payload) > 2:
                     items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
                 else:
-                    ch = (sub_id & 0x0F) or 1
+                    if (sub_id & 0xF0) == 0 and (sub_id & 0x0F) != 0:
+                        # single-group variant: map to channel 1 by default
+                        ch = 1
+                    else:
+                        ch = (sub_id & 0x0F) or 1
                     existing_channels = {
                         d.channel
                         for d in self.devices.values()
