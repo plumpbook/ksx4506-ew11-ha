@@ -76,7 +76,9 @@ class DeviceRegistry:
                     )
                 dev = self.devices[key]
                 dev.last_raw_hex = raw_hex
-                dev.state["on"] = (state_byte & 0x0F) > 0
+                dev.state["on"] = bool(state_byte & 0x01)
+                dev.state["dimmable"] = bool(state_byte & 0x02)
+                dev.state["brightness_step"] = (state_byte >> 4) & 0x0F if dev.state["dimmable"] else 0
                 changes.append((dev, is_new))
             return changes
 
@@ -101,7 +103,19 @@ class DeviceRegistry:
 
     def _apply_state(self, dev: DeviceState, cmd: int, payload: bytes) -> None:
         # ACK state packets in KS X 4506 deployments are often 0x81.
-        if dev.kind in {"light", "switch", "gas_valve"}:
+        if dev.kind == "light":
+            # For non-group light response payload usually [error, state].
+            # state bit0: on/off, bit1: dimming-capable, bit7~4: dimming level(1~15)
+            if len(payload) >= 2:
+                v = payload[1]
+                dev.state["on"] = bool(v & 0x01)
+                dev.state["dimmable"] = bool(v & 0x02)
+                dev.state["brightness_step"] = (v >> 4) & 0x0F if dev.state["dimmable"] else 0
+            elif payload:
+                v = payload[0]
+                dev.state["on"] = bool(v & 0x01)
+
+        elif dev.kind in {"switch", "gas_valve"}:
             if payload:
                 # ignore first error/status byte when present
                 state_bytes = payload[1:] if len(payload) > 1 else payload

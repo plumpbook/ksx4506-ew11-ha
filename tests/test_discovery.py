@@ -21,5 +21,16 @@ def test_light_f7_creates_per_channel_devices():
     keys = sorted(k for k in reg.devices.keys())
     assert keys == ["0E01_light_1", "0E01_light_2", "0E01_light_3"]
     assert reg.devices["0E01_light_1"].state["on"] is True
+    assert reg.devices["0E01_light_1"].state["dimmable"] is False
     assert reg.devices["0E01_light_2"].state["on"] is False
     assert reg.devices["0E01_light_3"].state["on"] is True
+
+
+def test_light_status_byte_dimming_decode():
+    reg = DeviceRegistry()
+    # [err=0x00, state=0xA3] => dim step 10, dimmable, ON
+    reg.upsert_from_frame(0x0E, 0x01, 0x81, bytes([0x00, 0xA3]), "f7...")
+    d = reg.devices["0E01_light_1"]
+    assert d.state["on"] is True
+    assert d.state["dimmable"] is True
+    assert d.state["brightness_step"] == 0x0A
