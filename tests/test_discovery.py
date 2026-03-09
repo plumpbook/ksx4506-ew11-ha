@@ -12,16 +12,18 @@ _spec.loader.exec_module(_module)
 DeviceRegistry = _module.DeviceRegistry
 
 
-def test_light_single_subid_keeps_channel_only():
+def test_light_single_subid_multichannel_payload_expands_channels():
     reg = DeviceRegistry()
-    # non-group sub_id(0x01): only channel 1 should be represented
+    # vendor variant: sub_id(0x01) + multi-channel payload [err, ch1, ch2, ch3]
     changes = reg.upsert_from_frame(0x0E, 0x01, 0x81, bytes([0x00, 0x01, 0x00, 0x01]), "f7...")
 
-    assert len(changes) == 1
+    assert len(changes) == 3
     keys = sorted(k for k in reg.devices.keys())
-    assert keys == ["0E01_light_1"]
+    assert keys == ["0E01_light_1", "0E01_light_2", "0E01_light_3"]
     assert reg.devices["0E01_light_1"].state["on"] is True
     assert reg.devices["0E01_light_1"].state["dimmable"] is False
+    assert reg.devices["0E01_light_2"].state["on"] is False
+    assert reg.devices["0E01_light_3"].state["on"] is True
 
 
 def test_light_status_byte_dimming_decode():

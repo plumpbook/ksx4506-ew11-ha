@@ -64,10 +64,14 @@ class DeviceRegistry:
         # - single response sub_id x1~xE: payload [err][state]
         if kind == "light" and addr == 0x0E:
             if len(payload) > 1:
+                # Field variants observed:
+                # 1) grouped form: sub_id low nibble == 0xF, payload [err][ch1..chN]
+                # 2) vendor variant: sub_id == group id, payload [err][ch1..chN]
+                # 3) single-channel form: payload [err][state]
                 is_group = (sub_id & 0x0F) == 0x0F
                 items: list[tuple[int, int]] = []
 
-                if is_group:
+                if is_group or len(payload) > 2:
                     items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
                 else:
                     items = [((sub_id & 0x0F) or 1, payload[1])]
