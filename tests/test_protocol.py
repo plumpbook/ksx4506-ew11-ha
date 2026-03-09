@@ -59,3 +59,15 @@ def test_f7_split_chunk_parse_ok():
     assert f.sub_id == 0x01
     assert f.cmd == 0x81
     assert f.payload == b"\x10\x20\x30\x40"
+
+
+def test_build_f7_packet_roundtrip():
+    c = Ksx4506Codec()
+    pkt = c.build_f7(0x0E, 0x01, 0x41, b"\x02\x01\x00")
+    frames = c.feed(pkt)
+    assert len(frames) == 1
+    f = frames[0]
+    assert f.addr == 0x0E
+    assert f.sub_id == 0x01
+    assert f.cmd == 0x41
+    assert f.payload == b"\x02\x01\x00"

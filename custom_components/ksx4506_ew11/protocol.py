@@ -165,6 +165,21 @@ class Ksx4506Codec:
         checksum = self.calc_checksum([addr, cmd, length, *payload])
         return bytes([self._stx, addr & 0xFF, cmd & 0xFF, length & 0xFF, *payload, checksum, self._etx])
 
+    def build_f7(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bytes:
+        length = len(payload)
+        src = [0xF7, dev_id & 0xFF, sub_id & 0xFF, cmd & 0xFF, length & 0xFF, *payload]
+
+        xor = 0
+        for v in src:
+            xor ^= v & 0xFF
+        xor &= 0xFF
+
+        add = 0
+        for v in [*src, xor]:
+            add = (add + (v & 0xFF)) & 0xFF
+
+        return bytes([*src, xor, add])
+
     def calc_checksum(self, values: Iterable[int]) -> int:
         if self._checksum_mode == "xor8":
             x = 0

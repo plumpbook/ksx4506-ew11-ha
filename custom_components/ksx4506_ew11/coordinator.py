@@ -57,16 +57,17 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             len(frame.payload),
             frame.raw.hex(),
         )
-        dev, is_new = self.registry.upsert_from_frame(
+        changes = self.registry.upsert_from_frame(
             frame.addr,
             frame.sub_id,
             frame.cmd,
             frame.payload,
             frame.raw.hex(),
         )
-        if is_new:
-            async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
-        async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
+        for dev, is_new in changes:
+            if is_new:
+                async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
+            async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
         self.async_set_updated_data({k: v.state for k, v in self.registry.devices.items()})
 
     async def async_send_command(self, addr: int, cmd: int, payload: bytes, *, guard: bool = False) -> bool:
@@ -74,4 +75,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             _LOGGER.warning("Blocked guarded command addr=%s cmd=%s", addr, cmd)
             return False
         packet = self.codec.build(addr, cmd, payload)
+        return await self._client.send_with_retry(packet)
+
+    async def async_send_f7_command(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bool:
+        packet = self.codec.build_f7(dev_id, sub_id, cmd, payload)
         return await self._client.send_with_retry(packet)

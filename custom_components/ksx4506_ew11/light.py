@@ -10,6 +10,7 @@ from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .entity_base import KsxEntity
 
 CMD_SET_LIGHT = 0x11
+CMD_F7_SET_ONE = 0x41
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -54,7 +55,15 @@ class KsxLight(KsxEntity, LightEntity):
         return bool(self.dev.state.get("on", False))
 
     async def async_turn_on(self, **kwargs):
+        if self.addr == 0x0E and self.channel is not None:
+            payload = bytes([self.channel & 0xFF, 0x01, 0x00])
+            await self.coordinator.async_send_f7_command(self.addr, self.sub_id, CMD_F7_SET_ONE, payload)
+            return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x01")
 
     async def async_turn_off(self, **kwargs):
+        if self.addr == 0x0E and self.channel is not None:
+            payload = bytes([self.channel & 0xFF, 0x00, 0x00])
+            await self.coordinator.async_send_f7_command(self.addr, self.sub_id, CMD_F7_SET_ONE, payload)
+            return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x00")

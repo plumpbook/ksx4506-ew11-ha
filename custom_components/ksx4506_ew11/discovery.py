@@ -42,6 +42,7 @@ class DeviceState:
     addr: int
     sub_id: int
     kind: str
+    channel: int | None = None
     capabilities: set[str] = field(default_factory=set)
     state: dict[str, Any] = field(default_factory=dict)
     last_raw_hex: str = ""
@@ -51,12 +52,35 @@ class DeviceRegistry:
     def __init__(self) -> None:
         self.devices: dict[str, DeviceState] = {}
 
-    def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> tuple[DeviceState, bool]:
+    def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
         kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
         if kind == "unknown":
             kind, caps = DEVICE_ID_MAP.get(addr, (kind, caps))
 
-        # Keep per-device-group separation with sub_id.
+        changes: list[tuple[DeviceState, bool]] = []
+
+        # KSX light(0x0E) ACK payload: [err][ch1][ch2]...[chN]
+        # Create per-channel light entities for clearer control/visibility.
+        if kind == "light" and addr == 0x0E and len(payload) > 1:
+            for ch, state_byte in enumerate(payload[1:], start=1):
+                key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
+                is_new = key not in self.devices
+                if is_new:
+                    self.devices[key] = DeviceState(
+                        key=key,
+                        addr=addr,
+                        sub_id=sub_id,
+                        channel=ch,
+                        kind=kind,
+                        capabilities=set(caps),
+                    )
+                dev = self.devices[key]
+                dev.last_raw_hex = raw_hex
+                dev.state["on"] = (state_byte & 0x0F) > 0
+                changes.append((dev, is_new))
+            return changes
+
+        # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
         is_new = key not in self.devices
 
@@ -72,7 +96,8 @@ class DeviceRegistry:
         dev = self.devices[key]
         dev.last_raw_hex = raw_hex
         self._apply_state(dev, cmd, payload)
-        return dev, is_new
+        changes.append((dev, is_new))
+        return changes
 
     def _apply_state(self, dev: DeviceState, cmd: int, payload: bytes) -> None:
         # ACK state packets in KS X 4506 deployments are often 0x81.
