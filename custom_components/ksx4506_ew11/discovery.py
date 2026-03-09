@@ -69,12 +69,6 @@ class DeviceRegistry:
                 # 2) vendor variant: sub_id == group id, payload [err][ch1..chN]
                 # 3) single-channel form: payload [err][state]
                 is_group = (sub_id & 0x0F) == 0x0F
-                items: list[tuple[int, int]] = []
-
-                if is_group or len(payload) > 2:
-                    items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
-                else:
-                    items = [((sub_id & 0x0F) or 1, payload[1])]
 
                 # Canonicalize channel entity key to avoid duplicate entities from
                 # mixed grouped/single replies for the same physical light.
@@ -89,6 +83,23 @@ class DeviceRegistry:
                 else:
                     canonical_sub_id = sub_id
 
+                items: list[tuple[int, int]] = []
+                if is_group or len(payload) > 2:
+                    items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
+                else:
+                    ch = (sub_id & 0x0F) or 1
+                    existing_channels = {
+                        d.channel
+                        for d in self.devices.values()
+                        if d.kind == "light"
+                        and d.addr == addr
+                        and d.sub_id == canonical_sub_id
+                        and d.channel is not None
+                    }
+                    if existing_channels and ch not in existing_channels and 1 in existing_channels:
+                        ch = 1
+                    items = [(ch, payload[1])]
+
                 for ch, state_byte in items:
                     key = f"{addr:02X}{canonical_sub_id:02X}_{kind}_{ch}"
                     is_new = key not in self.devices
@@ -96,7 +107,7 @@ class DeviceRegistry:
                         self.devices[key] = DeviceState(
                             key=key,
                             addr=addr,
-                            sub_id=sub_id,
+                            sub_id=canonical_sub_id,
                             channel=ch,
                             kind=kind,
                             capabilities=set(caps),
