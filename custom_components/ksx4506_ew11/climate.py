@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -42,6 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class KsxClimate(KsxEntity, ClimateEntity):
     _attr_name = "Climate"
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
 
     @property
     def target_temperature(self):
