@@ -40,6 +40,7 @@ DEVICE_ID_MAP = {
 class DeviceState:
     key: str
     addr: int
+    sub_id: int
     kind: str
     capabilities: set[str] = field(default_factory=set)
     state: dict[str, Any] = field(default_factory=dict)
@@ -60,7 +61,13 @@ class DeviceRegistry:
         is_new = key not in self.devices
 
         if is_new:
-            self.devices[key] = DeviceState(key=key, addr=addr, kind=kind, capabilities=set(caps))
+            self.devices[key] = DeviceState(
+                key=key,
+                addr=addr,
+                sub_id=sub_id,
+                kind=kind,
+                capabilities=set(caps),
+            )
 
         dev = self.devices[key]
         dev.last_raw_hex = raw_hex
