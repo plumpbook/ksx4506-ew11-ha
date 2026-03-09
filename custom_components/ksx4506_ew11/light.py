@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -83,12 +85,39 @@ class KsxLight(KsxEntity, LightEntity):
                     step = max(1, min(15, round((int(bri) * 15) / 255)))
                 data0 = ((step & 0x0F) << 4) | 0x01
 
-            await self.coordinator.async_send_f7_command(self.addr, self._target_sub_id(), CMD_F7_SET_ONE, bytes([data0]))
+            target_sub = self._target_sub_id()
+            await self.coordinator.async_send_f7_command(self.addr, target_sub, CMD_F7_SET_ONE, bytes([data0]))
+
+            # Fallback for field variants that keep group sub_id and use channel in DATA.
+            if self.channel is not None and target_sub != self.sub_id:
+                await asyncio.sleep(0.08)
+                await self.coordinator.async_send_f7_command(
+                    self.addr,
+                    self.sub_id,
+                    CMD_F7_SET_ONE,
+                    bytes([self.channel & 0xFF, 0x01, 0x00]),
+                )
+
+            await asyncio.sleep(0.12)
+            await self.coordinator.async_request_f7_state(self.addr, self.sub_id)
             return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x01")
 
     async def async_turn_off(self, **kwargs):
         if self.addr == 0x0E:
-            await self.coordinator.async_send_f7_command(self.addr, self._target_sub_id(), CMD_F7_SET_ONE, b"\x00")
+            target_sub = self._target_sub_id()
+            await self.coordinator.async_send_f7_command(self.addr, target_sub, CMD_F7_SET_ONE, b"\x00")
+
+            if self.channel is not None and target_sub != self.sub_id:
+                await asyncio.sleep(0.08)
+                await self.coordinator.async_send_f7_command(
+                    self.addr,
+                    self.sub_id,
+                    CMD_F7_SET_ONE,
+                    bytes([self.channel & 0xFF, 0x00, 0x00]),
+                )
+
+            await asyncio.sleep(0.12)
+            await self.coordinator.async_request_f7_state(self.addr, self.sub_id)
             return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x00")

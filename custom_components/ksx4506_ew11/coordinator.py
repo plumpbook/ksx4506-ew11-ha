@@ -80,3 +80,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
     async def async_send_f7_command(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bool:
         packet = self.codec.build_f7(dev_id, sub_id, cmd, payload)
         return await self._client.send_with_retry(packet)
+
+    async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
+        # Generic state request command for KS X 4506 family
+        return await self.async_send_f7_command(dev_id, sub_id, 0x01, b"")
