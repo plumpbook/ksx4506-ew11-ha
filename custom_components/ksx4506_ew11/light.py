@@ -40,8 +40,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 class KsxLight(KsxEntity, LightEntity):
     _attr_name = "Light"
-    _attr_color_mode = ColorMode.ONOFF
-    _attr_supported_color_modes = {ColorMode.ONOFF}
+
+    @property
+    def supported_color_modes(self) -> set[ColorMode]:
+        return {ColorMode.ONOFF}
+
+    @property
+    def color_mode(self) -> ColorMode:
+        return ColorMode.ONOFF
 
     @property
     def is_on(self) -> bool:
