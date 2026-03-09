@@ -76,8 +76,21 @@ class DeviceRegistry:
                 else:
                     items = [((sub_id & 0x0F) or 1, payload[1])]
 
+                # Canonicalize channel entity key to avoid duplicate entities from
+                # mixed grouped/single replies for the same physical light.
+                if is_group:
+                    canonical_sub_id = sub_id
+                elif len(payload) > 2:
+                    # vendor variant grouped reply with non-F sub_id (e.g., 0x01 -> group1)
+                    canonical_sub_id = ((sub_id & 0x0F) << 4) | 0x0F
+                elif (sub_id & 0xF0) != 0:
+                    # standard single reply (e.g., 0x12) maps to group key 0x1F channel2
+                    canonical_sub_id = (sub_id & 0xF0) | 0x0F
+                else:
+                    canonical_sub_id = sub_id
+
                 for ch, state_byte in items:
-                    key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
+                    key = f"{addr:02X}{canonical_sub_id:02X}_{kind}_{ch}"
                     is_new = key not in self.devices
                     if is_new:
                         self.devices[key] = DeviceState(

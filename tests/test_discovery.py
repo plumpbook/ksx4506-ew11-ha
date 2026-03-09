@@ -19,11 +19,11 @@ def test_light_single_subid_multichannel_payload_expands_channels():
 
     assert len(changes) == 3
     keys = sorted(k for k in reg.devices.keys())
-    assert keys == ["0E01_light_1", "0E01_light_2", "0E01_light_3"]
-    assert reg.devices["0E01_light_1"].state["on"] is True
-    assert reg.devices["0E01_light_1"].state["dimmable"] is False
-    assert reg.devices["0E01_light_2"].state["on"] is False
-    assert reg.devices["0E01_light_3"].state["on"] is True
+    assert keys == ["0E1F_light_1", "0E1F_light_2", "0E1F_light_3"]
+    assert reg.devices["0E1F_light_1"].state["on"] is True
+    assert reg.devices["0E1F_light_1"].state["dimmable"] is False
+    assert reg.devices["0E1F_light_2"].state["on"] is False
+    assert reg.devices["0E1F_light_3"].state["on"] is True
 
 
 def test_light_status_byte_dimming_decode():
