@@ -59,55 +59,56 @@ class DeviceRegistry:
 
         changes: list[tuple[DeviceState, bool]] = []
 
-        # KSX light(0x0E): always expose channel entities only (no group entity).
-        # - group response sub_id xF: payload [err][ch1][ch2]...[chN]
-        # - single response sub_id x1~xE: payload [err][state]
+        # KS X 4506-2(light): expose channel entities only (no group aggregate entity).
         if kind == "light" and addr == 0x0E:
             if len(payload) > 1:
-                # Field variants observed:
-                # 1) grouped form: sub_id low nibble == 0xF, payload [err][ch1..chN]
-                # 2) vendor variant: sub_id == group id, payload [err][ch1..chN]
-                # 3) single-channel form: payload [err][state]
-                is_group = (sub_id & 0x0F) == 0x0F
-
-                # Canonicalize channel entity key to avoid duplicate entities from
-                # mixed grouped/single replies for the same physical light.
-                if is_group:
-                    canonical_sub_id = sub_id
-                elif len(payload) > 2:
-                    # vendor variant grouped reply with non-F sub_id (e.g., 0x01 -> group1)
-                    canonical_sub_id = ((sub_id & 0x0F) << 4) | 0x0F
-                elif (sub_id & 0xF0) != 0:
-                    # standard single reply (e.g., 0x12) maps to group key 0x1F channel2
-                    canonical_sub_id = (sub_id & 0xF0) | 0x0F
-                elif (sub_id & 0x0F) != 0:
-                    # single-group variant (e.g., 0x03 means group3 single channel)
-                    canonical_sub_id = ((sub_id & 0x0F) << 4) | 0x0F
-                else:
-                    canonical_sub_id = sub_id
+                low = sub_id & 0x0F
+                high = (sub_id >> 4) & 0x0F
+                is_group_reply = low == 0x0F
 
                 items: list[tuple[int, int]] = []
-                if is_group or len(payload) > 2:
+                if is_group_reply or len(payload) > 2:
+                    # Group status reply: [err][ch1..chN]
                     items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
                 else:
-                    if (sub_id & 0xF0) == 0 and (sub_id & 0x0F) != 0:
-                        # single-group variant: map to channel 1 by default
+                    # Single status reply: [err][state]
+                    if high == 0 and low > 0:
+                        # vendor single-group form: 0x03 -> group3 ch1
                         ch = 1
                     else:
-                        ch = (sub_id & 0x0F) or 1
-                    existing_channels = {
-                        d.channel
-                        for d in self.devices.values()
-                        if d.kind == "light"
-                        and d.addr == addr
-                        and d.sub_id == canonical_sub_id
-                        and d.channel is not None
-                    }
-                    if existing_channels and ch not in existing_channels and 1 in existing_channels:
+                        ch = low if low > 0 else 1
+
+                    # Field variant observed: 0x13/0x14/0x15 may represent group3/4/5 ch1.
+                    if high == 0x01 and low >= 0x03:
+                        high = low
                         ch = 1
+
                     items = [(ch, payload[1])]
 
+                # Canonical group key for dedup across mixed reply forms.
+                if is_group_reply:
+                    group = high if high > 0 else 1
+                elif len(payload) > 2:
+                    group = low if high == 0 else high
+                else:
+                    group = high if high > 0 else low
+                    if group == 0:
+                        group = 1
+
+                canonical_sub_id = ((group & 0x0F) << 4) | 0x0F
+
+                existing_channels = {
+                    d.channel
+                    for d in self.devices.values()
+                    if d.kind == "light"
+                    and d.addr == addr
+                    and d.sub_id == canonical_sub_id
+                    and d.channel is not None
+                }
+
                 for ch, state_byte in items:
+                    if existing_channels and ch not in existing_channels and 1 in existing_channels:
+                        ch = 1
                     key = f"{addr:02X}{canonical_sub_id:02X}_{kind}_{ch}"
                     is_new = key not in self.devices
                     if is_new:
@@ -126,7 +127,6 @@ class DeviceRegistry:
                     dev.state["brightness_step"] = (state_byte >> 4) & 0x0F if dev.state["dimmable"] else 0
                     changes.append((dev, is_new))
 
-            # Never create base/group light entity key (e.g., 0E1F_light)
             return changes
 
         # Default one-device mapping (addr+sub+kind)
