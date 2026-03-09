@@ -28,3 +28,34 @@ def test_bad_checksum_dropped():
     pkt = bytearray(c.build(0x11, 0x22, b"\x01"))
     pkt[-2] ^= 0xFF
     assert c.feed(bytes(pkt)) == []
+
+
+def _build_f7(dev: int, sub: int, cmd: int, payload: bytes) -> bytes:
+    src = [0xF7, dev & 0xFF, sub & 0xFF, cmd & 0xFF, len(payload) & 0xFF, *payload]
+    x = 0
+    for v in src:
+        x ^= v & 0xFF
+    x &= 0xFF
+
+    a = 0
+    for v in [*src, x]:
+        a = (a + (v & 0xFF)) & 0xFF
+
+    return bytes([*src, x, a])
+
+
+def test_f7_split_chunk_parse_ok():
+    c = Ksx4506Codec()
+    pkt = _build_f7(0x36, 0x01, 0x81, b"\x10\x20\x30\x40")
+
+    a = pkt[:5]
+    b = pkt[5:]
+
+    assert c.feed(a) == []
+    frames = c.feed(b)
+    assert len(frames) == 1
+    f = frames[0]
+    assert f.addr == 0x36
+    assert f.sub_id == 0x01
+    assert f.cmd == 0x81
+    assert f.payload == b"\x10\x20\x30\x40"

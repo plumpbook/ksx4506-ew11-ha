@@ -32,92 +32,133 @@ class Ksx4506Codec:
         self._buf.extend(data)
         out: list[KsFrame] = []
 
-        # Prefer explicit STX/ETX framing when available.
-        if self._stx in self._buf:
-            while True:
-                try:
-                    s = self._buf.index(self._stx)
-                except ValueError:
-                    self._buf.clear()
-                    break
-
-                if s > 0:
-                    del self._buf[:s]
-
-                if len(self._buf) < 7:
-                    break
-
-                length = self._buf[3]
-                total = 1 + 1 + 1 + 1 + length + 1 + 1
-                if len(self._buf) < total:
-                    break
-
-                frame_raw = bytes(self._buf[:total])
-                del self._buf[:total]
-
-                if frame_raw[-1] != self._etx:
-                    continue
-
-                addr = frame_raw[1]
-                cmd = frame_raw[2]
-                payload = frame_raw[4 : 4 + length]
-                recv_checksum = frame_raw[4 + length]
-                calc_checksum = self.calc_checksum([addr, cmd, length, *payload])
-
-                if recv_checksum != calc_checksum:
-                    continue
-
-                out.append(KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=recv_checksum, raw=frame_raw))
-
-            return out
-
-        # Fallback: legacy F7 framing (f7 devId subId cmd len data xor add)
         while True:
-            try:
-                s = self._buf.index(0xF7)
-            except ValueError:
+            s_stx = self._find_header(self._stx)
+            s_f7 = self._find_header(0xF7)
+
+            if s_stx == -1 and s_f7 == -1:
                 self._buf.clear()
                 break
 
+            starts = [x for x in (s_stx, s_f7) if x >= 0]
+            s = min(starts)
             if s > 0:
                 del self._buf[:s]
 
-            # header+dev+sub+cmd+len+xor+add => minimum 7 bytes
-            if len(self._buf) < 7:
+            if not self._buf:
                 break
 
-            dev_id = self._buf[1]
-            sub_id = self._buf[2]
-            cmd = self._buf[3]
-            length = self._buf[4]
-            total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
-            if len(self._buf) < total:
-                break
+            head = self._buf[0]
+            if head == self._stx:
+                frame = self._parse_stx_frame()
+            elif head == 0xF7:
+                frame = self._parse_f7_frame()
+            else:
+                del self._buf[:1]
+                continue
 
-            frame_raw = bytes(self._buf[:total])
-            del self._buf[:total]
+            if frame is None:
+                if self._buf and self._buf[0] in (self._stx, 0xF7):
+                    break
+                continue
 
-            payload = frame_raw[5 : 5 + length]
-            recv_xor = frame_raw[5 + length]
-            recv_add = frame_raw[6 + length]
-
-            src = [frame_raw[0], dev_id, sub_id, cmd, length, *payload]
-            calc_xor = 0
-            for v in src:
-                calc_xor ^= v & 0xFF
-            calc_xor &= 0xFF
-
-            calc_add = 0
-            for v in [*src, calc_xor]:
-                calc_add = (calc_add + (v & 0xFF)) & 0xFF
-
-            # Keep frame even on checksum mismatch for diagnostics/learning.
-            checksum_ok = recv_xor == calc_xor and recv_add == calc_add
-            checksum = recv_add if checksum_ok else 0
-
-            out.append(KsFrame(addr=dev_id, sub_id=sub_id, cmd=cmd, payload=payload, checksum=checksum, raw=frame_raw))
+            out.append(frame)
 
         return out
+
+    def _find_header(self, header: int) -> int:
+        try:
+            return self._buf.index(header)
+        except ValueError:
+            return -1
+
+    def _next_header_pos(self, start: int = 1) -> int:
+        positions: list[int] = []
+        for h in (self._stx, 0xF7):
+            try:
+                positions.append(self._buf.index(h, start))
+            except ValueError:
+                pass
+        return min(positions) if positions else -1
+
+    def _parse_stx_frame(self) -> KsFrame | None:
+        if len(self._buf) < 7:
+            return None
+
+        length = self._buf[3]
+        total = 1 + 1 + 1 + 1 + length + 1 + 1
+        if total < 7 or total > 512:
+            del self._buf[:1]
+            return None
+
+        if len(self._buf) < total:
+            n = self._next_header_pos(1)
+            if n > 0:
+                del self._buf[:n]
+                return None
+            return None
+
+        frame_raw = bytes(self._buf[:total])
+
+        if frame_raw[-1] != self._etx:
+            del self._buf[:1]
+            return None
+
+        addr = frame_raw[1]
+        cmd = frame_raw[2]
+        payload = frame_raw[4 : 4 + length]
+        recv_checksum = frame_raw[4 + length]
+        calc_checksum = self.calc_checksum([addr, cmd, length, *payload])
+        if recv_checksum != calc_checksum:
+            del self._buf[:1]
+            return None
+
+        del self._buf[:total]
+        return KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=recv_checksum, raw=frame_raw)
+
+    def _parse_f7_frame(self) -> KsFrame | None:
+        # header+dev+sub+cmd+len+xor+add => minimum 7 bytes
+        if len(self._buf) < 7:
+            return None
+
+        dev_id = self._buf[1]
+        sub_id = self._buf[2]
+        cmd = self._buf[3]
+        length = self._buf[4]
+        total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
+
+        if total < 7 or total > 512:
+            del self._buf[:1]
+            return None
+
+        if len(self._buf) < total:
+            n = self._next_header_pos(1)
+            if n > 0:
+                del self._buf[:n]
+                return None
+            return None
+
+        frame_raw = bytes(self._buf[:total])
+        payload = frame_raw[5 : 5 + length]
+        recv_xor = frame_raw[5 + length]
+        recv_add = frame_raw[6 + length]
+
+        src = [frame_raw[0], dev_id, sub_id, cmd, length, *payload]
+        calc_xor = 0
+        for v in src:
+            calc_xor ^= v & 0xFF
+        calc_xor &= 0xFF
+
+        calc_add = 0
+        for v in [*src, calc_xor]:
+            calc_add = (calc_add + (v & 0xFF)) & 0xFF
+
+        if recv_xor != calc_xor or recv_add != calc_add:
+            del self._buf[:1]
+            return None
+
+        del self._buf[:total]
+        return KsFrame(addr=dev_id, sub_id=sub_id, cmd=cmd, payload=payload, checksum=recv_add, raw=frame_raw)
 
     def build(self, addr: int, cmd: int, payload: bytes) -> bytes:
         length = len(payload)
