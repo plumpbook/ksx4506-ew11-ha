@@ -59,27 +59,39 @@ class DeviceRegistry:
 
         changes: list[tuple[DeviceState, bool]] = []
 
-        # KSX light(0x0E) ACK payload: [err][ch1][ch2]...[chN]
-        # Create per-channel light entities for clearer control/visibility.
-        if kind == "light" and addr == 0x0E and len(payload) > 1:
-            for ch, state_byte in enumerate(payload[1:], start=1):
-                key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
-                is_new = key not in self.devices
-                if is_new:
-                    self.devices[key] = DeviceState(
-                        key=key,
-                        addr=addr,
-                        sub_id=sub_id,
-                        channel=ch,
-                        kind=kind,
-                        capabilities=set(caps),
-                    )
-                dev = self.devices[key]
-                dev.last_raw_hex = raw_hex
-                dev.state["on"] = bool(state_byte & 0x01)
-                dev.state["dimmable"] = bool(state_byte & 0x02)
-                dev.state["brightness_step"] = (state_byte >> 4) & 0x0F if dev.state["dimmable"] else 0
-                changes.append((dev, is_new))
+        # KSX light(0x0E): always expose channel entities only (no group entity).
+        # - group response sub_id xF: payload [err][ch1][ch2]...[chN]
+        # - single response sub_id x1~xE: payload [err][state]
+        if kind == "light" and addr == 0x0E:
+            if len(payload) > 1:
+                is_group = (sub_id & 0x0F) == 0x0F
+                items: list[tuple[int, int]] = []
+
+                if is_group:
+                    items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
+                else:
+                    items = [((sub_id & 0x0F) or 1, payload[1])]
+
+                for ch, state_byte in items:
+                    key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
+                    is_new = key not in self.devices
+                    if is_new:
+                        self.devices[key] = DeviceState(
+                            key=key,
+                            addr=addr,
+                            sub_id=sub_id,
+                            channel=ch,
+                            kind=kind,
+                            capabilities=set(caps),
+                        )
+                    dev = self.devices[key]
+                    dev.last_raw_hex = raw_hex
+                    dev.state["on"] = bool(state_byte & 0x01)
+                    dev.state["dimmable"] = bool(state_byte & 0x02)
+                    dev.state["brightness_step"] = (state_byte >> 4) & 0x0F if dev.state["dimmable"] else 0
+                    changes.append((dev, is_new))
+
+            # Never create base/group light entity key (e.g., 0E1F_light)
             return changes
 
         # Default one-device mapping (addr+sub+kind)
