@@ -29,6 +29,7 @@ class Ew11Client:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._task: asyncio.Task | None = None
+        self._worker_task: asyncio.Task | None = None
         self._running = False
 
         self._cmd_queue: asyncio.Queue[tuple[bytes, asyncio.Future[bool]]] = asyncio.Queue()
@@ -38,18 +39,31 @@ class Ew11Client:
             return
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
-        asyncio.create_task(self._command_worker())
+        self._worker_task = asyncio.create_task(self._command_worker())
 
     async def stop(self) -> None:
         self._running = False
+
         if self._task:
             self._task.cancel()
+        if self._worker_task:
+            self._worker_task.cancel()
+
+        # Unblock any pending send_with_retry waiters.
+        while not self._cmd_queue.empty():
+            _, fut = self._cmd_queue.get_nowait()
+            if not fut.done():
+                fut.set_result(False)
+
         await self._close()
 
     async def send_with_retry(self, payload: bytes) -> bool:
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         await self._cmd_queue.put((payload, fut))
-        return await fut
+        try:
+            return await asyncio.wait_for(fut, timeout=max(self._timeout * (self._retry + 2), 1.0))
+        except TimeoutError:
+            return False
 
     async def _run_loop(self) -> None:
         backoff = 1

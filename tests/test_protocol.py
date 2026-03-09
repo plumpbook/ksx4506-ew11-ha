@@ -1,4 +1,15 @@
-from custom_components.ksx4506_ew11.protocol import Ksx4506Codec
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+import sys
+
+
+_PROTOCOL_PATH = Path(__file__).resolve().parents[1] / "custom_components" / "ksx4506_ew11" / "protocol.py"
+_spec = spec_from_file_location("ksx4506_protocol", _PROTOCOL_PATH)
+_module = module_from_spec(_spec)
+assert _spec is not None and _spec.loader is not None
+sys.modules[_spec.name] = _module
+_spec.loader.exec_module(_module)
+Ksx4506Codec = _module.Ksx4506Codec
 
 
 def test_build_and_parse_sum8():
