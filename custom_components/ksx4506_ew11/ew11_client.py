@@ -58,6 +58,7 @@ class Ew11Client:
         await self._close()
 
     async def send_with_retry(self, payload: bytes) -> bool:
+        _LOGGER.debug("queue TX len=%d hex=%s", len(payload), payload.hex())
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         await self._cmd_queue.put((payload, fut))
         try:
@@ -86,6 +87,7 @@ class Ew11Client:
                     if not data:
                         raise ConnectionError("EW11 connection closed")
 
+                    _LOGGER.debug("EW11 RX chunk len=%d hex=%s", len(data), data.hex())
                     for frame in self._codec.feed(data):
                         await self._on_frame(frame)
 
@@ -108,16 +110,19 @@ class Ew11Client:
         while self._running:
             payload, fut = await self._cmd_queue.get()
             ok = False
-            for _ in range(self._retry + 1):
+            for attempt in range(self._retry + 1):
                 if not self._writer:
+                    _LOGGER.debug("TX waiting for writer (attempt=%d/%d)", attempt + 1, self._retry + 1)
                     await asyncio.sleep(0.2)
                     continue
                 try:
                     self._writer.write(payload)
                     await self._writer.drain()
+                    _LOGGER.debug("TX sent (attempt=%d/%d) hex=%s", attempt + 1, self._retry + 1, payload.hex())
                     ok = True
                     break
-                except Exception:
+                except Exception as exc:
+                    _LOGGER.debug("TX failed (attempt=%d/%d): %r", attempt + 1, self._retry + 1, exc)
                     await asyncio.sleep(0.2)
             if not fut.done():
                 fut.set_result(ok)

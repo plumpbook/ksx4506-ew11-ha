@@ -75,10 +75,25 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             _LOGGER.warning("Blocked guarded command addr=%s cmd=%s", addr, cmd)
             return False
         packet = self.codec.build(addr, cmd, payload)
+        _LOGGER.debug(
+            "TX STX addr=0x%02X cmd=0x%02X payload=%s packet=%s",
+            addr,
+            cmd,
+            payload.hex(),
+            packet.hex(),
+        )
         return await self._client.send_with_retry(packet)
 
     async def async_send_f7_command(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bool:
         packet = self.codec.build_f7(dev_id, sub_id, cmd, payload)
+        _LOGGER.debug(
+            "TX F7 dev=0x%02X sub=0x%02X cmd=0x%02X payload=%s packet=%s",
+            dev_id,
+            sub_id,
+            cmd,
+            payload.hex(),
+            packet.hex(),
+        )
         return await self._client.send_with_retry(packet)
 
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
