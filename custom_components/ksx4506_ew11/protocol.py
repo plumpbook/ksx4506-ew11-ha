@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from typing import Iterable
 
@@ -31,6 +32,7 @@ class Ksx4506Codec:
         self._etx = etx
         self._checksum_mode = checksum_mode
         self._buf = bytearray()
+        self._last_ok_f7_hex: str | None = None
 
     def feed(self, data: bytes) -> list[KsFrame]:
         self._buf.extend(data)
@@ -130,6 +132,46 @@ class Ksx4506Codec:
         _LOGGER.debug("parsed STX frame addr=0x%02X cmd=0x%02X len=%d", addr, cmd, len(payload))
         return KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=recv_checksum, raw=frame_raw)
 
+    def _emit_f7_packet_log(
+        self,
+        *,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        length: int,
+        payload: bytes,
+        recv_xor: int,
+        recv_add: int,
+        calc_xor: int,
+        calc_add: int,
+        frame_raw: bytes,
+        parity: bool,
+    ) -> None:
+        info = {
+            "header": "f7",
+            "devId": f"{dev_id:02x}",
+            "subId": f"{sub_id:02x}",
+            "command": f"{cmd:02x}",
+            "len": length,
+            "data": payload.hex(),
+            "xor": f"{recv_xor:02x}",
+            "add": f"{recv_add:02x}",
+            "size": len(frame_raw.hex()),
+            "hexString": frame_raw.hex(),
+            "checksum": {"xor": f"{calc_xor:02x}", "add": f"{calc_add:02x}"},
+            "parity": parity,
+        }
+
+        if not parity:
+            _LOGGER.warning("parity error :: %s", json.dumps(info, ensure_ascii=False, indent=2))
+            return
+
+        # 정상 패킷은 중복 로그 억제
+        if self._last_ok_f7_hex == info["hexString"]:
+            return
+        self._last_ok_f7_hex = info["hexString"]
+        _LOGGER.debug("packet :: %s", json.dumps(info, ensure_ascii=False, indent=2))
+
     def _parse_f7_frame(self) -> KsFrame | None:
         # header+dev+sub+cmd+len+xor+add => minimum 7 bytes
         if len(self._buf) < 7:
@@ -169,25 +211,37 @@ class Ksx4506Codec:
             calc_add = (calc_add + (v & 0xFF)) & 0xFF
 
         if recv_xor != calc_xor or recv_add != calc_add:
-            _LOGGER.debug(
-                "drop F7: checksum mismatch xor recv=0x%02X calc=0x%02X add recv=0x%02X calc=0x%02X raw=%s",
-                recv_xor,
-                calc_xor,
-                recv_add,
-                calc_add,
-                frame_raw.hex(),
+            self._emit_f7_packet_log(
+                dev_id=dev_id,
+                sub_id=sub_id,
+                cmd=cmd,
+                length=length,
+                payload=payload,
+                recv_xor=recv_xor,
+                recv_add=recv_add,
+                calc_xor=calc_xor,
+                calc_add=calc_add,
+                frame_raw=frame_raw,
+                parity=False,
             )
             del self._buf[:1]
             return None
 
-        del self._buf[:total]
-        _LOGGER.debug(
-            "parsed F7 frame dev=0x%02X sub=0x%02X cmd=0x%02X len=%d",
-            dev_id,
-            sub_id,
-            cmd,
-            len(payload),
+        self._emit_f7_packet_log(
+            dev_id=dev_id,
+            sub_id=sub_id,
+            cmd=cmd,
+            length=length,
+            payload=payload,
+            recv_xor=recv_xor,
+            recv_add=recv_add,
+            calc_xor=calc_xor,
+            calc_add=calc_add,
+            frame_raw=frame_raw,
+            parity=True,
         )
+
+        del self._buf[:total]
         return KsFrame(addr=dev_id, sub_id=sub_id, cmd=cmd, payload=payload, checksum=recv_add, raw=frame_raw)
 
     def build(self, addr: int, cmd: int, payload: bytes) -> bytes:
