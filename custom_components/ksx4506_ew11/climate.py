@@ -9,9 +9,11 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .devices.thermostat import (
+    GENERIC_CLIMATE_COMMAND,
+    build_generic_temperature_payload,
+)
 from .entity_base import KsxEntity
-
-CMD_SET_CLIMATE = 0x31
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -59,4 +61,8 @@ class KsxClimate(KsxEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs):
         temp = int(kwargs.get("temperature", 22))
-        await self.coordinator.async_send_command(self.addr, CMD_SET_CLIMATE, bytes([temp & 0xFF]))
+        await self.coordinator.async_send_command(
+            self.addr,
+            GENERIC_CLIMATE_COMMAND,
+            build_generic_temperature_payload(temp),
+        )

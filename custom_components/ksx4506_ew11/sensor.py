@@ -52,7 +52,19 @@ class KsxSensor(KsxEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.dev.state.get("value_hex")
+        return self.dev.state.get("value", self.dev.state.get("value_hex"))
+
+    @property
+    def native_unit_of_measurement(self):
+        return self.dev.state.get("unit")
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            key: value
+            for key, value in self.dev.state.items()
+            if key not in {"value", "unit"}
+        }
 
 
 class KsxUnknownDiagnostic(KsxEntity, SensorEntity):

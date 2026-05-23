@@ -9,6 +9,15 @@ CONTROL_REQUEST = 0x41
 CONTROL_RESPONSE = 0xC1
 
 
+def decode_light_state_byte(state_byte: int) -> dict[str, bool | int]:
+    dimmable = bool(state_byte & 0x02)
+    return {
+        "on": bool(state_byte & 0x01),
+        "dimmable": dimmable,
+        "brightness_step": (state_byte >> 4) & 0x0F if dimmable else 0,
+    }
+
+
 def build_light_control_payload(
     *,
     turn_on: bool,

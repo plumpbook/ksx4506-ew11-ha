@@ -1,0 +1,124 @@
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _integration_loader import load_integration_module  # noqa: E402
+
+
+gas = load_integration_module("devices.gas")
+lighting = load_integration_module("devices.lighting")
+meter = load_integration_module("devices.meter")
+outlet = load_integration_module("devices.outlet")
+thermostat = load_integration_module("devices.thermostat")
+
+
+def test_lighting_decodes_state_byte():
+    assert lighting.decode_light_state_byte(0xA3) == {
+        "on": True,
+        "dimmable": True,
+        "brightness_step": 10,
+    }
+
+
+def test_gas_helpers_build_standard_frames_and_decode_status():
+    assert gas.build_gas_close_request(0x01).to_bytes() == bytes.fromhex(
+        "F7 12 01 41 01 01 A5 F2"
+    )
+    assert gas.build_gas_buzzer_stop_request(0x05).to_bytes() == bytes.fromhex(
+        "F7 12 05 41 01 02 A2 F4"
+    )
+    assert gas.build_generic_gas_payload(turn_on=True) == b"\x01"
+    assert gas.build_generic_gas_payload(turn_on=False) == b"\x00"
+
+    closed = gas.decode_gas_state(bytes.fromhex("00 02"))
+    opened_with_leak = gas.decode_gas_state(bytes.fromhex("00 11"))
+
+    assert closed["on"] is False
+    assert closed["closed"] is True
+    assert opened_with_leak["on"] is True
+    assert opened_with_leak["leak"] is True
+
+
+def test_outlet_helpers_build_standard_frames_and_decode_status():
+    assert outlet.build_outlet_control_request(0x01, turn_on=True).to_bytes() == bytes.fromhex(
+        "F7 39 01 41 01 11 9E 22"
+    )
+    assert outlet.build_outlet_control_request(0x1F, turn_on=True, channel=2).to_bytes() == bytes.fromhex(
+        "F7 39 1F 41 02 00 11 83 26"
+    )
+    assert outlet.build_generic_switch_payload(turn_on=True) == b"\x01"
+    assert outlet.build_generic_switch_payload(turn_on=False) == b"\x00"
+
+    state = outlet.decode_outlet_state(bytes.fromhex("00 91 36 78"), unit=0x0F)
+    assert state["on"] is True
+    assert state["power_w"] == 1367.8
+    assert state["auto_cut"] is True
+
+    group = outlet.decode_outlet_state(
+        bytes.fromhex("00 80 00 10 10 00 20 90 00 30"),
+        unit=0x0F,
+    )
+    assert group["channel_count"] == 3
+    assert group["on"] is True
+    assert group["channels"][1]["on"] is True
+
+
+def test_meter_helpers_build_standard_frames_and_decode_values():
+    assert meter.build_meter_status_request(0x03).to_bytes() == bytes.fromhex(
+        "F7 30 03 01 00 C5 F0"
+    )
+    assert meter.build_meter_characteristic_request().to_bytes() == bytes.fromhex(
+        "F7 30 0F 0F 00 C7 0C"
+    )
+
+    water = meter.decode_meter_state(
+        bytes.fromhex("00 00 12 34 12 34 56"),
+        sub_id=0x01,
+        command_type=0x81,
+    )
+    electricity = meter.decode_meter_state(
+        bytes.fromhex("00 00 06 55 00 34 81 67"),
+        sub_id=0x03,
+        command_type=0x81,
+    )
+    characteristic = meter.decode_meter_state(
+        bytes.fromhex("00 07"),
+        sub_id=0x0F,
+        command_type=0x8F,
+    )
+
+    assert water["meter"] == "water"
+    assert water["instant"] == 1.234
+    assert water["total"] == 12345.6
+    assert water["unit"] == "m3"
+    assert electricity["instant"] == 655
+    assert electricity["total"] == 3481.67
+    assert electricity["unit"] == "kWh"
+    assert characteristic["enabled_meters"] == ["water", "gas", "electricity"]
+
+
+def test_thermostat_helpers_build_standard_frames_and_decode_state():
+    assert thermostat.build_thermostat_status_request().to_bytes() == bytes.fromhex(
+        "F7 36 1F 01 00 DF 2C"
+    )
+    assert thermostat.build_thermostat_temperature_request(0x11, temperature=25.5).to_bytes() == bytes.fromhex(
+        "F7 36 11 44 01 99 0C 28"
+    )
+    assert thermostat.build_generic_temperature_payload(22) == b"\x16"
+    assert thermostat.encode_thermostat_temperature(25.5) == 0x99
+
+    group_state = thermostat.decode_thermostat_state(
+        bytes.fromhex("00 03 00 00 00 17 17 18 18"),
+        sub_id=0x1F,
+    )
+    channel_state = thermostat.decode_thermostat_state(
+        bytes.fromhex("00 03 00 00 00 17 17 18 18"),
+        sub_id=0x11,
+    )
+
+    assert group_state["target_temp"] == 24
+    assert group_state["current_temp"] == 24
+    assert group_state["on"] is True
+    assert len(group_state["zones"]) == 2
+    assert channel_state["target_temp"] == 23
+    assert channel_state["current_temp"] == 23

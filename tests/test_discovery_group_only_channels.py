@@ -1,14 +1,10 @@
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _integration_loader import load_integration_module  # noqa: E402
 
-_DISCOVERY_PATH = Path(__file__).resolve().parents[1] / "custom_components" / "ksx4506_ew11" / "discovery.py"
-_spec = spec_from_file_location("ksx4506_discovery", _DISCOVERY_PATH)
-_module = module_from_spec(_spec)
-assert _spec is not None and _spec.loader is not None
-sys.modules[_spec.name] = _module
-_spec.loader.exec_module(_module)
+_module = load_integration_module("discovery")
 DeviceRegistry = _module.DeviceRegistry
 
 

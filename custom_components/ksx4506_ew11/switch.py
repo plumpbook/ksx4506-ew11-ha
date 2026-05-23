@@ -7,10 +7,15 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .devices.gas import (
+    GENERIC_GAS_COMMAND,
+    build_generic_gas_payload,
+)
+from .devices.outlet import (
+    GENERIC_SWITCH_COMMAND,
+    build_generic_switch_payload,
+)
 from .entity_base import KsxEntity
-
-CMD_SET_SWITCH = 0x21
-CMD_SET_GAS = 0x61
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -58,10 +63,18 @@ class KsxSwitch(KsxEntity, SwitchEntity):
         return bool(self.dev.state.get("on", False))
 
     async def async_turn_on(self, **kwargs):
-        await self.coordinator.async_send_command(self.addr, CMD_SET_SWITCH, b"\x01")
+        await self.coordinator.async_send_command(
+            self.addr,
+            GENERIC_SWITCH_COMMAND,
+            build_generic_switch_payload(turn_on=True),
+        )
 
     async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_send_command(self.addr, CMD_SET_SWITCH, b"\x00")
+        await self.coordinator.async_send_command(
+            self.addr,
+            GENERIC_SWITCH_COMMAND,
+            build_generic_switch_payload(turn_on=False),
+        )
 
 
 class KsxGasValve(KsxEntity, SwitchEntity):
@@ -72,7 +85,17 @@ class KsxGasValve(KsxEntity, SwitchEntity):
         return bool(self.dev.state.get("on", False))
 
     async def async_turn_on(self, **kwargs):
-        await self.coordinator.async_send_command(self.addr, CMD_SET_GAS, b"\x01", guard=True)
+        await self.coordinator.async_send_command(
+            self.addr,
+            GENERIC_GAS_COMMAND,
+            build_generic_gas_payload(turn_on=True),
+            guard=True,
+        )
 
     async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_send_command(self.addr, CMD_SET_GAS, b"\x00", guard=True)
+        await self.coordinator.async_send_command(
+            self.addr,
+            GENERIC_GAS_COMMAND,
+            build_generic_gas_payload(turn_on=False),
+            guard=True,
+        )

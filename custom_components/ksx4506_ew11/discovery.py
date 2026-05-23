@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .devices.gas import GAS_DEVICE_ID, decode_gas_state
+from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
+from .devices.meter import METER_DEVICE_ID, decode_meter_state
+from .devices.outlet import OUTLET_DEVICE_ID, decode_outlet_state, decode_switch_state
+from .devices.thermostat import THERMOSTAT_DEVICE_ID, decode_thermostat_state
+
 # cmd value는 프로젝트 진행 중 실측 캡처로 보정 필요
 CMD_TYPE_MAP = {
     # Generic guesses
@@ -26,12 +32,12 @@ CMD_TYPE_MAP = {
 
 # Device ID mapping from suroup/ezville reference.
 DEVICE_ID_MAP = {
-    0x0E: ("light", {"on_off"}),
-    0x12: ("gas_valve", {"on_off"}),
-    0x30: ("switch", {"on_off"}),
+    LIGHT_DEVICE_ID: ("light", {"on_off"}),
+    GAS_DEVICE_ID: ("gas_valve", {"on_off"}),
+    METER_DEVICE_ID: ("sensor", {"state"}),
     0x33: ("switch", {"on_off"}),  # breaker
-    0x36: ("climate", {"target_temp", "current_temp"}),
-    0x39: ("switch", {"on_off"}),  # outlet
+    THERMOSTAT_DEVICE_ID: ("climate", {"target_temp", "current_temp"}),
+    OUTLET_DEVICE_ID: ("switch", {"on_off"}),  # outlet
     0x60: ("sensor", {"state"}),
 }
 
@@ -60,7 +66,7 @@ class DeviceRegistry:
         changes: list[tuple[DeviceState, bool]] = []
 
         # KS X 4506-2(light): expose channel entities only (no group aggregate entity).
-        if kind == "light" and addr == 0x0E:
+        if kind == "light" and addr == LIGHT_DEVICE_ID:
             if len(payload) > 1:
                 low = sub_id & 0x0F
                 high = (sub_id >> 4) & 0x0F
@@ -122,9 +128,7 @@ class DeviceRegistry:
                         )
                     dev = self.devices[key]
                     dev.last_raw_hex = raw_hex
-                    dev.state["on"] = bool(state_byte & 0x01)
-                    dev.state["dimmable"] = bool(state_byte & 0x02)
-                    dev.state["brightness_step"] = (state_byte >> 4) & 0x0F if dev.state["dimmable"] else 0
+                    dev.state.update(decode_light_state_byte(state_byte))
                     changes.append((dev, is_new))
 
             return changes
@@ -154,19 +158,24 @@ class DeviceRegistry:
             # For non-group light response payload usually [error, state].
             # state bit0: on/off, bit1: dimming-capable, bit7~4: dimming level(1~15)
             if len(payload) >= 2:
-                v = payload[1]
-                dev.state["on"] = bool(v & 0x01)
-                dev.state["dimmable"] = bool(v & 0x02)
-                dev.state["brightness_step"] = (v >> 4) & 0x0F if dev.state["dimmable"] else 0
+                dev.state.update(decode_light_state_byte(payload[1]))
             elif payload:
-                v = payload[0]
-                dev.state["on"] = bool(v & 0x01)
+                dev.state.update(decode_light_state_byte(payload[0]))
 
-        elif dev.kind in {"switch", "gas_valve"}:
-            if payload:
-                # ignore first error/status byte when present
-                state_bytes = payload[1:] if len(payload) > 1 else payload
-                dev.state["on"] = any((b & 0x0F) > 0 for b in state_bytes)
+        elif dev.kind == "gas_valve":
+            dev.state.update(decode_gas_state(payload))
+
+        elif dev.kind == "switch":
+            if dev.addr == OUTLET_DEVICE_ID:
+                dev.state.update(
+                    decode_outlet_state(
+                        payload,
+                        unit=dev.sub_id & 0x0F,
+                        channel=dev.channel,
+                    )
+                )
+            else:
+                dev.state.update(decode_switch_state(payload))
 
         elif dev.kind == "fan" and payload:
             v = payload[-1]
@@ -174,10 +183,16 @@ class DeviceRegistry:
             dev.state["speed"] = v
 
         elif dev.kind == "climate":
-            # Suroup reference: per-zone [setTemp, curTemp] pairs in payload tail.
-            if len(payload) >= 2:
-                dev.state["target_temp"] = payload[-2]
-                dev.state["current_temp"] = payload[-1]
+            dev.state.update(decode_thermostat_state(payload, sub_id=dev.sub_id))
+
+        elif dev.kind == "sensor" and dev.addr == METER_DEVICE_ID:
+            dev.state.update(
+                decode_meter_state(
+                    payload,
+                    sub_id=dev.sub_id,
+                    command_type=cmd,
+                )
+            )
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
