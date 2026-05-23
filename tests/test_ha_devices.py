@@ -27,8 +27,7 @@ def test_gas_helpers_build_standard_frames_and_decode_status():
     assert gas.build_gas_buzzer_stop_request(0x05).to_bytes() == bytes.fromhex(
         "F7 12 05 41 01 02 A2 F4"
     )
-    assert gas.build_generic_gas_payload(turn_on=True) == b"\x01"
-    assert gas.build_generic_gas_payload(turn_on=False) == b"\x00"
+    assert gas.build_gas_close_payload() == b"\x01"
 
     closed = gas.decode_gas_state(bytes.fromhex("00 02"))
     opened_with_leak = gas.decode_gas_state(bytes.fromhex("00 11"))

@@ -12,16 +12,8 @@ STATUS_RESPONSE = 0x81
 CONTROL_REQUEST = 0x41
 CONTROL_RESPONSE = 0xC1
 
-GENERIC_GAS_COMMAND = 0x61
-
 GAS_CLOSE = 0x01
 GAS_BUZZER_STOP = 0x02
-
-
-def build_generic_gas_payload(*, turn_on: bool) -> bytes:
-    """Build the current STX fallback gas payload used by the HA entity."""
-
-    return bytes([0x01 if turn_on else 0x00])
 
 
 def build_gas_status_request(sub_id: int) -> Frame:
@@ -35,6 +27,10 @@ def build_gas_status_request(sub_id: int) -> Frame:
 
 def build_gas_close_request(sub_id: int) -> Frame:
     return _build_gas_control_request(sub_id, GAS_CLOSE)
+
+
+def build_gas_close_payload() -> bytes:
+    return bytes([GAS_CLOSE])
 
 
 def build_gas_buzzer_stop_request(sub_id: int) -> Frame:

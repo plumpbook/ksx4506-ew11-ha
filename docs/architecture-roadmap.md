@@ -70,7 +70,7 @@ Phase 1 should focus on low-risk protocol plumbing and compact device models:
 1. Frame codec and checksum tests
 2. EW11 TCP transport with reconnect and raw hex logging
 3. Lighting: Home Assistant `light`
-4. Gas valve: likely `valve` plus leak/buzzer sensors
+4. Gas valve: close-only Home Assistant `valve` plus leak/moving binary sensors
 5. Door lock: likely `lock` or read-only status first, depending on real-world safety policy
 6. Curtain: Home Assistant `cover`
 7. Outlet: Home Assistant `switch` and sensors
@@ -90,6 +90,7 @@ Initial releases should be conservative:
 
 - Prefer status polling and diagnostics before enabling write commands.
 - Gate risky commands, especially door lock and gas valve actions, behind explicit options.
+- Model gas valves as close-only controls: expose open/closed status, do not expose open/toggle commands.
 - Keep a raw frame trace available for debugging.
 - Treat command ACK as separate from confirmed physical state.
 - Mark entities unavailable when EW11 reconnect is in progress or polling fails repeatedly.

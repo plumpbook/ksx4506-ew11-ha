@@ -84,7 +84,23 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         )
         return await self._client.send_with_retry(packet)
 
-    async def async_send_f7_command(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bool:
+    async def async_send_f7_command(
+        self,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        *,
+        guard: bool = False,
+    ) -> bool:
+        if guard and not self._gas_unlock:
+            _LOGGER.warning(
+                "Blocked guarded F7 command dev=%s sub=%s cmd=%s",
+                dev_id,
+                sub_id,
+                cmd,
+            )
+            return False
         packet = self.codec.build_f7(dev_id, sub_id, cmd, payload)
         _LOGGER.debug(
             "TX F7 dev=0x%02X sub=0x%02X cmd=0x%02X payload=%s packet=%s",

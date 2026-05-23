@@ -7,10 +7,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
-from .devices.gas import (
-    GENERIC_GAS_COMMAND,
-    build_generic_gas_payload,
-)
 from .devices.outlet import (
     GENERIC_SWITCH_COMMAND,
     build_generic_switch_payload,
@@ -27,8 +23,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for d in coordinator.registry.devices.values():
             if d.kind == "switch":
                 out.append(KsxSwitch(coordinator, d))
-            elif d.kind == "gas_valve":
-                out.append(KsxGasValve(coordinator, d))
         return out
 
     init_ents = build_all()
@@ -45,8 +39,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             return
         if d.kind == "switch":
             ent = KsxSwitch(coordinator, d)
-        elif d.kind == "gas_valve":
-            ent = KsxGasValve(coordinator, d)
         else:
             return
         async_add_entities([ent])
@@ -74,28 +66,4 @@ class KsxSwitch(KsxEntity, SwitchEntity):
             self.addr,
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=False),
-        )
-
-
-class KsxGasValve(KsxEntity, SwitchEntity):
-    _attr_name = "Gas Valve"
-
-    @property
-    def is_on(self) -> bool:
-        return bool(self.dev.state.get("on", False))
-
-    async def async_turn_on(self, **kwargs):
-        await self.coordinator.async_send_command(
-            self.addr,
-            GENERIC_GAS_COMMAND,
-            build_generic_gas_payload(turn_on=True),
-            guard=True,
-        )
-
-    async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_send_command(
-            self.addr,
-            GENERIC_GAS_COMMAND,
-            build_generic_gas_payload(turn_on=False),
-            guard=True,
         )
