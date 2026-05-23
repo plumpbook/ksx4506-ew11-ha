@@ -7,3 +7,5 @@ __pycache__/
 .venv/
 venv/
 
+# Local standards/source cache. Do not publish copied KS X documents.
+KSX4506/
