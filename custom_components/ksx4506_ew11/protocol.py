@@ -5,8 +5,10 @@ import json
 import logging
 from typing import Iterable
 
+from .frame import ChecksumError, Frame, FrameError
 
-@dataclass(slots=True)
+
+@dataclass
 class KsFrame:
     addr: int
     cmd: int
@@ -196,21 +198,20 @@ class Ksx4506Codec:
             return None
 
         frame_raw = bytes(self._buf[:total])
-        payload = frame_raw[5 : 5 + length]
         recv_xor = frame_raw[5 + length]
         recv_add = frame_raw[6 + length]
 
-        src = [frame_raw[0], dev_id, sub_id, cmd, length, *payload]
-        calc_xor = 0
-        for v in src:
-            calc_xor ^= v & 0xFF
-        calc_xor &= 0xFF
-
-        calc_add = 0
-        for v in [*src, calc_xor]:
-            calc_add = (calc_add + (v & 0xFF)) & 0xFF
-
-        if recv_xor != calc_xor or recv_add != calc_add:
+        try:
+            parsed = Frame.from_bytes(frame_raw)
+            calc_xor, calc_add = parsed.checksums()
+        except ChecksumError:
+            payload = frame_raw[5 : 5 + length]
+            calc_xor, calc_add = Frame(
+                device_id=dev_id,
+                sub_id=sub_id,
+                command_type=cmd,
+                data=payload,
+            ).checksums()
             self._emit_f7_packet_log(
                 dev_id=dev_id,
                 sub_id=sub_id,
@@ -226,13 +227,17 @@ class Ksx4506Codec:
             )
             del self._buf[:1]
             return None
+        except FrameError as exc:
+            _LOGGER.debug("drop F7: invalid frame raw=%s error=%s", frame_raw.hex(), exc)
+            del self._buf[:1]
+            return None
 
         self._emit_f7_packet_log(
-            dev_id=dev_id,
-            sub_id=sub_id,
-            cmd=cmd,
-            length=length,
-            payload=payload,
+            dev_id=parsed.device_id,
+            sub_id=parsed.sub_id,
+            cmd=parsed.command_type,
+            length=parsed.length,
+            payload=parsed.data,
             recv_xor=recv_xor,
             recv_add=recv_add,
             calc_xor=calc_xor,
@@ -242,7 +247,14 @@ class Ksx4506Codec:
         )
 
         del self._buf[:total]
-        return KsFrame(addr=dev_id, sub_id=sub_id, cmd=cmd, payload=payload, checksum=recv_add, raw=frame_raw)
+        return KsFrame(
+            addr=parsed.device_id,
+            sub_id=parsed.sub_id,
+            cmd=parsed.command_type,
+            payload=parsed.data,
+            checksum=recv_add,
+            raw=frame_raw,
+        )
 
     def build(self, addr: int, cmd: int, payload: bytes) -> bytes:
         length = len(payload)
@@ -250,19 +262,12 @@ class Ksx4506Codec:
         return bytes([self._stx, addr & 0xFF, cmd & 0xFF, length & 0xFF, *payload, checksum, self._etx])
 
     def build_f7(self, dev_id: int, sub_id: int, cmd: int, payload: bytes) -> bytes:
-        length = len(payload)
-        src = [0xF7, dev_id & 0xFF, sub_id & 0xFF, cmd & 0xFF, length & 0xFF, *payload]
-
-        xor = 0
-        for v in src:
-            xor ^= v & 0xFF
-        xor &= 0xFF
-
-        add = 0
-        for v in [*src, xor]:
-            add = (add + (v & 0xFF)) & 0xFF
-
-        return bytes([*src, xor, add])
+        return Frame(
+            device_id=dev_id,
+            sub_id=sub_id,
+            command_type=cmd,
+            data=payload,
+        ).to_bytes()
 
     def calc_checksum(self, values: Iterable[int]) -> int:
         if self._checksum_mode == "xor8":

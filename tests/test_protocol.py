@@ -1,10 +1,22 @@
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import sys
+import types
 
 
-_PROTOCOL_PATH = Path(__file__).resolve().parents[1] / "custom_components" / "ksx4506_ew11" / "protocol.py"
-_spec = spec_from_file_location("ksx4506_protocol", _PROTOCOL_PATH)
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_ROOT = ROOT / "custom_components"
+INTEGRATION_ROOT = PACKAGE_ROOT / "ksx4506_ew11"
+
+custom_components = types.ModuleType("custom_components")
+custom_components.__path__ = [str(PACKAGE_ROOT)]
+integration = types.ModuleType("custom_components.ksx4506_ew11")
+integration.__path__ = [str(INTEGRATION_ROOT)]
+sys.modules.setdefault("custom_components", custom_components)
+sys.modules.setdefault("custom_components.ksx4506_ew11", integration)
+
+_PROTOCOL_PATH = INTEGRATION_ROOT / "protocol.py"
+_spec = spec_from_file_location("custom_components.ksx4506_ew11.protocol", _PROTOCOL_PATH)
 _module = module_from_spec(_spec)
 assert _spec is not None and _spec.loader is not None
 sys.modules[_spec.name] = _module

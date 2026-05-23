@@ -36,7 +36,7 @@ DEVICE_ID_MAP = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
 class DeviceState:
     key: str
     addr: int

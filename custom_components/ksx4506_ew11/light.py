@@ -9,10 +9,16 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .devices.lighting import (
+    CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
+    LIGHT_DEVICE_ID,
+    build_light_control_payload,
+    build_vendor_channel_control_payload,
+    f7_individual_sub_id,
+)
 from .entity_base import KsxEntity
 
 CMD_SET_LIGHT = 0x11
-CMD_F7_SET_ONE = 0x41
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -68,25 +74,28 @@ class KsxLight(KsxEntity, LightEntity):
         return bool(self.dev.state.get("on", False))
 
     def _target_sub_id(self) -> int:
-        # Group response subId often ends with 0xF (e.g., 0x1F), while individual control
-        # uses low nibble as channel id (e.g., 0x12 for group1-channel2).
-        if self.channel is not None and (self.sub_id & 0x0F) == 0x0F:
-            return (self.sub_id & 0xF0) | (self.channel & 0x0F)
-        return self.sub_id
+        return f7_individual_sub_id(self.sub_id, self.channel)
 
     async def async_turn_on(self, **kwargs):
-        if self.addr == 0x0E:
-            data0 = 0x01
+        if self.addr == LIGHT_DEVICE_ID:
+            brightness_step = None
             if self.dev.state.get("dimmable"):
                 bri = kwargs.get("brightness")
                 if bri is None:
-                    step = int(self.dev.state.get("brightness_step", 1) or 1)
+                    brightness_step = int(self.dev.state.get("brightness_step", 1) or 1)
                 else:
-                    step = max(1, min(15, round((int(bri) * 15) / 255)))
-                data0 = ((step & 0x0F) << 4) | 0x01
+                    brightness_step = max(1, min(15, round((int(bri) * 15) / 255)))
 
             target_sub = self._target_sub_id()
-            await self.coordinator.async_send_f7_command(self.addr, target_sub, CMD_F7_SET_ONE, bytes([data0]))
+            await self.coordinator.async_send_f7_command(
+                self.addr,
+                target_sub,
+                F7_LIGHT_CONTROL_REQUEST,
+                build_light_control_payload(
+                    turn_on=True,
+                    brightness_step=brightness_step,
+                ),
+            )
 
             # Fallback for field variants that keep group sub_id and use channel in DATA.
             if self.channel is not None and target_sub != self.sub_id:
@@ -94,8 +103,11 @@ class KsxLight(KsxEntity, LightEntity):
                 await self.coordinator.async_send_f7_command(
                     self.addr,
                     self.sub_id,
-                    CMD_F7_SET_ONE,
-                    bytes([self.channel & 0xFF, 0x01, 0x00]),
+                    F7_LIGHT_CONTROL_REQUEST,
+                    build_vendor_channel_control_payload(
+                        channel=self.channel,
+                        turn_on=True,
+                    ),
                 )
 
             await asyncio.sleep(0.12)
@@ -104,17 +116,25 @@ class KsxLight(KsxEntity, LightEntity):
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x01")
 
     async def async_turn_off(self, **kwargs):
-        if self.addr == 0x0E:
+        if self.addr == LIGHT_DEVICE_ID:
             target_sub = self._target_sub_id()
-            await self.coordinator.async_send_f7_command(self.addr, target_sub, CMD_F7_SET_ONE, b"\x00")
+            await self.coordinator.async_send_f7_command(
+                self.addr,
+                target_sub,
+                F7_LIGHT_CONTROL_REQUEST,
+                build_light_control_payload(turn_on=False),
+            )
 
             if self.channel is not None and target_sub != self.sub_id:
                 await asyncio.sleep(0.08)
                 await self.coordinator.async_send_f7_command(
                     self.addr,
                     self.sub_id,
-                    CMD_F7_SET_ONE,
-                    bytes([self.channel & 0xFF, 0x00, 0x00]),
+                    F7_LIGHT_CONTROL_REQUEST,
+                    build_vendor_channel_control_payload(
+                        channel=self.channel,
+                        turn_on=False,
+                    ),
                 )
 
             await asyncio.sleep(0.12)
