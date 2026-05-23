@@ -121,15 +121,16 @@ tests/
   test_discovery.py
 docs/
   architecture-roadmap.md
+  observed-device-inventory.md
 ```
 
 ## Next Implementation Slice
 
 The next coding step should keep device-specific protocol logic out of Home Assistant entity classes:
 
-1. Move gas, outlet, thermostat, meter, and ventilation command builders under `devices/`.
-2. Keep entity modules focused on Home Assistant state/control mapping.
-3. Add tests using known KS X 4506 examples before enabling broader write commands.
+1. Decode the observed `0x40` device family after collecting state-change captures.
+2. Identify the observed `0x60` one-byte sensor response.
+3. Capture a real `0x12` gas status response so the close-only valve can show a confident open/closed state.
 4. Keep diagnostics visible for unknown frames and vendor-specific variants.
 
 ## Open Questions For Real Hardware
