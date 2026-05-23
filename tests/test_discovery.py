@@ -65,6 +65,34 @@ def test_entrance_panel_status_decodes_without_switch_entity():
     assert d.state["all_lights_off_active"] is False
 
 
+def test_common_entrance_call_packet_is_not_misclassified_as_light():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(
+        0x40,
+        0x02,
+        0x10,
+        bytes.fromhex("62 02 00 00 00 00"),
+        "f740021006620200000000c376",
+    )
+
+    d = reg.devices["4002_common_entrance"]
+    assert d.kind == "common_entrance"
+    assert d.state["event"] == "call_detected"
+    assert d.state["call_detected"] is True
+
+
+def test_common_entrance_status_response_decodes_as_sensor_family():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x40, 0x02, 0x82, bytes.fromhex("00 00"), "f7...")
+
+    d = reg.devices["4002_common_entrance"]
+    assert d.kind == "common_entrance"
+    assert d.state["event"] == "status_response"
+    assert d.state["status_byte"] == 0x00
+
+
 def test_meter_status_is_sensor_with_parsed_value():
     reg = DeviceRegistry()
 

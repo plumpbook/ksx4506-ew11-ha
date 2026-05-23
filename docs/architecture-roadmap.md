@@ -83,13 +83,15 @@ Phase 2 can add devices with richer state models:
 - System air conditioner: `climate`
 - Integrated metering: `sensor`
 - Entrance panel: read-only status first, then explicit buttons after capture validation
+- Common entrance: read-only event sensor first; guarded open button only after
+  capture validation and explicit opt-in
 
 ## Safety Defaults
 
 Initial releases should be conservative:
 
 - Prefer status polling and diagnostics before enabling write commands.
-- Gate risky commands, especially door lock and gas valve actions, behind explicit options.
+- Gate risky commands, especially common entrance, door lock, and gas valve actions, behind explicit options.
 - Model gas valves as close-only controls: expose open/closed status, do not expose open/toggle commands.
 - Keep a raw frame trace available for debugging.
 - Treat command ACK as separate from confirmed physical state.

@@ -21,7 +21,7 @@ Capture window:
 | `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81` | read-only `sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status only and does not expose generic switch writes. |
 | `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate` | Group status payload includes multiple zone temperature pairs. |
 | `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch` with attributes | Payloads decode as channel supply state and wattage. |
-| `0x40` | Unknown, possibly fan/ventilation | `0x02`, `0x03` | `0x01`, `0x02`, `0x82` | diagnostic/unknown | Needs a dedicated decoder after more samples. |
+| `0x40` | Common entrance door | `0x02`, `0x03` | `0x01`, `0x02`, `0x10`, `0x82` | read-only `sensor` | Community examples identify `0x40/0x02` as common entrance. Current code decodes events only; it does not expose an open button. |
 | `0x60` | Unknown sensor-like device | `0x01` | `0x01`, `0x81` | `sensor` raw value | Request carries 3 data bytes; response carries 1 data byte. Semantics unknown. |
 
 ## Repeated Frame Shapes
@@ -48,6 +48,7 @@ Capture window:
 | `0x40` | `0x02` | `0x02` | `0` | `f740020200b7f2` |
 | `0x40` | `0x02` | `0x82` | `2` | `f740028202000035f2` |
 | `0x40` | `0x03` | `0x01` | `0` | `f740030100b5f0` |
+| `0x40` | `0x02` | `0x10` | `6` | `f740021006620200000000c376` |
 | `0x60` | `0x01` | `0x01` | `3` | `f7600101030004891902` |
 | `0x60` | `0x01` | `0x81` | `1` | `f7600181010016f0` |
 
@@ -57,8 +58,9 @@ Capture window:
    decoders in the current integration.
 2. Gas valve control should remain close-only. The integration needs a real
    `0x12` status response sample before showing a confident open/closed state.
-3. Device `0x40` should be the next discovery target. It appears repeatedly,
-   but current command IDs do not match the existing generic fan guess.
+3. Device `0x40` is now identified as the common entrance door family. It must
+   not be handled by the generic light/fan guesses because `cmd=0x10` overlaps
+   with old generic discovery assumptions.
 4. Device `0x60` should stay as a raw sensor until the `0x01` request payload
    and `0x81` one-byte response are identified.
 5. Device `0x33` is an entrance panel family, not a generic switch. Current
@@ -85,13 +87,34 @@ exposes these conservative fields:
 | `0x04` | `batch_idle_marker` | medium | `0x04` appears in idle examples; all-lights-off examples clear this bit. |
 | `0x02` | `auxiliary_input_active` | low | Reference labels this as outing; this installation may use the same slot for another entrance-side function such as living-room-light-3. Needs capture. |
 
+## `0x40` Common Entrance Notes
+
+Community example for a common entrance event:
+
+```text
+F7 40 02 10 06 62 02 00 00 00 00 C3 76
+```
+
+Observed open command from that example:
+
+```text
+F7 40 02 22 00 97 F2
+```
+
+The integration currently uses this only to classify `0x40` as
+`common_entrance` and expose a read-only sensor. It deliberately does not
+create a Home Assistant open button yet, because that would control shared
+building access. A future control entity should be explicit, disabled by
+default, and guarded behind an option similar to gas valve safety handling.
+
 ## Next Capture Goals
 
 - Trigger a gas valve status refresh and capture whether `0x12` returns
   `0x81` or another status command.
 - Press the physical entrance panel controls one at a time and capture `0x33`
   responses for all-lights-off, elevator-call, and living-room-light-3.
-- Observe `0x40` while changing the related physical device state.
+- Capture `0x40` while using the 공동현관 app panel: select a listed lobby
+  entry, press open, and record both event and response packets.
 - Observe `0x60` around events that may affect the sensor value.
 - Capture outlet state while toggling one known outlet channel to verify
   channel-to-sub-ID mapping.

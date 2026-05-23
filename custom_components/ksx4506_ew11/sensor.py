@@ -21,6 +21,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 out.append(KsxSensor(coordinator, d))
             if d.kind == "entrance_panel":
                 out.append(KsxEntrancePanelSensor(coordinator, d))
+            if d.kind == "common_entrance":
+                out.append(KsxCommonEntranceSensor(coordinator, d))
             if d.kind == "unknown":
                 out.append(KsxUnknownDiagnostic(coordinator, d))
         return out
@@ -41,6 +43,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             ent = KsxSensor(coordinator, d)
         elif d.kind == "entrance_panel":
             ent = KsxEntrancePanelSensor(coordinator, d)
+        elif d.kind == "common_entrance":
+            ent = KsxCommonEntranceSensor(coordinator, d)
         elif d.kind == "unknown":
             ent = KsxUnknownDiagnostic(coordinator, d)
         else:
@@ -80,6 +84,18 @@ class KsxEntrancePanelSensor(KsxEntity, SensorEntity):
         if status is None:
             return self.dev.state.get("value_hex")
         return f"0x{int(status):02X}"
+
+    @property
+    def extra_state_attributes(self):
+        return dict(self.dev.state)
+
+
+class KsxCommonEntranceSensor(KsxEntity, SensorEntity):
+    _attr_name = "Common Entrance"
+
+    @property
+    def native_value(self):
+        return self.dev.state.get("event", self.dev.state.get("value_hex"))
 
     @property
     def extra_state_attributes(self):

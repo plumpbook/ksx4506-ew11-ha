@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
 
 
+common_entrance = load_integration_module("devices.common_entrance")
 gas = load_integration_module("devices.gas")
 entrance = load_integration_module("devices.entrance")
 lighting = load_integration_module("devices.lighting")
@@ -37,6 +38,30 @@ def test_gas_helpers_build_standard_frames_and_decode_status():
     assert closed["closed"] is True
     assert opened_with_leak["on"] is True
     assert opened_with_leak["leak"] is True
+
+
+def test_common_entrance_decodes_call_event_and_builds_open_request():
+    assert common_entrance.build_common_entrance_open_request().to_bytes() == bytes.fromhex(
+        "F7 40 02 22 00 97 F2"
+    )
+
+    call = common_entrance.decode_common_entrance_state(
+        bytes.fromhex("62 02 00 00 00 00"),
+        command_type=0x10,
+    )
+    status = common_entrance.decode_common_entrance_state(
+        bytes.fromhex("00 00"),
+        command_type=0x82,
+    )
+
+    assert call["event"] == "call_detected"
+    assert call["call_detected"] is True
+    assert call["call_type"] == 0x62
+    assert call["line"] == 0x02
+
+    assert status["event"] == "status_response"
+    assert status["error_code"] == 0x00
+    assert status["status_byte"] == 0x00
 
 
 def test_entrance_panel_decodes_observed_status_bits():

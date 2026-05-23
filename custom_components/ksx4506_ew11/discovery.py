@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .devices.common_entrance import (
+    COMMON_ENTRANCE_DEVICE_ID,
+    decode_common_entrance_state,
+)
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
 from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
@@ -39,6 +43,7 @@ DEVICE_ID_MAP = {
     ENTRANCE_PANEL_DEVICE_ID: ("entrance_panel", {"state"}),
     THERMOSTAT_DEVICE_ID: ("climate", {"target_temp", "current_temp"}),
     OUTLET_DEVICE_ID: ("switch", {"on_off"}),  # outlet
+    COMMON_ENTRANCE_DEVICE_ID: ("common_entrance", {"state"}),
     0x60: ("sensor", {"state"}),
 }
 
@@ -60,7 +65,12 @@ class DeviceRegistry:
         self.devices: dict[str, DeviceState] = {}
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
-        kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
+        # Device 0x40 uses command 0x10 for common entrance events. Without
+        # this override the generic command map would misclassify it as light.
+        if addr == COMMON_ENTRANCE_DEVICE_ID:
+            kind, caps = DEVICE_ID_MAP[addr]
+        else:
+            kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
         if kind == "unknown":
             kind, caps = DEVICE_ID_MAP.get(addr, (kind, caps))
 
@@ -197,6 +207,14 @@ class DeviceRegistry:
 
         elif dev.kind == "entrance_panel":
             dev.state.update(decode_entrance_panel_state(payload))
+
+        elif dev.kind == "common_entrance":
+            dev.state.update(
+                decode_common_entrance_state(
+                    payload,
+                    command_type=cmd,
+                )
+            )
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
