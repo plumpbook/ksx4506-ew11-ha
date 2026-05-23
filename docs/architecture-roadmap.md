@@ -82,7 +82,7 @@ Phase 2 can add devices with richer state models:
 - Indoor ventilation: `fan`
 - System air conditioner: `climate`
 - Integrated metering: `sensor`
-- Batch shutoff and security extension: domain-specific switches/sensors
+- Entrance panel: read-only status first, then explicit buttons after capture validation
 
 ## Safety Defaults
 

@@ -18,7 +18,7 @@ Capture window:
 | `0x0E` | Lighting | `0x11`..`0x15` | `0x01`, `0x81` | `light` | Supported as channel lights. Group-style payload lengths vary by sub ID. |
 | `0x12` | Gas valve | `0x01` | `0x0F` | close-only `valve` plus binary sensors | Current capture did not include a gas status response, so open/closed state still needs field validation. |
 | `0x30` | Integrated metering | `0x03` | `0x01`, `0x81` | `sensor` | Electricity payload decodes to instant/total values. |
-| `0x33` | Batch shutoff / breaker | `0x01` | `0x01`, `0x81` | `switch` | Mapped as switch, but payload semantics still need validation before control is trusted. |
+| `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81` | read-only `sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status only and does not expose generic switch writes. |
 | `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate` | Group status payload includes multiple zone temperature pairs. |
 | `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch` with attributes | Payloads decode as channel supply state and wattage. |
 | `0x40` | Unknown, possibly fan/ventilation | `0x02`, `0x03` | `0x01`, `0x02`, `0x82` | diagnostic/unknown | Needs a dedicated decoder after more samples. |
@@ -61,13 +61,36 @@ Capture window:
    but current command IDs do not match the existing generic fan guess.
 4. Device `0x60` should stay as a raw sensor until the `0x01` request payload
    and `0x81` one-byte response are identified.
-5. Device `0x33` is mapped as a switch for now, but write commands should stay
-   conservative until the three-byte status payload is decoded.
+5. Device `0x33` is an entrance panel family, not a generic switch. Current
+   captures and external EzVille examples use payload shape `[error, status,
+   reserved]`; observed idle status is `0x04`. The known physical controls at
+   this installation are all-lights-off, elevator-call, and living-room-light-3.
+   Control buttons should wait for dedicated press captures.
+
+## `0x33` Entrance Panel Status Notes
+
+Observed status response:
+
+```text
+F7 33 01 81 03 00 04 00 43 F6
+```
+
+The second payload byte is the only status byte seen so far. Current decoder
+exposes these conservative fields:
+
+| Status bit | Field | Confidence | Notes |
+| --- | --- | --- | --- |
+| `0x20` | `elevator_down_active` | medium | Matches EzVille elevator-call examples. |
+| `0x10` | `elevator_up_active` | low | Present in the reference implementation, but not observed locally yet. |
+| `0x04` | `batch_idle_marker` | medium | `0x04` appears in idle examples; all-lights-off examples clear this bit. |
+| `0x02` | `auxiliary_input_active` | low | Reference labels this as outing; this installation may use the same slot for another entrance-side function such as living-room-light-3. Needs capture. |
 
 ## Next Capture Goals
 
 - Trigger a gas valve status refresh and capture whether `0x12` returns
   `0x81` or another status command.
+- Press the physical entrance panel controls one at a time and capture `0x33`
+  responses for all-lights-off, elevator-call, and living-room-light-3.
 - Observe `0x40` while changing the related physical device state.
 - Observe `0x60` around events that may affect the sensor value.
 - Capture outlet state while toggling one known outlet channel to verify

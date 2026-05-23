@@ -6,6 +6,7 @@ from _integration_loader import load_integration_module  # noqa: E402
 
 
 gas = load_integration_module("devices.gas")
+entrance = load_integration_module("devices.entrance")
 lighting = load_integration_module("devices.lighting")
 meter = load_integration_module("devices.meter")
 outlet = load_integration_module("devices.outlet")
@@ -36,6 +37,24 @@ def test_gas_helpers_build_standard_frames_and_decode_status():
     assert closed["closed"] is True
     assert opened_with_leak["on"] is True
     assert opened_with_leak["leak"] is True
+
+
+def test_entrance_panel_decodes_observed_status_bits():
+    idle = entrance.decode_entrance_panel_state(bytes.fromhex("00 04 00"))
+    elevator = entrance.decode_entrance_panel_state(bytes.fromhex("00 24 00"))
+    batch = entrance.decode_entrance_panel_state(bytes.fromhex("00 00 00"))
+    auxiliary = entrance.decode_entrance_panel_state(bytes.fromhex("00 06 00"))
+
+    assert idle["status_byte"] == 0x04
+    assert idle["batch_idle_marker"] is True
+    assert idle["all_lights_off_active"] is False
+    assert idle["elevator_call_active"] is False
+
+    assert elevator["elevator_call_active"] is True
+    assert elevator["elevator_down_active"] is True
+
+    assert batch["all_lights_off_active"] is True
+    assert auxiliary["auxiliary_input_active"] is True
 
 
 def test_outlet_helpers_build_standard_frames_and_decode_status():

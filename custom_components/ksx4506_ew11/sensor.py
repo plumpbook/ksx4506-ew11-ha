@@ -19,6 +19,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for d in coordinator.registry.devices.values():
             if d.kind == "sensor":
                 out.append(KsxSensor(coordinator, d))
+            if d.kind == "entrance_panel":
+                out.append(KsxEntrancePanelSensor(coordinator, d))
             if d.kind == "unknown":
                 out.append(KsxUnknownDiagnostic(coordinator, d))
         return out
@@ -37,6 +39,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             return
         if d.kind == "sensor":
             ent = KsxSensor(coordinator, d)
+        elif d.kind == "entrance_panel":
+            ent = KsxEntrancePanelSensor(coordinator, d)
         elif d.kind == "unknown":
             ent = KsxUnknownDiagnostic(coordinator, d)
         else:
@@ -65,6 +69,21 @@ class KsxSensor(KsxEntity, SensorEntity):
             for key, value in self.dev.state.items()
             if key not in {"value", "unit"}
         }
+
+
+class KsxEntrancePanelSensor(KsxEntity, SensorEntity):
+    _attr_name = "Entrance Panel"
+
+    @property
+    def native_value(self):
+        status = self.dev.state.get("status_byte")
+        if status is None:
+            return self.dev.state.get("value_hex")
+        return f"0x{int(status):02X}"
+
+    @property
+    def extra_state_attributes(self):
+        return dict(self.dev.state)
 
 
 class KsxUnknownDiagnostic(KsxEntity, SensorEntity):

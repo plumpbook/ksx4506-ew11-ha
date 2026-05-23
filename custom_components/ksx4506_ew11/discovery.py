@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
 from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
 from .devices.meter import METER_DEVICE_ID, decode_meter_state
@@ -26,7 +27,7 @@ CMD_TYPE_MAP = {
     0x14: ("switch", {"on_off"}),
     0x15: ("switch", {"on_off"}),
     0x1F: ("sensor", {"state"}),
-    0x33: ("switch", {"on_off"}),
+    0x33: ("entrance_panel", {"state"}),
     0x39: ("climate", {"target_temp", "current_temp"}),
 }
 
@@ -35,7 +36,7 @@ DEVICE_ID_MAP = {
     LIGHT_DEVICE_ID: ("light", {"on_off"}),
     GAS_DEVICE_ID: ("gas_valve", {"on_off"}),
     METER_DEVICE_ID: ("sensor", {"state"}),
-    0x33: ("switch", {"on_off"}),  # breaker
+    ENTRANCE_PANEL_DEVICE_ID: ("entrance_panel", {"state"}),
     THERMOSTAT_DEVICE_ID: ("climate", {"target_temp", "current_temp"}),
     OUTLET_DEVICE_ID: ("switch", {"on_off"}),  # outlet
     0x60: ("sensor", {"state"}),
@@ -193,6 +194,9 @@ class DeviceRegistry:
                     command_type=cmd,
                 )
             )
+
+        elif dev.kind == "entrance_panel":
+            dev.state.update(decode_entrance_panel_state(payload))
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()

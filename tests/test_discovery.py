@@ -54,6 +54,17 @@ def test_outlet_standard_status_decodes_supply_and_power():
     assert d.state["auto_cut"] is True
 
 
+def test_entrance_panel_status_decodes_without_switch_entity():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x33, 0x01, 0x81, bytes.fromhex("00 24 00"), "f7...")
+
+    d = reg.devices["3301_entrance_panel"]
+    assert d.kind == "entrance_panel"
+    assert d.state["elevator_call_active"] is True
+    assert d.state["all_lights_off_active"] is False
+
+
 def test_meter_status_is_sensor_with_parsed_value():
     reg = DeviceRegistry()
 
