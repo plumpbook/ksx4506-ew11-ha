@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -75,7 +75,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
         super().__init__(coordinator, dev)
         self._channel = channel
         if channel is not None:
-            self._attr_name = f"Climate ch{channel}"
+            self._attr_name = "Climate"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
@@ -93,6 +93,17 @@ class KsxClimate(KsxEntity, ClimateEntity):
     @property
     def hvac_mode(self):
         return HVACMode.HEAT if self._state.get("on", False) else HVACMode.OFF
+
+    @property
+    def hvac_action(self):
+        if not self._state.get("on", False):
+            return HVACAction.OFF
+
+        target = self.target_temperature
+        current = self.current_temperature
+        if target is None or current is None:
+            return HVACAction.IDLE
+        return HVACAction.HEATING if current < target else HVACAction.IDLE
 
     @property
     def extra_state_attributes(self):

@@ -28,6 +28,12 @@ def _install_homeassistant_stubs():
         OFF = "off"
         HEAT = "heat"
 
+    class HVACAction:
+        OFF = "off"
+        IDLE = "idle"
+        HEATING = "heating"
+
+    climate_const.HVACAction = HVACAction
     climate_const.HVACMode = HVACMode
 
     sensor = types.ModuleType("homeassistant.components.sensor")
@@ -196,11 +202,13 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
 
     assert len(entities) == 3
     assert zone1._attr_unique_id == "ksx4506_361F_climate_ch1"
+    assert zone1._attr_name == "Climate"
     assert zone1._attr_device_info["identifiers"] == {("ksx4506_ew11", "361F_climate_ch1")}
     assert zone1._attr_device_info["name"] == "KSX 36-1F ch1"
     assert zone1.target_temperature == 23
     assert zone1.current_temperature == 23
     assert zone1.hvac_mode == "heat"
+    assert zone1.hvac_action == "idle"
 
     asyncio.run(zone1.async_set_temperature(temperature=25.5))
     asyncio.run(zone1.async_set_hvac_mode("off"))
