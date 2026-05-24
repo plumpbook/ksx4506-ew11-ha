@@ -106,6 +106,29 @@ def test_common_entrance_status_response_decodes_as_sensor_family():
     assert d.state["status_byte"] == 0x00
 
 
+def test_common_entrance_polling_requests_do_not_change_sensor_state():
+    reg = DeviceRegistry()
+
+    assert reg.upsert_from_frame(0x40, 0x02, 0x02, b"", "f740020200b7f2") == []
+    assert reg.upsert_from_frame(0x40, 0x03, 0x01, b"", "f740030100b5f0") == []
+    assert reg.devices == {}
+
+    reg.upsert_from_frame(0x40, 0x02, 0x82, bytes.fromhex("00 00"), "f7...")
+
+    d = reg.devices["4002_common_entrance"]
+    assert d.state["event"] == "status_response"
+
+
+def test_generic_sensor_polling_request_does_not_change_sensor_state():
+    reg = DeviceRegistry()
+
+    assert reg.upsert_from_frame(0x60, 0x01, 0x01, bytes.fromhex("00 06 66"), "f760010103000666f4bc") == []
+    reg.upsert_from_frame(0x60, 0x01, 0x81, bytes.fromhex("00"), "f7600181010016f0")
+
+    d = reg.devices["6001_sensor"]
+    assert d.state["value_hex"] == "00"
+
+
 def test_meter_status_is_sensor_with_parsed_value():
     reg = DeviceRegistry()
 

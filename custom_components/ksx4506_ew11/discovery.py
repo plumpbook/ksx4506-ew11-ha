@@ -5,6 +5,7 @@ from typing import Any
 
 from .devices.common_entrance import (
     COMMON_ENTRANCE_DEVICE_ID,
+    STATUS_REQUEST as COMMON_ENTRANCE_STATUS_REQUEST,
     decode_common_entrance_state,
 )
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
@@ -60,11 +61,18 @@ class DeviceState:
     last_raw_hex: str = ""
 
 
+GENERIC_SENSOR_DEVICE_ID = 0x60
+GENERIC_STATUS_REQUEST = 0x01
+
+
 class DeviceRegistry:
     def __init__(self) -> None:
         self.devices: dict[str, DeviceState] = {}
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
+        if _is_polling_request(addr, cmd):
+            return []
+
         # Device 0x40 uses command 0x10 for common entrance events. Without
         # this override the generic command map would misclassify it as light.
         if addr == COMMON_ENTRANCE_DEVICE_ID:
@@ -223,3 +231,11 @@ def _canonical_light_group(high: int, low: int) -> int:
     if high == 0:
         return low if low > 0 else 1
     return high
+
+
+def _is_polling_request(addr: int, cmd: int) -> bool:
+    if addr == COMMON_ENTRANCE_DEVICE_ID:
+        return cmd in {GENERIC_STATUS_REQUEST, COMMON_ENTRANCE_STATUS_REQUEST}
+    if addr == GENERIC_SENSOR_DEVICE_ID:
+        return cmd == GENERIC_STATUS_REQUEST
+    return False
