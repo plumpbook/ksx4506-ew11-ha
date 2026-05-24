@@ -54,9 +54,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 def _sensor_entities_for_device(coordinator, dev):
     out = []
     if dev.kind == "sensor":
-        out.append(KsxSensor(coordinator, dev))
         if dev.addr == METER_DEVICE_ID:
             out.extend(_meter_sensors(coordinator, dev))
+        else:
+            out.append(KsxSensor(coordinator, dev))
     if dev.kind == "entrance_panel":
         out.append(KsxEntrancePanelSensor(coordinator, dev))
     if dev.kind == "common_entrance":

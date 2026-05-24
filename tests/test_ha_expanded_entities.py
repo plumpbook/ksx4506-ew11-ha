@@ -261,14 +261,13 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     meter_entities = sensor._sensor_entities_for_device(_FakeCoordinator(meter), meter)
 
     assert [ent._attr_unique_id for ent in meter_entities] == [
-        "ksx4506_3003_sensor",
         "ksx4506_3003_sensor_instant",
         "ksx4506_3003_sensor_total",
     ]
-    assert meter_entities[1].native_value == 687.0
-    assert meter_entities[1].device_class == "power"
-    assert meter_entities[2].native_value == 3506.37
-    assert meter_entities[2].device_class == "energy"
+    assert meter_entities[0].native_value == 687.0
+    assert meter_entities[0].device_class == "power"
+    assert meter_entities[1].native_value == 3506.37
+    assert meter_entities[1].device_class == "energy"
 
     outlet = discovery.DeviceState(
         key="391F_switch",
