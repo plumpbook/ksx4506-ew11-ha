@@ -159,6 +159,10 @@ class KsxOutletChannelBinarySensor(KsxEntity, BinarySensorEntity):
         self._state_key = state_key
         self._attr_name = name
         self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_{state_key}"
+        self._set_ksx_device_info(
+            device_key=f"{self.dev_key}_ch{channel}",
+            name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+        )
 
     @property
     def is_on(self) -> bool | None:

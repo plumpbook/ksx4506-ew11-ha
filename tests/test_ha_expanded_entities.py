@@ -182,6 +182,8 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
 
     assert len(entities) == 3
     assert zone1._attr_unique_id == "ksx4506_361F_climate_ch1"
+    assert zone1._attr_device_info["identifiers"] == {("ksx4506_ew11", "361F_climate_ch1")}
+    assert zone1._attr_device_info["name"] == "KSX 36-1F ch1"
     assert zone1.target_temperature == 23
     assert zone1.current_temperature == 23
     assert zone1.hvac_mode == "heat"
@@ -252,6 +254,14 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     assert "ksx4506_391F_switch_ch2_power" in ids
     assert "ksx4506_391F_switch_ch1_threshold" in ids
     assert outlet_entities[0].native_value == 10.5
+    channel_power = next(
+        ent
+        for ent in outlet_entities
+        if ent._attr_unique_id == "ksx4506_391F_switch_ch1_power"
+    )
+    assert channel_power._attr_device_info["identifiers"] == {
+        ("ksx4506_ew11", "391F_switch_ch1")
+    }
 
 
 def test_outlet_channel_switch_controls_specific_channel():
@@ -278,6 +288,8 @@ def test_outlet_channel_switch_controls_specific_channel():
 
     assert len(entities) == 3
     assert channel2._attr_unique_id == "ksx4506_391F_switch_ch2"
+    assert channel2._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch2")}
+    assert channel2._attr_device_info["name"] == "KSX 39-1F ch2"
     assert channel2.is_on is True
 
     asyncio.run(channel2.async_turn_off())
@@ -332,3 +344,11 @@ def test_outlet_and_entrance_binary_sensors_are_expanded():
 
     assert "ksx4506_391F_switch_auto_cut" in ids
     assert "ksx4506_391F_switch_ch1_under_threshold" in ids
+    channel_entity = next(
+        ent
+        for ent in outlet_entities
+        if ent._attr_unique_id == "ksx4506_391F_switch_ch1_under_threshold"
+    )
+    assert channel_entity._attr_device_info["identifiers"] == {
+        ("ksx4506_ew11", "391F_switch_ch1")
+    }

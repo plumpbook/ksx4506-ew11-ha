@@ -22,8 +22,11 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
         if self.channel is not None:
             name = f"{name} ch{self.channel}"
 
+        self._set_ksx_device_info(device_key=self.dev_key, name=name)
+
+    def _set_ksx_device_info(self, *, device_key: str, name: str) -> None:
         self._attr_device_info = {
-            "identifiers": {("ksx4506_ew11", self.dev_key)},
+            "identifiers": {("ksx4506_ew11", device_key)},
             "name": name,
             "manufacturer": "KS X 4506",
             "model": "EW11/RS485",

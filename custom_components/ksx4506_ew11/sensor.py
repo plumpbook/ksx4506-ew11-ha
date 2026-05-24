@@ -219,6 +219,10 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
         else:
             self._attr_name = f"Power ch{channel}"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_power"
+            self._set_ksx_device_info(
+                device_key=f"{self.dev_key}_ch{channel}",
+                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+            )
 
     @property
     def native_value(self):
@@ -262,6 +266,10 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
         else:
             self._attr_name = f"Cutoff Threshold ch{channel}"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_threshold"
+            self._set_ksx_device_info(
+                device_key=f"{self.dev_key}_ch{channel}",
+                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+            )
 
     @property
     def native_value(self):
