@@ -198,9 +198,9 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     coordinator = _FakeCoordinator(dev)
 
     entities = climate._climate_entities_for_device(coordinator, dev)
-    zone1 = entities[1]
+    zone1 = entities[0]
 
-    assert len(entities) == 3
+    assert len(entities) == 2
     assert zone1._attr_unique_id == "ksx4506_361F_climate_ch1"
     assert zone1._attr_name == "Climate"
     assert zone1._attr_device_info["identifiers"] == {("ksx4506_ew11", "361F_climate_ch1")}

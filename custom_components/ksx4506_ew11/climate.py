@@ -57,11 +57,15 @@ def _climate_entities_for_device(coordinator, dev):
     if dev.kind != "climate":
         return []
 
-    entities = [KsxClimate(coordinator, dev)]
+    entities = []
     for zone in dev.state.get("zones", []):
         channel = zone.get("channel")
         if isinstance(channel, int):
             entities.append(KsxClimate(coordinator, dev, channel=channel))
+    if entities:
+        return entities
+
+    entities.append(KsxClimate(coordinator, dev))
     return entities
 
 
