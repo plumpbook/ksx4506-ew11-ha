@@ -67,6 +67,24 @@ def test_outlet_standard_status_decodes_supply_and_power():
     assert d.state["auto_cut"] is True
 
 
+def test_outlet_threshold_response_decodes_cutoff_threshold():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x39, 0x01, 0xB1, bytes.fromhex("00 01 31"), "f7...")
+
+    d = reg.devices["3901_switch"]
+    assert d.state["threshold_w"] == 13.1
+    assert d.state["thresholds"] == [{"channel": 1, "threshold_w": 13.1}]
+
+
+def test_polling_requests_for_stateful_devices_are_ignored():
+    reg = DeviceRegistry()
+
+    assert reg.upsert_from_frame(0x30, 0x03, 0x01, b"", "f730030100c5f0") == []
+    assert reg.upsert_from_frame(0x36, 0x1F, 0x01, b"", "f7361f0100df2c") == []
+    assert reg.upsert_from_frame(0x39, 0x1F, 0x01, b"", "f7391f0100d020") == []
+
+
 def test_entrance_panel_status_decodes_without_switch_entity():
     reg = DeviceRegistry()
 

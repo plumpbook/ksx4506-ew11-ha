@@ -11,6 +11,8 @@ STATUS_REQUEST = 0x01
 STATUS_RESPONSE = 0x81
 CONTROL_REQUEST = 0x41
 CONTROL_RESPONSE = 0xC1
+CUTOFF_THRESHOLD_RESPONSE = 0xB1
+CUTOFF_THRESHOLD_CONTROL_RESPONSE = 0xC3
 
 GENERIC_SWITCH_COMMAND = 0x21
 
@@ -75,6 +77,7 @@ def decode_outlet_state(
     *,
     unit: int | None = None,
     channel: int | None = None,
+    command_type: int | None = None,
 ) -> dict[str, Any]:
     """Decode outlet status/control response payloads.
 
@@ -84,6 +87,9 @@ def decode_outlet_state(
 
     if not payload:
         return {}
+
+    if command_type in {CUTOFF_THRESHOLD_RESPONSE, CUTOFF_THRESHOLD_CONTROL_RESPONSE}:
+        return _decode_outlet_threshold_payload(payload, unit=unit, channel=channel)
 
     if len(payload) >= 4 and (len(payload) - 1) % 3 == 0:
         return _decode_outlet_status_payload(payload, unit=unit, channel=channel)
@@ -111,6 +117,33 @@ def decode_outlet_state(
         return state
 
     return decode_switch_state(payload)
+
+
+def _decode_outlet_threshold_payload(
+    payload: bytes,
+    *,
+    unit: int | None,
+    channel: int | None,
+) -> dict[str, Any]:
+    if len(payload) < 3 or (len(payload) - 1) % 2:
+        return {}
+
+    chunks = [payload[index : index + 2] for index in range(1, len(payload), 2)]
+    thresholds = [
+        {"channel": index, "threshold_w": _decode_threshold_watts(chunk)}
+        for index, chunk in enumerate(chunks, start=1)
+    ]
+
+    state: dict[str, Any] = {
+        "error": payload[0],
+        "threshold_count": len(thresholds),
+        "thresholds": thresholds,
+    }
+
+    selected = _select_channel_index(len(thresholds), unit=unit, channel=channel)
+    if selected is not None:
+        state["threshold_w"] = thresholds[selected]["threshold_w"]
+    return state
 
 
 def _decode_outlet_status_payload(
@@ -157,6 +190,16 @@ def _decode_outlet_watts(data: bytes) -> float:
         data[1] & 0x0F,
         data[2] >> 4,
         data[2] & 0x0F,
+    ]
+    return _decimal_from_digits(digits, decimal_places=1)
+
+
+def _decode_threshold_watts(data: bytes) -> float:
+    digits = [
+        data[0] >> 4,
+        data[0] & 0x0F,
+        data[1] >> 4,
+        data[1] & 0x0F,
     ]
     return _decimal_from_digits(digits, decimal_places=1)
 

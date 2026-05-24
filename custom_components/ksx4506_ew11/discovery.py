@@ -184,6 +184,7 @@ class DeviceRegistry:
                         payload,
                         unit=dev.sub_id & 0x0F,
                         channel=dev.channel,
+                        command_type=cmd,
                     )
                 )
             else:
@@ -236,6 +237,11 @@ def _canonical_light_group(high: int, low: int) -> int:
 def _is_polling_request(addr: int, cmd: int) -> bool:
     if addr == COMMON_ENTRANCE_DEVICE_ID:
         return cmd in {GENERIC_STATUS_REQUEST, COMMON_ENTRANCE_STATUS_REQUEST}
-    if addr == GENERIC_SENSOR_DEVICE_ID:
+    if addr in {
+        GENERIC_SENSOR_DEVICE_ID,
+        METER_DEVICE_ID,
+        THERMOSTAT_DEVICE_ID,
+        OUTLET_DEVICE_ID,
+    }:
         return cmd == GENERIC_STATUS_REQUEST
     return False

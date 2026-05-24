@@ -13,10 +13,12 @@ def _install_homeassistant_stubs():
     sensor = types.ModuleType("homeassistant.components.sensor")
 
     class SensorDeviceClass:
+        ENERGY = "energy"
         POWER = "power"
 
     class SensorStateClass:
         MEASUREMENT = "measurement"
+        TOTAL_INCREASING = "total_increasing"
 
     class SensorEntity:
         pass
@@ -30,6 +32,10 @@ def _install_homeassistant_stubs():
     class UnitOfPower:
         WATT = "W"
 
+    class UnitOfEnergy:
+        KILO_WATT_HOUR = "kWh"
+
+    const.UnitOfEnergy = UnitOfEnergy
     const.UnitOfPower = UnitOfPower
 
     config_entries = types.ModuleType("homeassistant.config_entries")
