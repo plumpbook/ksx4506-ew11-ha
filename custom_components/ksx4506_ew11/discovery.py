@@ -89,16 +89,11 @@ class DeviceRegistry:
                     items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
                 else:
                     # Single status reply: [err][state]
-                    if high == 0 and low > 0:
-                        # vendor single-group form: 0x03 -> group3 ch1
+                    if (high == 0 and low > 0) or _is_vendor_light_group_sub_id(high, low):
+                        # vendor single-group form: 0x03/0x13 -> group3 ch1
                         ch = 1
                     else:
                         ch = low if low > 0 else 1
-
-                    # Field variant observed: 0x13/0x14/0x15 may represent group3/4/5 ch1.
-                    if high == 0x01 and low >= 0x03:
-                        high = low
-                        ch = 1
 
                     items = [(ch, payload[1])]
 
@@ -106,11 +101,9 @@ class DeviceRegistry:
                 if is_group_reply:
                     group = high if high > 0 else 1
                 elif len(payload) > 2:
-                    group = low if high == 0 else high
+                    group = _canonical_light_group(high, low)
                 else:
-                    group = high if high > 0 else low
-                    if group == 0:
-                        group = 1
+                    group = _canonical_light_group(high, low)
 
                 canonical_sub_id = ((group & 0x0F) << 4) | 0x0F
 
@@ -218,3 +211,15 @@ class DeviceRegistry:
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
+
+
+def _is_vendor_light_group_sub_id(high: int, low: int) -> bool:
+    return high == 0x01 and 0x01 <= low <= 0x0E
+
+
+def _canonical_light_group(high: int, low: int) -> int:
+    if _is_vendor_light_group_sub_id(high, low):
+        return low
+    if high == 0:
+        return low if low > 0 else 1
+    return high

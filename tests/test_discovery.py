@@ -32,6 +32,19 @@ def test_light_status_byte_dimming_decode():
     assert d.state["brightness_step"] == 0x0A
 
 
+def test_vendor_light_group_subids_do_not_collapse_into_group_one():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 00 00 00"), "f70e118104000000006d08")
+    reg.upsert_from_frame(0x0E, 0x12, 0x81, bytes.fromhex("00 01 01"), "f70e1281030001016906")
+
+    assert reg.devices["0E1F_light_1"].state["on"] is False
+    assert reg.devices["0E1F_light_2"].state["on"] is False
+    assert reg.devices["0E1F_light_3"].state["on"] is False
+    assert reg.devices["0E2F_light_1"].state["on"] is True
+    assert reg.devices["0E2F_light_2"].state["on"] is True
+
+
 def test_gas_standard_status_decodes_closed_as_off():
     reg = DeviceRegistry()
 
