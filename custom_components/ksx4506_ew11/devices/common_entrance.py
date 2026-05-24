@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..frame import Frame
+from ..frame import Frame, hex_from_bytes
 
 COMMON_ENTRANCE_DEVICE_ID = 0x40
 
@@ -71,8 +71,49 @@ def decode_common_entrance_state(
     return state
 
 
+def format_common_entrance_packet_log(
+    sub_id: int,
+    command_type: int,
+    payload: bytes,
+    raw: bytes | None = None,
+    *,
+    direction: str = "RX",
+) -> str:
+    """Return a concise field log for observed common entrance packets."""
+
+    state = decode_common_entrance_state(payload, command_type=command_type)
+    parts = [
+        f"Common entrance {direction} packet",
+        f"source=0x{COMMON_ENTRANCE_DEVICE_ID:02X}",
+        f"unit=0x{sub_id:02X}",
+        f"command=0x{command_type:02X}",
+        f"event={state['event']}",
+    ]
+
+    if command_type == CALL_EVENT:
+        parts.append(f"call_detected={_bool_text(state.get('call_detected', False))}")
+        if "call_type" in state:
+            parts.append(f"call_type=0x{state['call_type']:02X}")
+        if "line" in state:
+            parts.append(f"line=0x{state['line']:02X}")
+    elif command_type == STATUS_RESPONSE:
+        if "error_code" in state:
+            parts.append(f"error=0x{state['error_code']:02X}")
+        if "status_byte" in state:
+            parts.append(f"status=0x{state['status_byte']:02X}")
+
+    parts.append(f'payload="{hex_from_bytes(payload) or "-"}"')
+    if raw is not None:
+        parts.append(f'raw="{hex_from_bytes(raw)}"')
+    return " ".join(parts)
+
+
 def _validate_common_entrance_sub_id(sub_id: int) -> None:
     if not isinstance(sub_id, int):
         raise TypeError("common entrance sub_id must be an int")
     if sub_id < 0x01 or sub_id > 0x0E:
         raise ValueError("common entrance sub_id must be in 0x01..0x0E")
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"

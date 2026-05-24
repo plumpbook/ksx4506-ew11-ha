@@ -8,6 +8,12 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED, SIGNAL_DEVICE_UPDATE
+from .devices.common_entrance import (
+    CALL_EVENT,
+    COMMON_ENTRANCE_DEVICE_ID,
+    OPEN_REQUEST,
+    format_common_entrance_packet_log,
+)
 from .discovery import DeviceRegistry
 from .ew11_client import Ew11Client
 from .protocol import Ksx4506Codec, KsFrame
@@ -57,6 +63,18 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             len(frame.payload),
             frame.raw.hex(),
         )
+        if frame.addr == COMMON_ENTRANCE_DEVICE_ID:
+            log_message = format_common_entrance_packet_log(
+                frame.sub_id,
+                frame.cmd,
+                frame.payload,
+                frame.raw,
+                direction="RX",
+            )
+            if frame.cmd == CALL_EVENT:
+                _LOGGER.info(log_message)
+            else:
+                _LOGGER.debug(log_message)
         changes = self.registry.upsert_from_frame(
             frame.addr,
             frame.sub_id,
@@ -82,6 +100,18 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             payload.hex(),
             packet.hex(),
         )
+        if dev_id == COMMON_ENTRANCE_DEVICE_ID:
+            log_message = format_common_entrance_packet_log(
+                sub_id,
+                cmd,
+                payload,
+                packet,
+                direction="TX",
+            )
+            if cmd == OPEN_REQUEST:
+                _LOGGER.info(log_message)
+            else:
+                _LOGGER.debug(log_message)
         return await self._client.send_with_retry(packet)
 
     async def async_send_f7_command(

@@ -64,6 +64,27 @@ def test_common_entrance_decodes_call_event_and_builds_open_request():
     assert status["status_byte"] == 0x00
 
 
+def test_common_entrance_formats_readable_packet_log():
+    message = common_entrance.format_common_entrance_packet_log(
+        0x02,
+        0x10,
+        bytes.fromhex("62 02 00 00 00 00"),
+        bytes.fromhex("F7 40 02 10 06 62 02 00 00 00 00 C3 76"),
+        direction="RX",
+    )
+
+    assert "Common entrance RX packet" in message
+    assert "source=0x40" in message
+    assert "unit=0x02" in message
+    assert "command=0x10" in message
+    assert "event=call_detected" in message
+    assert "call_detected=true" in message
+    assert "call_type=0x62" in message
+    assert "line=0x02" in message
+    assert 'payload="62 02 00 00 00 00"' in message
+    assert 'raw="F7 40 02 10 06 62 02 00 00 00 00 C3 76"' in message
+
+
 def test_entrance_panel_decodes_observed_status_bits():
     idle = entrance.decode_entrance_panel_state(bytes.fromhex("00 04 00"))
     elevator = entrance.decode_entrance_panel_state(bytes.fromhex("00 24 00"))
