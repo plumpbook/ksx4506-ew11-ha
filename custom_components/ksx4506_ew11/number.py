@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .devices.thermostat import (
-    HEAT_CONTROL_REQUEST,
     TEMPERATURE_CONTROL_REQUEST,
-    build_thermostat_heat_request,
+    THERMOSTAT_DEVICE_ID,
     build_thermostat_temperature_request,
     thermostat_target_sub_id,
 )
@@ -26,7 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     def build_all():
         out = []
         for d in coordinator.registry.devices.values():
-            out.extend(_climate_entities_for_device(coordinator, d))
+            out.extend(_number_entities_for_device(coordinator, d))
         return out
 
     init_ents = build_all()
@@ -37,11 +35,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     @callback
     def on_added(dev_key: str):
         d = coordinator.registry.devices.get(dev_key)
-        if not d or d.kind != "climate":
+        if not d:
             return
 
         new_entities = []
-        for ent in _climate_entities_for_device(coordinator, d):
+        for ent in _number_entities_for_device(coordinator, d):
             if ent._attr_unique_id in added_keys:
                 continue
             new_entities.append(ent)
@@ -53,79 +51,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_DEVICE_ADDED, on_added))
 
 
-def _climate_entities_for_device(coordinator, dev):
-    if dev.kind != "climate":
+def _number_entities_for_device(coordinator, dev):
+    if dev.kind != "climate" or dev.addr != THERMOSTAT_DEVICE_ID:
         return []
 
-    entities = [KsxClimate(coordinator, dev)]
-    for zone in dev.state.get("zones", []):
-        channel = zone.get("channel")
-        if isinstance(channel, int):
-            entities.append(KsxClimate(coordinator, dev, channel=channel))
-    return entities
+    channels = _thermostat_channels(dev)
+    if channels:
+        return [
+            KsxThermostatTargetTemperatureNumber(coordinator, dev, channel=channel)
+            for channel in channels
+        ]
+    return [KsxThermostatTargetTemperatureNumber(coordinator, dev)]
 
 
-class KsxClimate(KsxEntity, ClimateEntity):
-    _attr_name = "Climate"
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+def _thermostat_channels(dev):
+    zones = dev.state.get("zones", [])
+    return [
+        zone["channel"]
+        for zone in zones
+        if isinstance(zone, dict) and isinstance(zone.get("channel"), int)
+    ]
+
+
+class KsxThermostatTargetTemperatureNumber(KsxEntity, NumberEntity):
+    _attr_name = "Target Temperature"
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
+    _attr_native_min_value = 5
+    _attr_native_max_value = 40
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
         if channel is not None:
-            self._attr_name = f"Climate ch{channel}"
-            self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
+            self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_target_temperature"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
                 name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
             )
+        else:
+            self._attr_unique_id = f"ksx4506_{self.dev_key}_target_temperature"
 
     @property
-    def target_temperature(self):
+    def native_value(self):
         return self._state.get("target_temp")
 
-    @property
-    def current_temperature(self):
-        return self._state.get("current_temp")
-
-    @property
-    def hvac_mode(self):
-        return HVACMode.HEAT if self._state.get("on", False) else HVACMode.OFF
-
-    @property
-    def extra_state_attributes(self):
-        return {
-            key: value
-            for key, value in self._state.items()
-            if key in {"channel", "away", "schedule", "hot_water", "error"}
-        }
-
-    async def async_set_temperature(self, **kwargs):
-        temp = float(kwargs.get("temperature", 22))
+    async def async_set_native_value(self, value: float) -> None:
         frame = build_thermostat_temperature_request(
-            self._target_sub_id(),
-            temperature=temp,
+            thermostat_target_sub_id(self.sub_id, self._channel),
+            temperature=value,
         )
         await self.coordinator.async_send_f7_command(
             self.addr,
             frame.sub_id,
             TEMPERATURE_CONTROL_REQUEST,
-            frame.data,
-        )
-
-    async def async_set_hvac_mode(self, hvac_mode):
-        if hvac_mode not in self._attr_hvac_modes:
-            return
-        frame = build_thermostat_heat_request(
-            self._target_sub_id(),
-            turn_on=hvac_mode == HVACMode.HEAT,
-        )
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            HEAT_CONTROL_REQUEST,
             frame.data,
         )
 
@@ -137,6 +117,3 @@ class KsxClimate(KsxEntity, ClimateEntity):
             if zone.get("channel") == self._channel:
                 return zone
         return {}
-
-    def _target_sub_id(self) -> int:
-        return thermostat_target_sub_id(self.sub_id, self._channel)

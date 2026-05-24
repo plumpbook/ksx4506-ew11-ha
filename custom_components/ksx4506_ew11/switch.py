@@ -14,6 +14,12 @@ from .devices.outlet import (
     build_outlet_control_request,
     build_generic_switch_payload,
 )
+from .devices.thermostat import (
+    HEAT_CONTROL_REQUEST,
+    THERMOSTAT_DEVICE_ID,
+    build_thermostat_heat_request,
+    thermostat_target_sub_id,
+)
 from .entity_base import KsxEntity
 
 
@@ -52,6 +58,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 def _switch_entities_for_device(coordinator, dev):
+    if dev.kind == "climate" and dev.addr == THERMOSTAT_DEVICE_ID:
+        channels = _thermostat_channels(dev)
+        if channels:
+            return [
+                KsxThermostatHeatSwitch(coordinator, dev, channel=channel)
+                for channel in channels
+            ]
+        return [KsxThermostatHeatSwitch(coordinator, dev)]
+
     if dev.kind != "switch":
         return []
 
@@ -70,6 +85,15 @@ def _outlet_channels(dev):
         channel["channel"]
         for channel in channels
         if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
+    ]
+
+
+def _thermostat_channels(dev):
+    zones = dev.state.get("zones", [])
+    return [
+        zone["channel"]
+        for zone in zones
+        if isinstance(zone, dict) and isinstance(zone.get("channel"), int)
     ]
 
 
@@ -135,3 +159,53 @@ class KsxOutletChannelSwitch(KsxSwitch):
             if channel.get("channel") == self._channel:
                 return channel
         return None
+
+
+class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
+    _attr_name = "Heating"
+
+    def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
+        super().__init__(coordinator, dev)
+        self._channel = channel
+        if channel is not None:
+            self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_heat"
+            self._set_ksx_device_info(
+                device_key=f"{self.dev_key}_ch{channel}",
+                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+            )
+        else:
+            self._attr_unique_id = f"ksx4506_{self.dev_key}_heat"
+
+    @property
+    def is_on(self) -> bool | None:
+        state = self._state
+        if not state:
+            return None
+        return bool(state.get("on", False))
+
+    async def async_turn_on(self, **kwargs):
+        await self._async_set_heat(True)
+
+    async def async_turn_off(self, **kwargs):
+        await self._async_set_heat(False)
+
+    async def _async_set_heat(self, turn_on: bool):
+        frame = build_thermostat_heat_request(
+            thermostat_target_sub_id(self.sub_id, self._channel),
+            turn_on=turn_on,
+        )
+        await self.coordinator.async_send_f7_command(
+            self.addr,
+            frame.sub_id,
+            HEAT_CONTROL_REQUEST,
+            frame.data,
+        )
+
+    @property
+    def _state(self):
+        if self._channel is None:
+            return self.dev.state
+        for zone in self.dev.state.get("zones", []):
+            if zone.get("channel") == self._channel:
+                return zone
+        return {}

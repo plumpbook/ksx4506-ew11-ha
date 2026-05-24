@@ -86,6 +86,16 @@ def build_thermostat_hot_water_request(sub_id: int, *, turn_on: bool) -> Frame:
     )
 
 
+def thermostat_target_sub_id(sub_id: int, channel: int | None) -> int:
+    _validate_thermostat_sub_id(sub_id)
+    if channel is None:
+        return sub_id
+    _validate_thermostat_channel(channel)
+    if sub_id & 0x0F == 0x0F:
+        return (sub_id & 0xF0) | (channel & 0x0F)
+    return sub_id
+
+
 def decode_thermostat_state(payload: bytes, *, sub_id: int | None = None) -> dict[str, Any]:
     if len(payload) >= 7 and (len(payload) - 5) % 2 == 0:
         return _decode_standard_thermostat_state(payload, sub_id=sub_id)
@@ -191,3 +201,10 @@ def _validate_thermostat_sub_id(sub_id: int) -> None:
         raise TypeError("thermostat sub_id must be an int")
     if sub_id < 0x01 or sub_id > 0xEF:
         raise ValueError("thermostat sub_id must be in 0x01..0xEF")
+
+
+def _validate_thermostat_channel(channel: int) -> None:
+    if not isinstance(channel, int):
+        raise TypeError("thermostat channel must be an int")
+    if channel < 1 or channel > 0x0E:
+        raise ValueError("thermostat channel must be in 1..14")

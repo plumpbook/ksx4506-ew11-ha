@@ -54,6 +54,17 @@ def _install_homeassistant_stubs():
 
     switch.SwitchEntity = SwitchEntity
 
+    number = types.ModuleType("homeassistant.components.number")
+
+    class NumberDeviceClass:
+        TEMPERATURE = "temperature"
+
+    class NumberEntity:
+        pass
+
+    number.NumberDeviceClass = NumberDeviceClass
+    number.NumberEntity = NumberEntity
+
     binary_sensor = types.ModuleType("homeassistant.components.binary_sensor")
 
     class BinarySensorDeviceClass:
@@ -130,6 +141,7 @@ def _install_homeassistant_stubs():
     sys.modules["homeassistant.components.binary_sensor"] = binary_sensor
     sys.modules["homeassistant.components.climate"] = climate
     sys.modules["homeassistant.components.climate.const"] = climate_const
+    sys.modules["homeassistant.components.number"] = number
     sys.modules["homeassistant.components.sensor"] = sensor
     sys.modules["homeassistant.components.switch"] = switch
     sys.modules["homeassistant.config_entries"] = config_entries
@@ -159,6 +171,8 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     climate = load_integration_module("climate")
+    number = load_integration_module("number")
+    switch = load_integration_module("switch")
 
     dev = discovery.DeviceState(
         key="361F_climate",
@@ -194,6 +208,25 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     assert coordinator.sent_f7 == [
         (0x36, 0x11, 0x44, b"\x99", False),
         (0x36, 0x11, 0x43, b"\x00", False),
+    ]
+
+    heat_switch = switch._switch_entities_for_device(coordinator, dev)[0]
+    target_number = number._number_entities_for_device(coordinator, dev)[0]
+
+    assert heat_switch._attr_unique_id == "ksx4506_361F_climate_ch1_heat"
+    assert heat_switch._attr_device_info["identifiers"] == {
+        ("ksx4506_ew11", "361F_climate_ch1")
+    }
+    assert heat_switch.is_on is True
+    assert target_number._attr_unique_id == "ksx4506_361F_climate_ch1_target_temperature"
+    assert target_number.native_value == 23
+
+    asyncio.run(heat_switch.async_turn_off())
+    asyncio.run(target_number.async_set_native_value(21.5))
+
+    assert coordinator.sent_f7[-2:] == [
+        (0x36, 0x11, 0x43, b"\x00", False),
+        (0x36, 0x11, 0x44, b"\x95", False),
     ]
 
 
