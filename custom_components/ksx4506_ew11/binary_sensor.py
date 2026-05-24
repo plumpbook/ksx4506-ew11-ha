@@ -89,15 +89,15 @@ def _outlet_binary_sensors(coordinator, dev):
     for channel in _outlet_channels(dev):
         out.extend(
             [
-                KsxOutletChannelBinarySensor(coordinator, dev, channel, "auto_cut", f"Auto Cut ch{channel}"),
+                KsxOutletChannelBinarySensor(coordinator, dev, channel, "auto_cut", "Auto Cut"),
                 KsxOutletChannelBinarySensor(
                     coordinator,
                     dev,
                     channel,
                     "under_threshold",
-                    f"Under Threshold ch{channel}",
+                    "Under Threshold",
                 ),
-                KsxOutletChannelBinarySensor(coordinator, dev, channel, "overload", f"Overload ch{channel}"),
+                KsxOutletChannelBinarySensor(coordinator, dev, channel, "overload", "Overload"),
             ]
         )
     return out

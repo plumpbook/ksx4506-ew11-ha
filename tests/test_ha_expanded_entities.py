@@ -303,6 +303,7 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     assert channel_power._attr_device_info["identifiers"] == {
         ("ksx4506_ew11", "391F_switch_ch1")
     }
+    assert channel_power._attr_name == "Power"
 
 
 def test_outlet_channel_switch_controls_specific_channel():
@@ -329,6 +330,7 @@ def test_outlet_channel_switch_controls_specific_channel():
 
     assert len(entities) == 3
     assert channel2._attr_unique_id == "ksx4506_391F_switch_ch2"
+    assert channel2._attr_name == "Switch"
     assert channel2._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch2")}
     assert channel2._attr_device_info["name"] == "KSX 39-1F ch2"
     assert channel2.is_on is True
@@ -393,3 +395,4 @@ def test_outlet_and_entrance_binary_sensors_are_expanded():
     assert channel_entity._attr_device_info["identifiers"] == {
         ("ksx4506_ew11", "391F_switch_ch1")
     }
+    assert channel_entity._attr_name == "Under Threshold"

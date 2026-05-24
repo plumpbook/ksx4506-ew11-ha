@@ -123,7 +123,7 @@ class KsxOutletChannelSwitch(KsxSwitch):
     def __init__(self, coordinator, dev, *, channel: int) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
-        self._attr_name = f"Switch ch{channel}"
+        self._attr_name = "Switch"
         self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
         self._set_ksx_device_info(
             device_key=f"{self.dev_key}_ch{channel}",
