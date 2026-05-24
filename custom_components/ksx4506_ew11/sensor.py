@@ -16,6 +16,8 @@ from .devices.meter import METER_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
 from .entity_base import KsxEntity
 
+_SOURCE_SAME = object()
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
@@ -65,13 +67,24 @@ def _sensor_entities_for_device(coordinator, dev):
     if dev.kind == "unknown":
         out.append(KsxUnknownDiagnostic(coordinator, dev))
     if dev.kind == "switch" and dev.addr == OUTLET_DEVICE_ID:
-        out.append(KsxOutletPowerSensor(coordinator, dev))
-        if "threshold_w" in dev.state or dev.state.get("thresholds"):
-            out.append(KsxOutletThresholdSensor(coordinator, dev))
-        for channel in _outlet_channels(dev):
-            out.append(KsxOutletPowerSensor(coordinator, dev, channel=channel))
-        for channel in _outlet_threshold_channels(dev):
-            out.append(KsxOutletThresholdSensor(coordinator, dev, channel=channel))
+        for channel, source_channel in _outlet_display_channels(dev):
+            out.append(
+                KsxOutletPowerSensor(
+                    coordinator,
+                    dev,
+                    channel=channel,
+                    source_channel=source_channel,
+                )
+            )
+        for channel, source_channel in _outlet_threshold_display_channels(dev):
+            out.append(
+                KsxOutletThresholdSensor(
+                    coordinator,
+                    dev,
+                    channel=channel,
+                    source_channel=source_channel,
+                )
+            )
     return out
 
 
@@ -84,22 +97,26 @@ def _meter_sensors(coordinator, dev):
     return out
 
 
-def _outlet_channels(dev):
-    channels = dev.state.get("channels", [])
-    return [
-        channel["channel"]
-        for channel in channels
+def _outlet_display_channels(dev):
+    channels = [(1, None)]
+    channels.extend(
+        (channel["channel"] + 1, channel["channel"])
+        for channel in dev.state.get("channels", [])
         if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
-    ]
+    )
+    return channels
 
 
-def _outlet_threshold_channels(dev):
-    thresholds = dev.state.get("thresholds", [])
-    return [
-        threshold["channel"]
-        for threshold in thresholds
+def _outlet_threshold_display_channels(dev):
+    channels = []
+    if "threshold_w" in dev.state:
+        channels.append((1, None))
+    channels.extend(
+        (threshold["channel"] + 1, threshold["channel"])
+        for threshold in dev.state.get("thresholds", [])
         if isinstance(threshold, dict) and isinstance(threshold.get("channel"), int)
-    ]
+    )
+    return channels
 
 
 class KsxSensor(KsxEntity, SensorEntity):
@@ -212,9 +229,17 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
 
-    def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
+    def __init__(
+        self,
+        coordinator,
+        dev,
+        *,
+        channel: int | None = None,
+        source_channel=_SOURCE_SAME,
+    ) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
+        self._source_channel = channel if source_channel is _SOURCE_SAME else source_channel
         if channel is None:
             self._attr_unique_id = f"ksx4506_{self.dev_key}_power"
         else:
@@ -228,6 +253,8 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
     @property
     def native_value(self):
         if self._channel is not None:
+            if self._source_channel is None:
+                return self.dev.state.get("power_w")
             channel = self._channel_state
             if channel is None:
                 return None
@@ -237,6 +264,12 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         if self._channel is not None:
+            if self._source_channel is None:
+                return {
+                    key: value
+                    for key, value in self.dev.state.items()
+                    if key in {"channel_count", "channels", "auto_cut", "under_threshold", "overload"}
+                }
             channel = self._channel_state
             return dict(channel) if channel is not None else {}
         return {
@@ -248,7 +281,7 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
     @property
     def _channel_state(self):
         for channel in self.dev.state.get("channels", []):
-            if channel.get("channel") == self._channel:
+            if channel.get("channel") == self._source_channel:
                 return channel
         return None
 
@@ -259,9 +292,17 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_suggested_display_precision = 1
 
-    def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
+    def __init__(
+        self,
+        coordinator,
+        dev,
+        *,
+        channel: int | None = None,
+        source_channel=_SOURCE_SAME,
+    ) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
+        self._source_channel = channel if source_channel is _SOURCE_SAME else source_channel
         if channel is None:
             self._attr_unique_id = f"ksx4506_{self.dev_key}_threshold"
         else:
@@ -275,6 +316,8 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
     @property
     def native_value(self):
         if self._channel is not None:
+            if self._source_channel is None:
+                return self.dev.state.get("threshold_w")
             threshold = self._channel_threshold
             if threshold is None:
                 return None
@@ -284,6 +327,12 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         if self._channel is not None:
+            if self._source_channel is None:
+                return {
+                    key: value
+                    for key, value in self.dev.state.items()
+                    if key in {"threshold_count", "thresholds"}
+                }
             threshold = self._channel_threshold
             return dict(threshold) if threshold is not None else {}
         return {
@@ -295,7 +344,7 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
     @property
     def _channel_threshold(self):
         for threshold in self.dev.state.get("thresholds", []):
-            if threshold.get("channel") == self._channel:
+            if threshold.get("channel") == self._source_channel:
                 return threshold
         return None
 

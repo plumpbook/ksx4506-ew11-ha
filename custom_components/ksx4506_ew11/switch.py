@@ -70,22 +70,28 @@ def _switch_entities_for_device(coordinator, dev):
     if dev.kind != "switch":
         return []
 
-    out = [KsxSwitch(coordinator, dev)]
     if dev.addr == OUTLET_DEVICE_ID:
-        out.extend(
-            KsxOutletChannelSwitch(coordinator, dev, channel=channel)
-            for channel in _outlet_channels(dev)
-        )
-    return out
+        return [
+            KsxOutletChannelSwitch(
+                coordinator,
+                dev,
+                channel=channel,
+                source_channel=source_channel,
+            )
+            for channel, source_channel in _outlet_display_channels(dev)
+        ]
+
+    return [KsxSwitch(coordinator, dev)]
 
 
-def _outlet_channels(dev):
-    channels = dev.state.get("channels", [])
-    return [
-        channel["channel"]
-        for channel in channels
+def _outlet_display_channels(dev):
+    channels = [(1, None)]
+    channels.extend(
+        (channel["channel"] + 1, channel["channel"])
+        for channel in dev.state.get("channels", [])
         if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
-    ]
+    )
+    return channels
 
 
 def _thermostat_channels(dev):
@@ -120,9 +126,10 @@ class KsxSwitch(KsxEntity, SwitchEntity):
 
 
 class KsxOutletChannelSwitch(KsxSwitch):
-    def __init__(self, coordinator, dev, *, channel: int) -> None:
+    def __init__(self, coordinator, dev, *, channel: int, source_channel: int | None = None) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
+        self._source_channel = source_channel
         self._attr_name = "Switch"
         self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
         self._set_ksx_device_info(
@@ -132,6 +139,8 @@ class KsxOutletChannelSwitch(KsxSwitch):
 
     @property
     def is_on(self) -> bool | None:
+        if self._source_channel is None:
+            return bool(self.dev.state.get("on", False))
         channel = self._channel_state
         if channel is None:
             return None
@@ -144,7 +153,14 @@ class KsxOutletChannelSwitch(KsxSwitch):
         await self._async_set_channel(False)
 
     async def _async_set_channel(self, turn_on: bool):
-        kwargs = {"channel": self._channel} if self.sub_id & 0x0F == 0x0F else {}
+        if self._source_channel is None:
+            if turn_on:
+                await super().async_turn_on()
+            else:
+                await super().async_turn_off()
+            return
+
+        kwargs = {"channel": self._source_channel} if self.sub_id & 0x0F == 0x0F else {}
         frame = build_outlet_control_request(self.sub_id, turn_on=turn_on, **kwargs)
         await self.coordinator.async_send_f7_command(
             self.addr,
@@ -156,7 +172,7 @@ class KsxOutletChannelSwitch(KsxSwitch):
     @property
     def _channel_state(self):
         for channel in self.dev.state.get("channels", []):
-            if channel.get("channel") == self._channel:
+            if channel.get("channel") == self._source_channel:
                 return channel
         return None
 

@@ -166,7 +166,12 @@ class _FakeRegistry:
 class _FakeCoordinator:
     def __init__(self, dev):
         self.registry = _FakeRegistry(dev)
+        self.sent = []
         self.sent_f7 = []
+
+    async def async_send_command(self, addr, cmd, payload, *, guard=False):
+        self.sent.append((addr, cmd, payload, guard))
+        return True
 
     async def async_send_f7_command(self, dev_id, sub_id, cmd, payload, *, guard=False):
         self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
@@ -289,18 +294,24 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     outlet_entities = sensor._sensor_entities_for_device(_FakeCoordinator(outlet), outlet)
     ids = [ent._attr_unique_id for ent in outlet_entities]
 
-    assert "ksx4506_391F_switch_power" in ids
     assert "ksx4506_391F_switch_ch1_power" in ids
     assert "ksx4506_391F_switch_ch2_power" in ids
-    assert "ksx4506_391F_switch_ch1_threshold" in ids
-    assert outlet_entities[0].native_value == 10.5
-    channel_power = next(
+    assert "ksx4506_391F_switch_ch3_power" in ids
+    assert "ksx4506_391F_switch_ch2_threshold" in ids
+    aggregate_power = next(
         ent
         for ent in outlet_entities
         if ent._attr_unique_id == "ksx4506_391F_switch_ch1_power"
     )
+    assert aggregate_power.native_value == 10.5
+    channel_power = next(
+        ent
+        for ent in outlet_entities
+        if ent._attr_unique_id == "ksx4506_391F_switch_ch2_power"
+    )
+    assert channel_power.native_value == 8.0
     assert channel_power._attr_device_info["identifiers"] == {
-        ("ksx4506_ew11", "391F_switch_ch1")
+        ("ksx4506_ew11", "391F_switch_ch2")
     }
     assert channel_power._attr_name == "Power"
 
@@ -325,17 +336,25 @@ def test_outlet_channel_switch_controls_specific_channel():
     coordinator = _FakeCoordinator(dev)
 
     entities = switch._switch_entities_for_device(coordinator, dev)
-    channel2 = entities[2]
+    channel1 = entities[0]
+    channel3 = entities[2]
 
     assert len(entities) == 3
-    assert channel2._attr_unique_id == "ksx4506_391F_switch_ch2"
-    assert channel2._attr_name == "Switch"
-    assert channel2._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch2")}
-    assert channel2._attr_device_info["name"] == "KSX 39-1F ch2"
-    assert channel2.is_on is True
+    assert channel1._attr_unique_id == "ksx4506_391F_switch_ch1"
+    assert channel1._attr_name == "Switch"
+    assert channel1._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch1")}
+    assert channel1._attr_device_info["name"] == "KSX 39-1F ch1"
+    assert channel1.is_on is False
+    assert channel3._attr_unique_id == "ksx4506_391F_switch_ch3"
+    assert channel3._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch3")}
+    assert channel3.is_on is True
 
-    asyncio.run(channel2.async_turn_off())
+    asyncio.run(channel1.async_turn_on())
+    asyncio.run(channel3.async_turn_off())
 
+    assert coordinator.sent == [
+        (0x39, 0x21, b"\x01", False),
+    ]
     assert coordinator.sent_f7 == [
         (0x39, 0x1F, 0x41, bytes.fromhex("00 10"), False),
     ]
@@ -384,14 +403,14 @@ def test_outlet_and_entrance_binary_sensors_are_expanded():
     outlet_entities = binary_sensor._binary_sensors_for_device(_FakeCoordinator(outlet), outlet)
     ids = [ent._attr_unique_id for ent in outlet_entities]
 
-    assert "ksx4506_391F_switch_auto_cut" in ids
-    assert "ksx4506_391F_switch_ch1_under_threshold" in ids
+    assert "ksx4506_391F_switch_ch1_auto_cut" in ids
+    assert "ksx4506_391F_switch_ch2_under_threshold" in ids
     channel_entity = next(
         ent
         for ent in outlet_entities
-        if ent._attr_unique_id == "ksx4506_391F_switch_ch1_under_threshold"
+        if ent._attr_unique_id == "ksx4506_391F_switch_ch2_under_threshold"
     )
     assert channel_entity._attr_device_info["identifiers"] == {
-        ("ksx4506_ew11", "391F_switch_ch1")
+        ("ksx4506_ew11", "391F_switch_ch2")
     }
     assert channel_entity._attr_name == "Under Threshold"

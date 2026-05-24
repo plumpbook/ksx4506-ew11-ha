@@ -14,6 +14,9 @@ from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
 from .entity_base import KsxEntity
 
+_OUTLET_BINARY_STATE_KEYS = ("auto_cut", "under_threshold", "overload")
+_SOURCE_SAME = object()
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -81,35 +84,49 @@ def _entrance_panel_binary_sensors(coordinator, dev):
 
 
 def _outlet_binary_sensors(coordinator, dev):
-    out = [
-        KsxStateBinarySensor(coordinator, dev, "auto_cut", "Auto Cut"),
-        KsxStateBinarySensor(coordinator, dev, "under_threshold", "Under Threshold"),
-        KsxStateBinarySensor(coordinator, dev, "overload", "Overload"),
-    ]
-    for channel in _outlet_channels(dev):
+    out = []
+    for channel, source_channel in _outlet_binary_display_channels(dev):
         out.extend(
             [
-                KsxOutletChannelBinarySensor(coordinator, dev, channel, "auto_cut", "Auto Cut"),
+                KsxOutletChannelBinarySensor(
+                    coordinator,
+                    dev,
+                    channel,
+                    "auto_cut",
+                    "Auto Cut",
+                    source_channel=source_channel,
+                ),
                 KsxOutletChannelBinarySensor(
                     coordinator,
                     dev,
                     channel,
                     "under_threshold",
                     "Under Threshold",
+                    source_channel=source_channel,
                 ),
-                KsxOutletChannelBinarySensor(coordinator, dev, channel, "overload", "Overload"),
+                KsxOutletChannelBinarySensor(
+                    coordinator,
+                    dev,
+                    channel,
+                    "overload",
+                    "Overload",
+                    source_channel=source_channel,
+                ),
             ]
         )
     return out
 
 
-def _outlet_channels(dev):
-    channels = dev.state.get("channels", [])
-    return [
-        channel["channel"]
-        for channel in channels
+def _outlet_binary_display_channels(dev):
+    channels = []
+    if any(key in dev.state for key in _OUTLET_BINARY_STATE_KEYS):
+        channels.append((1, None))
+    channels.extend(
+        (channel["channel"] + 1, channel["channel"])
+        for channel in dev.state.get("channels", [])
         if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
-    ]
+    )
+    return channels
 
 
 class _KsxGasBinarySensor(KsxEntity, BinarySensorEntity):
@@ -153,9 +170,19 @@ class KsxStateBinarySensor(KsxEntity, BinarySensorEntity):
 
 
 class KsxOutletChannelBinarySensor(KsxEntity, BinarySensorEntity):
-    def __init__(self, coordinator, dev, channel: int, state_key: str, name: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        dev,
+        channel: int,
+        state_key: str,
+        name: str,
+        *,
+        source_channel=_SOURCE_SAME,
+    ) -> None:
         super().__init__(coordinator, dev)
         self._channel = channel
+        self._source_channel = channel if source_channel is _SOURCE_SAME else source_channel
         self._state_key = state_key
         self._attr_name = name
         self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_{state_key}"
@@ -166,6 +193,11 @@ class KsxOutletChannelBinarySensor(KsxEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
+        if self._source_channel is None:
+            if self._state_key not in self.dev.state:
+                return None
+            return bool(self.dev.state[self._state_key])
+
         channel = self._channel_state
         if channel is None or self._state_key not in channel:
             return None
@@ -174,6 +206,6 @@ class KsxOutletChannelBinarySensor(KsxEntity, BinarySensorEntity):
     @property
     def _channel_state(self):
         for channel in self.dev.state.get("channels", []):
-            if channel.get("channel") == self._channel:
+            if channel.get("channel") == self._source_channel:
                 return channel
         return None

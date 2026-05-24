@@ -11,7 +11,6 @@ from .const import DOMAIN, SIGNAL_DEVICE_ADDED, SIGNAL_DEVICE_UPDATE
 from .devices.common_entrance import (
     CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
-    OPEN_REQUEST,
     format_common_entrance_packet_log,
 )
 from .discovery import DeviceRegistry
@@ -100,18 +99,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             payload.hex(),
             packet.hex(),
         )
-        if dev_id == COMMON_ENTRANCE_DEVICE_ID:
-            log_message = format_common_entrance_packet_log(
-                sub_id,
-                cmd,
-                payload,
-                packet,
-                direction="TX",
-            )
-            if cmd == OPEN_REQUEST:
-                _LOGGER.info(log_message)
-            else:
-                _LOGGER.debug(log_message)
         return await self._client.send_with_retry(packet)
 
     async def async_send_f7_command(
