@@ -18,7 +18,7 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
         self.kind = dev.kind
         self._attr_unique_id = f"ksx4506_{self.dev_key}"
 
-        name = f"KSX {self.kind} {self.addr:02X}-{self.sub_id:02X}"
+        name = f"KSX {self.addr:02X}-{self.sub_id:02X}"
         if self.channel is not None:
             name = f"{name} ch{self.channel}"
 
