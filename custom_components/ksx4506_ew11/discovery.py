@@ -123,6 +123,7 @@ class DeviceRegistry:
                     and d.sub_id == canonical_sub_id
                     and d.channel is not None
                 }
+                uses_channel_payload = is_group_reply or len(payload) > 2
 
                 for ch, state_byte in items:
                     if existing_channels and ch not in existing_channels and 1 in existing_channels:
@@ -141,6 +142,12 @@ class DeviceRegistry:
                     dev = self.devices[key]
                     dev.last_raw_hex = raw_hex
                     dev.state.update(decode_light_state_byte(state_byte))
+                    dev.state["status_sub_id"] = sub_id
+                    dev.state["control_sub_id"] = sub_id
+                    if uses_channel_payload:
+                        dev.state["control_channel"] = ch
+                    else:
+                        dev.state.pop("control_channel", None)
                     changes.append((dev, is_new))
 
             return changes
