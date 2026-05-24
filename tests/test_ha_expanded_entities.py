@@ -215,7 +215,7 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x11, 0x41, bytes.fromhex("01 00 00"), False),
+        (0x0E, 0x11, 0x41, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x1F)]
 
@@ -233,7 +233,7 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x21, 0x41, bytes.fromhex("01 00 00"), False),
+        (0x0E, 0x21, 0x41, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x2F)]
 

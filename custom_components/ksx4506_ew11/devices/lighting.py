@@ -49,12 +49,11 @@ def build_vendor_channel_control_payload(
     return bytes([channel & 0xFF, 0x01 if turn_on else 0x00, 0x00])
 
 
-def f7_group_module_sub_id(group_sub_id: int) -> int:
-    """Return the Suroup lighting module sub-id for a canonical group entity."""
+def f7_individual_sub_id(group_sub_id: int, channel: int | None) -> int:
+    """Return the individual control sub-id for a grouped light entity."""
 
-    if (group_sub_id & 0x0F) != 0x0F:
-        return group_sub_id
-    group = (group_sub_id >> 4) & 0x0F
-    if group == 0:
-        group = 1
-    return (group << 4) | 0x01
+    if channel is not None and (group_sub_id & 0x0F) == 0x0F:
+        if channel < 1 or channel > 0x0E:
+            raise ValueError("channel must be in 1..14")
+        return (group_sub_id & 0xF0) | (channel & 0x0F)
+    return group_sub_id
