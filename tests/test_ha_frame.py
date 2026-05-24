@@ -92,4 +92,5 @@ def test_lighting_helpers_build_standard_and_vendor_payloads():
         )
         == b"\x02\x00\x00"
     )
-    assert lighting_module.f7_individual_sub_id(0x1F, 2) == 0x12
+    assert lighting_module.f7_group_module_sub_id(0x1F) == 0x11
+    assert lighting_module.f7_group_module_sub_id(0x2F) == 0x21

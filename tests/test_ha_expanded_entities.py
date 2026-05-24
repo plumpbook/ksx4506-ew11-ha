@@ -60,6 +60,18 @@ def _install_homeassistant_stubs():
 
     switch.SwitchEntity = SwitchEntity
 
+    light = types.ModuleType("homeassistant.components.light")
+
+    class ColorMode:
+        BRIGHTNESS = "brightness"
+        ONOFF = "onoff"
+
+    class LightEntity:
+        pass
+
+    light.ColorMode = ColorMode
+    light.LightEntity = LightEntity
+
     number = types.ModuleType("homeassistant.components.number")
 
     class NumberDeviceClass:
@@ -147,6 +159,7 @@ def _install_homeassistant_stubs():
     sys.modules["homeassistant.components.binary_sensor"] = binary_sensor
     sys.modules["homeassistant.components.climate"] = climate
     sys.modules["homeassistant.components.climate.const"] = climate_const
+    sys.modules["homeassistant.components.light"] = light
     sys.modules["homeassistant.components.number"] = number
     sys.modules["homeassistant.components.sensor"] = sensor
     sys.modules["homeassistant.components.switch"] = switch
@@ -168,6 +181,7 @@ class _FakeCoordinator:
         self.registry = _FakeRegistry(dev)
         self.sent = []
         self.sent_f7 = []
+        self.state_requests = []
 
     async def async_send_command(self, addr, cmd, payload, *, guard=False):
         self.sent.append((addr, cmd, payload, guard))
@@ -176,6 +190,52 @@ class _FakeCoordinator:
     async def async_send_f7_command(self, dev_id, sub_id, cmd, payload, *, guard=False):
         self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
         return True
+
+    async def async_request_f7_state(self, dev_id, sub_id):
+        self.state_requests.append((dev_id, sub_id))
+        return True
+
+
+def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    light = load_integration_module("light")
+
+    group1 = discovery.DeviceState(
+        key="0E1F_light_1",
+        addr=0x0E,
+        sub_id=0x1F,
+        channel=1,
+        kind="light",
+        state={"on": True, "dimmable": False},
+    )
+    coordinator = _FakeCoordinator(group1)
+    entity = light.KsxLight(coordinator, group1)
+
+    asyncio.run(entity.async_turn_off())
+
+    assert coordinator.sent_f7 == [
+        (0x0E, 0x11, 0x41, bytes.fromhex("01 00 00"), False),
+    ]
+    assert coordinator.state_requests == [(0x0E, 0x1F)]
+
+    group2 = discovery.DeviceState(
+        key="0E2F_light_1",
+        addr=0x0E,
+        sub_id=0x2F,
+        channel=1,
+        kind="light",
+        state={"on": True, "dimmable": False},
+    )
+    coordinator = _FakeCoordinator(group2)
+    entity = light.KsxLight(coordinator, group2)
+
+    asyncio.run(entity.async_turn_off())
+
+    assert coordinator.sent_f7 == [
+        (0x0E, 0x21, 0x41, bytes.fromhex("01 00 00"), False),
+    ]
+    assert coordinator.state_requests == [(0x0E, 0x2F)]
 
 
 def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
