@@ -175,9 +175,33 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         self._frame_waiters.append(waiter)
 
         try:
-            for _ in range(attempts):
+            for attempt in range(1, attempts + 1):
                 if fut.done():
-                    return fut.result()
+                    matched = fut.result()
+                    _LOGGER.debug(
+                        "TX F7 control matched before send dev=0x%02X sub=0x%02X cmd=0x%02X "
+                        "attempt=%d/%d matched_sub=0x%02X matched_cmd=0x%02X",
+                        dev_id,
+                        sub_id,
+                        cmd,
+                        attempt,
+                        attempts,
+                        matched.sub_id,
+                        matched.cmd,
+                    )
+                    return matched
+
+                _LOGGER.debug(
+                    "TX F7 control attempt dev=0x%02X sub=0x%02X cmd=0x%02X "
+                    "attempt=%d/%d interval=%.3fs payload=%s",
+                    dev_id,
+                    sub_id,
+                    cmd,
+                    attempt,
+                    attempts,
+                    interval,
+                    payload.hex(),
+                )
 
                 await self.async_send_f7_command(
                     dev_id,
@@ -188,12 +212,51 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 )
 
                 try:
-                    return await asyncio.wait_for(asyncio.shield(fut), timeout=interval)
-                except TimeoutError:
+                    matched = await asyncio.wait_for(asyncio.shield(fut), timeout=interval)
+                    _LOGGER.debug(
+                        "TX F7 control matched dev=0x%02X sub=0x%02X cmd=0x%02X "
+                        "attempt=%d/%d matched_sub=0x%02X matched_cmd=0x%02X",
+                        dev_id,
+                        sub_id,
+                        cmd,
+                        attempt,
+                        attempts,
+                        matched.sub_id,
+                        matched.cmd,
+                    )
+                    return matched
+                except asyncio.TimeoutError:
+                    _LOGGER.debug(
+                        "TX F7 control wait timeout dev=0x%02X sub=0x%02X cmd=0x%02X "
+                        "attempt=%d/%d",
+                        dev_id,
+                        sub_id,
+                        cmd,
+                        attempt,
+                        attempts,
+                    )
                     continue
 
             if fut.done():
-                return fut.result()
+                matched = fut.result()
+                _LOGGER.debug(
+                    "TX F7 control matched after final send dev=0x%02X sub=0x%02X cmd=0x%02X "
+                    "attempts=%d matched_sub=0x%02X matched_cmd=0x%02X",
+                    dev_id,
+                    sub_id,
+                    cmd,
+                    attempts,
+                    matched.sub_id,
+                    matched.cmd,
+                )
+                return matched
+            _LOGGER.debug(
+                "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X attempts=%d",
+                dev_id,
+                sub_id,
+                cmd,
+                attempts,
+            )
             return None
         finally:
             with suppress(ValueError):

@@ -177,12 +177,14 @@ class _FakeRegistry:
 
 
 class _FakeCoordinator:
-    def __init__(self, dev, *, matched_frame=None, max_attempts=10):
+    def __init__(self, dev, *, matched_frame=None, matched_frames=None, max_attempts=10):
         self.registry = _FakeRegistry(dev)
         self.sent = []
         self.sent_f7 = []
         self.state_requests = []
-        self.matched_frame = matched_frame
+        self.matched_frames = list(matched_frames or [])
+        if matched_frame is not None:
+            self.matched_frames.append(matched_frame)
         self.max_attempts = max_attempts
 
     async def async_send_command(self, addr, cmd, payload, *, guard=False):
@@ -207,8 +209,9 @@ class _FakeCoordinator:
     ):
         for _ in range(max_attempts or self.max_attempts):
             self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
-            if self.matched_frame is not None and matcher(self.matched_frame):
-                return self.matched_frame
+            for index, frame in enumerate(self.matched_frames):
+                if matcher(frame):
+                    return self.matched_frames.pop(index)
         return None
 
     async def async_request_f7_state(self, dev_id, sub_id):
@@ -237,6 +240,7 @@ def test_light_control_uses_suroup_module_channel_payload():
     )
     coordinator = _FakeCoordinator(group1)
     entity = light.KsxLight(coordinator, group1)
+    assert entity._attr_device_info["name"] == "Light 0E-11 Channel 1"
 
     asyncio.run(entity.async_turn_off())
 
@@ -261,6 +265,7 @@ def test_light_control_uses_suroup_module_channel_payload():
     )
     coordinator = _FakeCoordinator(group1_ch2)
     entity = light.KsxLight(coordinator, group1_ch2)
+    assert entity._attr_device_info["name"] == "Light 0E-11 Channel 2"
 
     asyncio.run(entity.async_turn_off())
 
@@ -386,7 +391,6 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     climate = load_integration_module("climate")
-    number = load_integration_module("number")
     switch = load_integration_module("switch")
 
     dev = discovery.DeviceState(
@@ -404,7 +408,23 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
             "current_temp": 24,
         },
     )
-    coordinator = _FakeCoordinator(dev)
+    coordinator = _FakeCoordinator(
+        dev,
+        matched_frames=[
+            types.SimpleNamespace(
+                addr=0x36,
+                sub_id=0x1F,
+                cmd=0x81,
+                payload=bytes.fromhex("00 03 00 00 00 19 17 18 18"),
+            ),
+            types.SimpleNamespace(
+                addr=0x36,
+                sub_id=0x11,
+                cmd=0xC3,
+                payload=bytes.fromhex("00 00 01 00 00 17 17"),
+            ),
+        ],
+    )
 
     entities = climate._climate_entities_for_device(coordinator, dev)
     zone1 = entities[0]
@@ -412,39 +432,36 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     assert len(entities) == 2
     assert zone1._attr_unique_id == "ksx4506_361F_climate_ch1"
     assert zone1._attr_name == "Climate"
+    assert zone1._attr_target_temperature_step == 1.0
     assert zone1._attr_device_info["identifiers"] == {("ksx4506_ew11", "361F_climate_ch1")}
-    assert zone1._attr_device_info["name"] == "KSX 36-1F ch1"
+    assert zone1._attr_device_info["name"] == "Thermostat 36-1F Zone 1"
     assert zone1.target_temperature == 23
     assert zone1.current_temperature == 23
     assert zone1.hvac_mode == "heat"
-    assert zone1.hvac_action == "idle"
 
-    asyncio.run(zone1.async_set_temperature(temperature=25.5))
+    asyncio.run(zone1.async_set_temperature(temperature=25))
     asyncio.run(zone1.async_set_hvac_mode("off"))
 
     assert coordinator.sent_f7 == [
-        (0x36, 0x11, 0x44, b"\x99", False),
+        (0x36, 0x11, 0x44, b"\x19", False),
         (0x36, 0x11, 0x43, b"\x00", False),
     ]
+    assert coordinator.state_requests == [(0x36, 0x1F)]
 
     heat_switch = switch._switch_entities_for_device(coordinator, dev)[0]
-    target_number = number._number_entities_for_device(coordinator, dev)[0]
 
     assert heat_switch._attr_unique_id == "ksx4506_361F_climate_ch1_heat"
     assert heat_switch._attr_device_info["identifiers"] == {
         ("ksx4506_ew11", "361F_climate_ch1")
     }
     assert heat_switch.is_on is True
-    assert target_number._attr_unique_id == "ksx4506_361F_climate_ch1_target_temperature"
-    assert target_number.native_value == 23
 
     asyncio.run(heat_switch.async_turn_off())
-    asyncio.run(target_number.async_set_native_value(21.5))
 
-    assert coordinator.sent_f7[-2:] == [
+    assert coordinator.sent_f7[-1:] == [
         (0x36, 0x11, 0x43, b"\x00", False),
-        (0x36, 0x11, 0x44, b"\x95", False),
     ]
+    assert coordinator.state_requests == [(0x36, 0x1F), (0x36, 0x1F)]
 
 
 def test_meter_and_outlet_sensor_entities_are_expanded():
@@ -479,48 +496,37 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     assert meter_entities[1].device_class == "energy"
 
     outlet = discovery.DeviceState(
-        key="391F_switch",
+        key="3911_switch",
         addr=0x39,
-        sub_id=0x1F,
+        sub_id=0x11,
         kind="switch",
         state={
             "power_w": 10.5,
-            "channels": [
-                {"channel": 1, "power_w": 8.0},
-                {"channel": 2, "power_w": 2.5},
-            ],
-            "thresholds": [
-                {"channel": 1, "threshold_w": 13.1},
-                {"channel": 2, "threshold_w": 20.0},
-            ],
+            "threshold_w": 13.1,
+            "status_sub_id": 0x1F,
+            "status_channel": 1,
+            "control_sub_id": 0x11,
         },
     )
     outlet_entities = sensor._sensor_entities_for_device(_FakeCoordinator(outlet), outlet)
     ids = [ent._attr_unique_id for ent in outlet_entities]
 
-    assert "ksx4506_391F_switch_ch1_power" in ids
-    assert "ksx4506_391F_switch_ch2_power" in ids
-    assert "ksx4506_391F_switch_ch3_power" in ids
-    assert "ksx4506_391F_switch_ch2_threshold" in ids
-    aggregate_power = next(
+    assert ids == [
+        "ksx4506_3911_switch_power",
+        "ksx4506_3911_switch_threshold",
+    ]
+    power = next(
         ent
         for ent in outlet_entities
-        if ent._attr_unique_id == "ksx4506_391F_switch_ch1_power"
+        if ent._attr_unique_id == "ksx4506_3911_switch_power"
     )
-    assert aggregate_power.native_value == 10.5
-    channel_power = next(
-        ent
-        for ent in outlet_entities
-        if ent._attr_unique_id == "ksx4506_391F_switch_ch2_power"
-    )
-    assert channel_power.native_value == 8.0
-    assert channel_power._attr_device_info["identifiers"] == {
-        ("ksx4506_ew11", "391F_switch_ch2")
-    }
-    assert channel_power._attr_name == "Power"
+    assert power.native_value == 10.5
+    assert power._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
+    assert power._attr_device_info["name"] == "Outlet 39-11"
+    assert power._attr_name == "Power"
 
 
-def test_outlet_channel_switch_controls_specific_channel():
+def test_outlet_group_device_without_control_subid_is_not_exposed():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
@@ -540,28 +546,8 @@ def test_outlet_channel_switch_controls_specific_channel():
     coordinator = _FakeCoordinator(dev)
 
     entities = switch._switch_entities_for_device(coordinator, dev)
-    channel1 = entities[0]
-    channel3 = entities[2]
 
-    assert len(entities) == 3
-    assert channel1._attr_unique_id == "ksx4506_391F_switch_ch1"
-    assert channel1._attr_name == "Switch"
-    assert channel1._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch1")}
-    assert channel1._attr_device_info["name"] == "KSX 39-1F ch1"
-    assert channel1.is_on is False
-    assert channel3._attr_unique_id == "ksx4506_391F_switch_ch3"
-    assert channel3._attr_device_info["identifiers"] == {("ksx4506_ew11", "391F_switch_ch3")}
-    assert channel3.is_on is True
-
-    asyncio.run(channel1.async_turn_on())
-    asyncio.run(channel3.async_turn_off())
-
-    assert coordinator.sent == [
-        (0x39, 0x21, b"\x01", False),
-    ]
-    assert coordinator.sent_f7 == [
-        (0x39, 0x1F, 0x41, bytes.fromhex("00 10"), False),
-    ]
+    assert entities == []
 
 
 def test_outlet_individual_switch_controls_suroup_subid():
@@ -589,7 +575,7 @@ def test_outlet_individual_switch_controls_suroup_subid():
     assert len(entities) == 1
     assert entity._attr_unique_id == "ksx4506_3911_switch"
     assert entity._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
-    assert entity._attr_device_info["name"] == "KSX 39-11"
+    assert entity._attr_device_info["name"] == "Outlet 39-11"
 
     asyncio.run(entity.async_turn_on())
 
@@ -629,6 +615,38 @@ def test_outlet_individual_switch_stops_when_status_matches():
     assert coordinator.state_requests == []
 
 
+def test_outlet_individual_switch_stops_when_control_ack_matches():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    switch = load_integration_module("switch")
+
+    dev = discovery.DeviceState(
+        key="3911_switch",
+        addr=0x39,
+        sub_id=0x11,
+        kind="switch",
+        state={
+            "on": False,
+            "status_sub_id": 0x1F,
+            "status_channel": 1,
+            "control_sub_id": 0x11,
+        },
+    )
+    matched = types.SimpleNamespace(
+        addr=0x39,
+        sub_id=0x11,
+        cmd=0xC1,
+        payload=bytes.fromhex("00 01"),
+    )
+    coordinator = _FakeCoordinator(dev, matched_frame=matched)
+    entity = switch._switch_entities_for_device(coordinator, dev)[0]
+
+    asyncio.run(entity.async_turn_on())
+
+    assert coordinator.sent_f7 == [(0x39, 0x11, 0x41, b"\x11", False)]
+    assert coordinator.state_requests == [(0x39, 0x1F)]
+
+
 def test_outlet_and_entrance_binary_sensors_are_expanded():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
@@ -656,30 +674,31 @@ def test_outlet_and_entrance_binary_sensors_are_expanded():
     assert entrance_entities[0].is_on is True
 
     outlet = discovery.DeviceState(
-        key="391F_switch",
+        key="3911_switch",
         addr=0x39,
-        sub_id=0x1F,
+        sub_id=0x11,
         kind="switch",
         state={
             "auto_cut": True,
             "under_threshold": False,
             "overload": False,
-            "channels": [
-                {"channel": 1, "auto_cut": False, "under_threshold": True, "overload": False}
-            ],
+            "status_sub_id": 0x1F,
+            "status_channel": 1,
+            "control_sub_id": 0x11,
         },
     )
     outlet_entities = binary_sensor._binary_sensors_for_device(_FakeCoordinator(outlet), outlet)
     ids = [ent._attr_unique_id for ent in outlet_entities]
 
-    assert "ksx4506_391F_switch_ch1_auto_cut" in ids
-    assert "ksx4506_391F_switch_ch2_under_threshold" in ids
+    assert ids == [
+        "ksx4506_3911_switch_auto_cut",
+        "ksx4506_3911_switch_under_threshold",
+        "ksx4506_3911_switch_overload",
+    ]
     channel_entity = next(
         ent
         for ent in outlet_entities
-        if ent._attr_unique_id == "ksx4506_391F_switch_ch2_under_threshold"
+        if ent._attr_unique_id == "ksx4506_3911_switch_under_threshold"
     )
-    assert channel_entity._attr_device_info["identifiers"] == {
-        ("ksx4506_ew11", "391F_switch_ch2")
-    }
+    assert channel_entity._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
     assert channel_entity._attr_name == "Under Threshold"

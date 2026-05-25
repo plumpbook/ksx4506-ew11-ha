@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
 
@@ -165,11 +167,13 @@ def test_thermostat_helpers_build_standard_frames_and_decode_state():
     assert thermostat.build_thermostat_status_request().to_bytes() == bytes.fromhex(
         "F7 36 1F 01 00 DF 2C"
     )
-    assert thermostat.build_thermostat_temperature_request(0x11, temperature=25.5).to_bytes() == bytes.fromhex(
-        "F7 36 11 44 01 99 0C 28"
+    assert thermostat.build_thermostat_temperature_request(0x11, temperature=25).to_bytes() == bytes.fromhex(
+        "F7 36 11 44 01 19 8C 28"
     )
     assert thermostat.build_generic_temperature_payload(22) == b"\x16"
-    assert thermostat.encode_thermostat_temperature(25.5) == 0x99
+    assert thermostat.encode_thermostat_temperature(25) == 0x19
+    with pytest.raises(ValueError, match="1 degree"):
+        thermostat.encode_thermostat_temperature(25.5)
 
     group_state = thermostat.decode_thermostat_state(
         bytes.fromhex("00 03 00 00 00 17 17 18 18"),

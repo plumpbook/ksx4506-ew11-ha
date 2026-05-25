@@ -1,5 +1,5 @@
 DOMAIN = "ksx4506_ew11"
-PLATFORMS = ["light", "switch", "climate", "fan", "sensor", "valve", "binary_sensor", "number"]
+PLATFORMS = ["light", "switch", "climate", "fan", "sensor", "valve", "binary_sensor"]
 
 CONF_HOST = "host"
 CONF_PORT = "port"

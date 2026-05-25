@@ -20,13 +20,11 @@ from .devices.outlet import (
     decode_outlet_state,
 )
 from .devices.thermostat import (
-    HEAT_CONTROL_REQUEST,
     THERMOSTAT_DEVICE_ID,
-    build_thermostat_heat_request,
-    thermostat_target_sub_id,
 )
-from .entity_base import KsxEntity
+from .entity_base import KsxEntity, format_device_name
 from .protocol import KsFrame
+from .thermostat_control import async_send_thermostat_heat_control
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -79,27 +77,9 @@ def _switch_entities_for_device(coordinator, dev):
     if dev.addr == OUTLET_DEVICE_ID:
         if "control_sub_id" in dev.state:
             return [KsxOutletSwitch(coordinator, dev)]
-        return [
-            KsxOutletChannelSwitch(
-                coordinator,
-                dev,
-                channel=channel,
-                source_channel=source_channel,
-            )
-            for channel, source_channel in _outlet_display_channels(dev)
-        ]
+        return []
 
     return [KsxSwitch(coordinator, dev)]
-
-
-def _outlet_display_channels(dev):
-    channels = [(1, None)]
-    channels.extend(
-        (channel["channel"] + 1, channel["channel"])
-        for channel in dev.state.get("channels", [])
-        if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
-    )
-    return channels
 
 
 def _thermostat_channels(dev):
@@ -173,6 +153,7 @@ class KsxOutletSwitch(KsxSwitch):
                     status_sub=status_sub,
                     turn_on=turn_on,
                 ),
+                interval=0.25,
             )
 
         if matched is None or matched.cmd != F7_OUTLET_STATUS_RESPONSE:
@@ -192,7 +173,13 @@ class KsxOutletSwitch(KsxSwitch):
             if frame.addr != self.addr:
                 return False
             if frame.sub_id == target_sub and frame.cmd == F7_OUTLET_CONTROL_RESPONSE:
-                return True
+                state = decode_outlet_state(
+                    frame.payload,
+                    unit=target_sub & 0x0F,
+                    channel=1,
+                    command_type=frame.cmd,
+                )
+                return state.get("on") is bool(turn_on)
             if frame.sub_id != status_sub or frame.cmd != F7_OUTLET_STATUS_RESPONSE:
                 return False
             state = decode_outlet_state(
@@ -206,58 +193,6 @@ class KsxOutletSwitch(KsxSwitch):
         return matcher
 
 
-class KsxOutletChannelSwitch(KsxSwitch):
-    def __init__(self, coordinator, dev, *, channel: int, source_channel: int | None = None) -> None:
-        super().__init__(coordinator, dev)
-        self._channel = channel
-        self._source_channel = source_channel
-        self._attr_name = "Switch"
-        self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
-        self._set_ksx_device_info(
-            device_key=f"{self.dev_key}_ch{channel}",
-            name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
-        )
-
-    @property
-    def is_on(self) -> bool | None:
-        if self._source_channel is None:
-            return bool(self.dev.state.get("on", False))
-        channel = self._channel_state
-        if channel is None:
-            return None
-        return bool(channel.get("on", False))
-
-    async def async_turn_on(self, **kwargs):
-        await self._async_set_channel(True)
-
-    async def async_turn_off(self, **kwargs):
-        await self._async_set_channel(False)
-
-    async def _async_set_channel(self, turn_on: bool):
-        if self._source_channel is None:
-            if turn_on:
-                await super().async_turn_on()
-            else:
-                await super().async_turn_off()
-            return
-
-        kwargs = {"channel": self._source_channel} if self.sub_id & 0x0F == 0x0F else {}
-        frame = build_outlet_control_request(self.sub_id, turn_on=turn_on, **kwargs)
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            F7_OUTLET_CONTROL_REQUEST,
-            frame.data,
-        )
-
-    @property
-    def _channel_state(self):
-        for channel in self.dev.state.get("channels", []):
-            if channel.get("channel") == self._source_channel:
-                return channel
-        return None
-
-
 class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
     _attr_name = "Heating"
 
@@ -268,7 +203,12 @@ class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_heat"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
-                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+                name=format_device_name(
+                    self.addr,
+                    self.sub_id,
+                    channel=channel,
+                    state=dev.state,
+                ),
             )
         else:
             self._attr_unique_id = f"ksx4506_{self.dev_key}_heat"
@@ -287,15 +227,12 @@ class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
         await self._async_set_heat(False)
 
     async def _async_set_heat(self, turn_on: bool):
-        frame = build_thermostat_heat_request(
-            thermostat_target_sub_id(self.sub_id, self._channel),
+        await async_send_thermostat_heat_control(
+            self.coordinator,
+            addr=self.addr,
+            status_sub_id=self.sub_id,
+            channel=self._channel,
             turn_on=turn_on,
-        )
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            HEAT_CONTROL_REQUEST,
-            frame.data,
         )
 
     @property

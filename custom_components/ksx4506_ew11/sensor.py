@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .devices.meter import METER_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
-from .entity_base import KsxEntity
+from .entity_base import KsxEntity, format_device_name
 
 _SOURCE_SAME = object()
 
@@ -72,25 +72,6 @@ def _sensor_entities_for_device(coordinator, dev):
                 out.append(KsxOutletPowerSensor(coordinator, dev))
             if "threshold_w" in dev.state:
                 out.append(KsxOutletThresholdSensor(coordinator, dev))
-        else:
-            for channel, source_channel in _outlet_display_channels(dev):
-                out.append(
-                    KsxOutletPowerSensor(
-                        coordinator,
-                        dev,
-                        channel=channel,
-                        source_channel=source_channel,
-                    )
-                )
-            for channel, source_channel in _outlet_threshold_display_channels(dev):
-                out.append(
-                    KsxOutletThresholdSensor(
-                        coordinator,
-                        dev,
-                        channel=channel,
-                        source_channel=source_channel,
-                    )
-                )
     return out
 
 
@@ -101,28 +82,6 @@ def _meter_sensors(coordinator, dev):
     if "total" in dev.state:
         out.append(KsxMeterTotalSensor(coordinator, dev))
     return out
-
-
-def _outlet_display_channels(dev):
-    channels = [(1, None)]
-    channels.extend(
-        (channel["channel"] + 1, channel["channel"])
-        for channel in dev.state.get("channels", [])
-        if isinstance(channel, dict) and isinstance(channel.get("channel"), int)
-    )
-    return channels
-
-
-def _outlet_threshold_display_channels(dev):
-    channels = []
-    if "threshold_w" in dev.state:
-        channels.append((1, None))
-    channels.extend(
-        (threshold["channel"] + 1, threshold["channel"])
-        for threshold in dev.state.get("thresholds", [])
-        if isinstance(threshold, dict) and isinstance(threshold.get("channel"), int)
-    )
-    return channels
 
 
 class KsxSensor(KsxEntity, SensorEntity):
@@ -253,7 +212,12 @@ class KsxOutletPowerSensor(KsxEntity, SensorEntity):
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_power"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
-                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+                name=format_device_name(
+                    self.addr,
+                    self.sub_id,
+                    channel=channel,
+                    state=dev.state,
+                ),
             )
 
     @property
@@ -316,7 +280,12 @@ class KsxOutletThresholdSensor(KsxEntity, SensorEntity):
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_threshold"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
-                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+                name=format_device_name(
+                    self.addr,
+                    self.sub_id,
+                    channel=channel,
+                    state=dev.state,
+                ),
             )
 
     @property

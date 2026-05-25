@@ -20,7 +20,7 @@ Capture window:
 | `0x30` | Integrated metering | `0x03` | `0x01`, `0x81` | `sensor` | Electricity payload decodes to instant/total values. |
 | `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81` | read-only `sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status only and does not expose generic switch writes. |
 | `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate` | Group status payload includes multiple zone temperature pairs. |
-| `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch` with attributes | Payloads decode as channel supply state and wattage. |
+| `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch`, `sensor`, `binary_sensor` | Group status packets are expanded into physical outlets such as `39-11` and `39-12`; control uses the individual sub ID. |
 | `0x40` | Common entrance door | `0x02`, `0x03` | `0x01`, `0x02`, `0x10`, `0x82` | read-only `sensor` | Community examples identify `0x40/0x02` as common entrance. Current code decodes events only; it does not expose an open button. |
 | `0x60` | Unknown sensor-like device | `0x01` | `0x01`, `0x81` | `sensor` raw value | Request carries 3 data bytes; response carries 1 data byte. Semantics unknown. |
 
@@ -107,6 +107,27 @@ create a Home Assistant open button yet, because that would control shared
 building access. A future control entity should be explicit, disabled by
 default, and guarded behind an option similar to gas valve safety handling.
 
+## `0x39` Outlet Notes
+
+Validated live on 2026-05-25 with `39-11`:
+
+```text
+ON  TX: F7 39 11 41 01 11 8E 22
+ON ACK: F7 39 11 C1 02 00 01 1D 22
+OFF TX: F7 39 11 41 01 10 8F 22
+OFF ACK: F7 39 11 C1 02 00 00 1C 20
+```
+
+The subsequent `0x39/0x1F/0x81` group status response carries the confirmed
+physical state and wattage. For group `0x1F`, channel 1 maps to control sub ID
+`0x11`, and channel 2 maps to `0x12`.
+
+Home Assistant exposes only physical outlet devices such as `39-11`, `39-12`,
+or `39-91`. Group packets such as `39-1F` and `39-9F` are decoded into those
+physical devices and must not create `39-1F Channel 1` style pseudo devices.
+The observed `0x39/0x81` payloads expose instantaneous wattage and status flags;
+no cumulative energy value has been identified in these outlet packets yet.
+
 ## Next Capture Goals
 
 - Trigger a gas valve status refresh and capture whether `0x12` returns
@@ -116,5 +137,5 @@ default, and guarded behind an option similar to gas valve safety handling.
 - Capture `0x40` while using the 공동현관 app panel: select a listed lobby
   entry, press open, and record both event and response packets.
 - Observe `0x60` around events that may affect the sensor value.
-- Capture outlet state while toggling one known outlet channel to verify
-  channel-to-sub-ID mapping.
+- Continue outlet validation for `39-12`, `39-21`, and high-group outlets such
+  as `39-91` to confirm every physical mapping.

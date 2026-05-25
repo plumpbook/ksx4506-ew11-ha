@@ -21,7 +21,11 @@ from .devices.outlet import (
     decode_outlet_state,
     decode_switch_state,
 )
-from .devices.thermostat import THERMOSTAT_DEVICE_ID, decode_thermostat_state
+from .devices.thermostat import (
+    STATE_RESPONSE_COMMANDS as THERMOSTAT_STATE_RESPONSE_COMMANDS,
+    THERMOSTAT_DEVICE_ID,
+    decode_thermostat_state,
+)
 
 # cmd value는 프로젝트 진행 중 실측 캡처로 보정 필요
 CMD_TYPE_MAP = {
@@ -198,6 +202,22 @@ class DeviceRegistry:
             if _is_outlet_group_sub_id(sub_id):
                 return []
 
+        if kind == "climate" and addr == THERMOSTAT_DEVICE_ID:
+            thermostat_changes = self._upsert_thermostat_from_frame(
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
+            if thermostat_changes:
+                return thermostat_changes
+            if (
+                cmd in THERMOSTAT_STATE_RESPONSE_COMMANDS
+                and _is_individual_thermostat_sub_id(sub_id)
+            ):
+                return []
+
         # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
         is_new = key not in self.devices
@@ -273,6 +293,45 @@ class DeviceRegistry:
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
+
+    def _upsert_thermostat_from_frame(
+        self,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+    ) -> list[tuple[DeviceState, bool]]:
+        if cmd not in THERMOSTAT_STATE_RESPONSE_COMMANDS:
+            return []
+        if not _is_individual_thermostat_sub_id(sub_id):
+            return []
+
+        group_sub_id = (sub_id & 0xF0) | 0x0F
+        group_key = f"{addr:02X}{group_sub_id:02X}_climate"
+        group = self.devices.get(group_key)
+        if group is None:
+            return []
+
+        zone = _decode_individual_thermostat_zone(payload, channel=sub_id & 0x0F)
+        if zone is None:
+            return []
+
+        zones = [
+            dict(existing)
+            for existing in group.state.get("zones", [])
+            if existing.get("channel") != zone["channel"]
+        ]
+        zones.append(zone)
+        zones.sort(key=lambda item: item.get("channel", 0))
+
+        decoded = decode_thermostat_state(payload, sub_id=sub_id)
+        group.state["zones"] = zones
+        for key in ("error", "hot_water"):
+            if key in decoded:
+                group.state[key] = decoded[key]
+        group.last_raw_hex = raw_hex
+        return [(group, False)]
 
     def _upsert_outlet_from_frame(
         self,
@@ -398,3 +457,22 @@ def _outlet_payload_channel_count(cmd: int, payload: bytes) -> int:
 
 def _is_outlet_group_sub_id(sub_id: int) -> bool:
     return ((sub_id >> 4) & 0x0F) > 0 and (sub_id & 0x0F) == 0x0F
+
+
+def _is_individual_thermostat_sub_id(sub_id: int) -> bool:
+    return ((sub_id >> 4) & 0x0F) > 0 and 0x01 <= (sub_id & 0x0F) <= 0x0E
+
+
+def _decode_individual_thermostat_zone(
+    payload: bytes,
+    *,
+    channel: int,
+) -> dict[str, Any] | None:
+    decoded = decode_thermostat_state(payload, sub_id=channel)
+    zones = decoded.get("zones", [])
+    if len(zones) != 1:
+        return None
+
+    zone = dict(zones[0])
+    zone["channel"] = channel
+    return zone

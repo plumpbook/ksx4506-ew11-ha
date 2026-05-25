@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
-from homeassistant.components.climate.const import HVACAction, HVACMode
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -9,14 +9,12 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
-from .devices.thermostat import (
-    HEAT_CONTROL_REQUEST,
-    TEMPERATURE_CONTROL_REQUEST,
-    build_thermostat_heat_request,
-    build_thermostat_temperature_request,
-    thermostat_target_sub_id,
+from .devices.thermostat import thermostat_target_sub_id
+from .entity_base import KsxEntity, format_device_name
+from .thermostat_control import (
+    async_send_thermostat_heat_control,
+    async_send_thermostat_temperature_control,
 )
-from .entity_base import KsxEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -74,6 +72,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_target_temperature_step = 1.0
 
     def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
         super().__init__(coordinator, dev)
@@ -83,7 +82,12 @@ class KsxClimate(KsxEntity, ClimateEntity):
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
-                name=f"KSX {self.addr:02X}-{self.sub_id:02X} ch{channel}",
+                name=format_device_name(
+                    self.addr,
+                    self.sub_id,
+                    channel=channel,
+                    state=dev.state,
+                ),
             )
 
     @property
@@ -99,17 +103,6 @@ class KsxClimate(KsxEntity, ClimateEntity):
         return HVACMode.HEAT if self._state.get("on", False) else HVACMode.OFF
 
     @property
-    def hvac_action(self):
-        if not self._state.get("on", False):
-            return HVACAction.OFF
-
-        target = self.target_temperature
-        current = self.current_temperature
-        if target is None or current is None:
-            return HVACAction.IDLE
-        return HVACAction.HEATING if current < target else HVACAction.IDLE
-
-    @property
     def extra_state_attributes(self):
         return {
             key: value
@@ -119,29 +112,23 @@ class KsxClimate(KsxEntity, ClimateEntity):
 
     async def async_set_temperature(self, **kwargs):
         temp = float(kwargs.get("temperature", 22))
-        frame = build_thermostat_temperature_request(
-            self._target_sub_id(),
+        await async_send_thermostat_temperature_control(
+            self.coordinator,
+            addr=self.addr,
+            status_sub_id=self.sub_id,
+            channel=self._channel,
             temperature=temp,
-        )
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            TEMPERATURE_CONTROL_REQUEST,
-            frame.data,
         )
 
     async def async_set_hvac_mode(self, hvac_mode):
         if hvac_mode not in self._attr_hvac_modes:
             return
-        frame = build_thermostat_heat_request(
-            self._target_sub_id(),
+        await async_send_thermostat_heat_control(
+            self.coordinator,
+            addr=self.addr,
+            status_sub_id=self.sub_id,
+            channel=self._channel,
             turn_on=hvac_mode == HVACMode.HEAT,
-        )
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            HEAT_CONTROL_REQUEST,
-            frame.data,
         )
 
     @property

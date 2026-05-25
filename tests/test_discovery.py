@@ -214,3 +214,47 @@ def test_thermostat_group_status_preserves_tail_zone_for_entity():
     assert d.state["target_temp"] == 24
     assert d.state["current_temp"] == 24
     assert d.state["on"] is True
+
+
+def test_thermostat_individual_ack_updates_existing_group_zone():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(
+        0x36,
+        0x1F,
+        0x81,
+        bytes.fromhex("00 03 00 00 00 17 17 18 18"),
+        "f7...",
+    )
+    changes = reg.upsert_from_frame(
+        0x36,
+        0x11,
+        0xC3,
+        bytes.fromhex("00 00 01 00 00 17 17"),
+        "f7...",
+    )
+
+    assert "3611_climate" not in reg.devices
+    assert changes == [(reg.devices["361F_climate"], False)]
+    zones = reg.devices["361F_climate"].state["zones"]
+    assert zones[0]["channel"] == 1
+    assert zones[0]["on"] is False
+    assert zones[0]["away"] is True
+    assert zones[1]["channel"] == 2
+    assert zones[1]["on"] is True
+
+
+def test_thermostat_individual_ack_without_group_does_not_create_device():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(
+        0x36,
+        0x11,
+        0xC3,
+        bytes.fromhex("00 00 01 00 00 17 17"),
+        "f7...",
+    )
+
+    assert changes == []
+    assert "3611_climate" not in reg.devices
+    assert reg.devices == {}
