@@ -101,7 +101,6 @@ class DeviceRegistry:
                     control_sub_id: int,
                     status_sub_id: int,
                     control_channel: int | None,
-                    control_repeats: int | None = None,
                 ) -> None:
                     key = f"{addr:02X}{entity_sub_id:02X}_{kind}"
                     if channel is not None:
@@ -127,10 +126,6 @@ class DeviceRegistry:
                         dev.state.pop("control_channel", None)
                     else:
                         dev.state["control_channel"] = control_channel
-                    if control_repeats is None:
-                        dev.state.pop("control_repeats", None)
-                    else:
-                        dev.state["control_repeats"] = control_repeats
                     changes.append((dev, is_new))
 
                 if is_group_reply:
@@ -165,7 +160,6 @@ class DeviceRegistry:
                                 control_sub_id=sub_id,
                                 status_sub_id=sub_id,
                                 control_channel=ch,
-                                control_repeats=7,
                             )
                 elif 0x01 <= low <= 0x0E:
                     upsert_light(

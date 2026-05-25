@@ -10,11 +10,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .devices.lighting import (
+    CONTROL_RESPONSE as F7_LIGHT_CONTROL_RESPONSE,
     CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
     LIGHT_DEVICE_ID,
+    STATUS_RESPONSE as F7_LIGHT_STATUS_RESPONSE,
     build_light_control_payload,
     build_vendor_channel_control_payload,
 )
+from .protocol import KsFrame
 from .entity_base import KsxEntity
 
 CMD_SET_LIGHT = 0x11
@@ -90,20 +93,64 @@ class KsxLight(KsxEntity, LightEntity):
             brightness_step=brightness_step,
         )
 
-    def _control_repeats(self) -> int:
-        return max(1, min(7, int(self.dev.state.get("control_repeats", 1))))
+    def _status_payload_index(self) -> int:
+        control_channel = self.dev.state.get("control_channel")
+        if control_channel is not None:
+            return int(control_channel)
+        if self.channel is not None:
+            return int(self.channel)
+        return 1
 
-    async def _async_send_light_control(self, target_sub: int, payload: bytes) -> None:
-        repeats = self._control_repeats()
-        for attempt in range(repeats):
+    def _control_success_matcher(
+        self,
+        *,
+        target_sub: int,
+        status_sub: int,
+        turn_on: bool,
+    ):
+        expected_on = bool(turn_on)
+        status_index = self._status_payload_index()
+
+        def matcher(frame: KsFrame) -> bool:
+            if frame.addr != self.addr:
+                return False
+            if frame.sub_id == target_sub and frame.cmd == F7_LIGHT_CONTROL_RESPONSE:
+                return True
+            if frame.sub_id != status_sub or frame.cmd != F7_LIGHT_STATUS_RESPONSE:
+                return False
+            if len(frame.payload) <= status_index:
+                return False
+            return bool(frame.payload[status_index] & 0x01) == expected_on
+
+        return matcher
+
+    async def _async_send_light_control(self, target_sub: int, payload: bytes, *, turn_on: bool) -> None:
+        status_sub = self._status_sub_id()
+        send_until = getattr(self.coordinator, "async_send_f7_command_until", None)
+        if send_until is None:
             await self.coordinator.async_send_f7_command(
                 self.addr,
                 target_sub,
                 F7_LIGHT_CONTROL_REQUEST,
                 payload,
             )
-            if attempt < repeats - 1:
-                await asyncio.sleep(0.1)
+            matched = None
+        else:
+            matched = await send_until(
+                self.addr,
+                target_sub,
+                F7_LIGHT_CONTROL_REQUEST,
+                payload,
+                self._control_success_matcher(
+                    target_sub=target_sub,
+                    status_sub=status_sub,
+                    turn_on=turn_on,
+                ),
+            )
+
+        if matched is None or matched.cmd != F7_LIGHT_STATUS_RESPONSE:
+            await asyncio.sleep(0.12)
+            await self.coordinator.async_request_f7_state(self.addr, status_sub)
 
     async def async_turn_on(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
@@ -122,10 +169,8 @@ class KsxLight(KsxEntity, LightEntity):
                     turn_on=True,
                     brightness_step=brightness_step,
                 ),
+                turn_on=True,
             )
-
-            await asyncio.sleep(0.12)
-            await self.coordinator.async_request_f7_state(self.addr, self._status_sub_id())
             return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x01")
 
@@ -135,9 +180,7 @@ class KsxLight(KsxEntity, LightEntity):
             await self._async_send_light_control(
                 target_sub,
                 self._control_payload(turn_on=False),
+                turn_on=False,
             )
-
-            await asyncio.sleep(0.12)
-            await self.coordinator.async_request_f7_state(self.addr, self._status_sub_id())
             return
         await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x00")

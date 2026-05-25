@@ -177,11 +177,13 @@ class _FakeRegistry:
 
 
 class _FakeCoordinator:
-    def __init__(self, dev):
+    def __init__(self, dev, *, matched_frame=None, max_attempts=7):
         self.registry = _FakeRegistry(dev)
         self.sent = []
         self.sent_f7 = []
         self.state_requests = []
+        self.matched_frame = matched_frame
+        self.max_attempts = max_attempts
 
     async def async_send_command(self, addr, cmd, payload, *, guard=False):
         self.sent.append((addr, cmd, payload, guard))
@@ -190,6 +192,24 @@ class _FakeCoordinator:
     async def async_send_f7_command(self, dev_id, sub_id, cmd, payload, *, guard=False):
         self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
         return True
+
+    async def async_send_f7_command_until(
+        self,
+        dev_id,
+        sub_id,
+        cmd,
+        payload,
+        matcher,
+        *,
+        max_attempts=None,
+        interval=0.1,
+        guard=False,
+    ):
+        for _ in range(max_attempts or self.max_attempts):
+            self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
+            if self.matched_frame is not None and matcher(self.matched_frame):
+                return self.matched_frame
+        return None
 
     async def async_request_f7_state(self, dev_id, sub_id):
         self.state_requests.append((dev_id, sub_id))
@@ -213,7 +233,6 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
             "control_channel": 1,
-            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group1)
@@ -238,7 +257,6 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
             "control_channel": 2,
-            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group1_ch2)
@@ -263,7 +281,6 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x12,
             "control_sub_id": 0x12,
             "control_channel": 1,
-            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group2_ch1)
@@ -288,7 +305,6 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x13,
             "control_sub_id": 0x13,
             "control_channel": 1,
-            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group3)
@@ -300,6 +316,70 @@ def test_light_control_uses_suroup_module_channel_payload():
         (0x0E, 0x13, 0x41, b"\x01\x00\x00", False),
     ] * 7
     assert coordinator.state_requests == [(0x0E, 0x13)]
+
+
+def test_light_control_stops_when_status_response_matches():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    light = load_integration_module("light")
+
+    dev = discovery.DeviceState(
+        key="0E11_light_1",
+        addr=0x0E,
+        sub_id=0x11,
+        channel=1,
+        kind="light",
+        state={
+            "on": False,
+            "dimmable": False,
+            "status_sub_id": 0x11,
+            "control_sub_id": 0x11,
+            "control_channel": 1,
+        },
+    )
+    matched = types.SimpleNamespace(
+        addr=0x0E,
+        sub_id=0x11,
+        cmd=0x81,
+        payload=b"\x00\x01\x00\x00",
+    )
+    coordinator = _FakeCoordinator(dev, matched_frame=matched)
+    entity = light.KsxLight(coordinator, dev)
+
+    asyncio.run(entity.async_turn_on())
+
+    assert coordinator.sent_f7 == [(0x0E, 0x11, 0x41, b"\x01\x01\x00", False)]
+    assert coordinator.state_requests == []
+
+
+def test_light_control_uses_configured_max_attempts():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    light = load_integration_module("light")
+
+    dev = discovery.DeviceState(
+        key="0E11_light_1",
+        addr=0x0E,
+        sub_id=0x11,
+        channel=1,
+        kind="light",
+        state={
+            "on": True,
+            "dimmable": False,
+            "status_sub_id": 0x11,
+            "control_sub_id": 0x11,
+            "control_channel": 1,
+        },
+    )
+    coordinator = _FakeCoordinator(dev, max_attempts=3)
+    entity = light.KsxLight(coordinator, dev)
+
+    asyncio.run(entity.async_turn_off())
+
+    assert coordinator.sent_f7 == [
+        (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
+    ] * 3
+    assert coordinator.state_requests == [(0x0E, 0x11)]
 
 
 def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():

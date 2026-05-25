@@ -45,7 +45,6 @@ def test_suroup_light_module_subids_expand_own_channels():
     assert reg.devices["0E11_light_1"].state["on"] is False
     assert reg.devices["0E11_light_1"].state["control_sub_id"] == 0x11
     assert reg.devices["0E11_light_1"].state["control_channel"] == 1
-    assert reg.devices["0E11_light_1"].state["control_repeats"] == 7
     assert reg.devices["0E11_light_2"].state["on"] is False
     assert reg.devices["0E11_light_3"].state["on"] is False
     assert reg.devices["0E12_light_1"].state["on"] is True

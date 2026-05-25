@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN, SIGNAL_DEVICE_ADDED, SIGNAL_DEVICE_UPDATE
+from .const import (
+    CONF_MAX_ATTEMPTS,
+    DEFAULT_MAX_ATTEMPTS,
+    DOMAIN,
+    SIGNAL_DEVICE_ADDED,
+    SIGNAL_DEVICE_UPDATE,
+)
 from .devices.common_entrance import (
     CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
@@ -43,6 +52,11 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             on_frame=self._on_frame,
         )
         self._gas_unlock = config.get("gas_unlock", False)
+        self.max_attempts = max(
+            1,
+            min(20, int(config.get(CONF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS))),
+        )
+        self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
@@ -86,6 +100,19 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
         self.async_set_updated_data({k: v.state for k, v in self.registry.devices.items()})
+        self._notify_frame_waiters(frame)
+
+    def _notify_frame_waiters(self, frame: KsFrame) -> None:
+        for matcher, fut in tuple(self._frame_waiters):
+            if fut.done():
+                continue
+            try:
+                matched = matcher(frame)
+            except Exception:
+                _LOGGER.exception("Frame waiter matcher failed")
+                matched = False
+            if matched and not fut.done():
+                fut.set_result(frame)
 
     async def async_send_command(self, addr: int, cmd: int, payload: bytes, *, guard: bool = False) -> bool:
         if guard and not self._gas_unlock:
@@ -128,6 +155,49 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             packet.hex(),
         )
         return await self._client.send_with_retry(packet)
+
+    async def async_send_f7_command_until(
+        self,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        matcher: Callable[[KsFrame], bool],
+        *,
+        max_attempts: int | None = None,
+        interval: float = 0.1,
+        guard: bool = False,
+    ) -> KsFrame | None:
+        attempts = max(1, min(20, int(max_attempts or self.max_attempts)))
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[KsFrame] = loop.create_future()
+        waiter = (matcher, fut)
+        self._frame_waiters.append(waiter)
+
+        try:
+            for _ in range(attempts):
+                if fut.done():
+                    return fut.result()
+
+                await self.async_send_f7_command(
+                    dev_id,
+                    sub_id,
+                    cmd,
+                    payload,
+                    guard=guard,
+                )
+
+                try:
+                    return await asyncio.wait_for(asyncio.shield(fut), timeout=interval)
+                except TimeoutError:
+                    continue
+
+            if fut.done():
+                return fut.result()
+            return None
+        finally:
+            with suppress(ValueError):
+                self._frame_waiters.remove(waiter)
 
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
         # Generic state request command for KS X 4506 family
