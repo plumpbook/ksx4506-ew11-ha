@@ -29,23 +29,9 @@ METER_TYPES = {
     0x04: ("hot_water", "m3", 3, 1),
     0x05: ("heat", "MW", 3, 2),
 }
-METER_DISPLAY_NAMES = {
-    0x01: "Water Meter",
-    0x02: "Gas Meter",
-    0x03: "Electric Meter",
-    0x04: "Hot Water Meter",
-    0x05: "Heat Meter",
-}
 
 METER_WHOLE_ORDER = [0x01, 0x02, 0x03, 0x04, 0x05]
 VALID_METER_SUB_IDS = frozenset(METER_TYPE_SUB_IDS.values())
-
-
-def meter_device_name(sub_id: int) -> str | None:
-    display_name = METER_DISPLAY_NAMES.get(sub_id)
-    if display_name is None:
-        return None
-    return f"{display_name} {METER_DEVICE_ID:02X}-{sub_id:02X}"
 
 
 def build_meter_status_request(sub_id: int) -> Frame:

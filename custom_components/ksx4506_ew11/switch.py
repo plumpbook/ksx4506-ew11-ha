@@ -9,6 +9,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .device_metadata import format_device_name
 from .devices.outlet import (
     CONTROL_RESPONSE as F7_OUTLET_CONTROL_RESPONSE,
     GENERIC_SWITCH_COMMAND,
@@ -22,7 +23,7 @@ from .devices.outlet import (
 from .devices.thermostat import (
     THERMOSTAT_DEVICE_ID,
 )
-from .entity_base import KsxEntity, format_device_name
+from .entity_base import KsxEntity
 from .protocol import KsFrame
 from .thermostat_control import async_send_thermostat_heat_control
 

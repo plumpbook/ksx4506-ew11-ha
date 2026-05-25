@@ -1,99 +1,10 @@
 from pathlib import Path
 import asyncio
 import sys
-import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
-
-
-def _install_homeassistant_stubs():
-    homeassistant = types.ModuleType("homeassistant")
-    components = types.ModuleType("homeassistant.components")
-
-    valve = types.ModuleType("homeassistant.components.valve")
-
-    class ValveDeviceClass:
-        GAS = "gas"
-
-    class ValveEntityFeature:
-        OPEN = 1
-        CLOSE = 2
-        SET_POSITION = 4
-        STOP = 8
-
-    class ValveEntity:
-        pass
-
-    valve.ValveDeviceClass = ValveDeviceClass
-    valve.ValveEntity = ValveEntity
-    valve.ValveEntityFeature = ValveEntityFeature
-
-    binary_sensor = types.ModuleType("homeassistant.components.binary_sensor")
-
-    class BinarySensorDeviceClass:
-        GAS = "gas"
-        RUNNING = "running"
-
-    class BinarySensorEntity:
-        pass
-
-    binary_sensor.BinarySensorDeviceClass = BinarySensorDeviceClass
-    binary_sensor.BinarySensorEntity = BinarySensorEntity
-
-    config_entries = types.ModuleType("homeassistant.config_entries")
-
-    class ConfigEntry:
-        pass
-
-    config_entries.ConfigEntry = ConfigEntry
-
-    core = types.ModuleType("homeassistant.core")
-
-    class HomeAssistant:
-        pass
-
-    def callback(func):
-        return func
-
-    core.HomeAssistant = HomeAssistant
-    core.callback = callback
-
-    dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
-    dispatcher.async_dispatcher_connect = lambda *args, **kwargs: None
-    dispatcher.async_dispatcher_send = lambda *args, **kwargs: None
-
-    entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
-    entity_platform.AddEntitiesCallback = object
-
-    update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    class CoordinatorEntity:
-        def __init__(self, coordinator):
-            self.coordinator = coordinator
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    class DataUpdateCoordinator:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    update_coordinator.CoordinatorEntity = CoordinatorEntity
-    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
-
-    sys.modules.setdefault("homeassistant", homeassistant)
-    sys.modules.setdefault("homeassistant.components", components)
-    sys.modules["homeassistant.components.valve"] = valve
-    sys.modules["homeassistant.components.binary_sensor"] = binary_sensor
-    sys.modules["homeassistant.config_entries"] = config_entries
-    sys.modules["homeassistant.core"] = core
-    sys.modules["homeassistant.helpers.dispatcher"] = dispatcher
-    sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
-    sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+from ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeRegistry:
@@ -112,7 +23,7 @@ class _FakeCoordinator:
 
 
 def test_gas_valve_is_close_only_and_reports_open_closed():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     valve = load_integration_module("valve")
 
@@ -140,7 +51,7 @@ def test_gas_valve_is_close_only_and_reports_open_closed():
 
 
 def test_gas_binary_sensors_expose_leak_and_moving_flags():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     binary_sensor = load_integration_module("binary_sensor")
 

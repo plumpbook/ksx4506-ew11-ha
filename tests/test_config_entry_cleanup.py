@@ -5,68 +5,7 @@ import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
-
-
-def _install_homeassistant_stubs():
-    homeassistant = types.ModuleType("homeassistant")
-    config_entries = types.ModuleType("homeassistant.config_entries")
-
-    class ConfigEntry:
-        pass
-
-    config_entries.ConfigEntry = ConfigEntry
-
-    core = types.ModuleType("homeassistant.core")
-
-    class HomeAssistant:
-        pass
-
-    core.HomeAssistant = HomeAssistant
-
-    helpers = types.ModuleType("homeassistant.helpers")
-
-    dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
-    dispatcher.async_dispatcher_send = lambda *args, **kwargs: None
-
-    update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    class DataUpdateCoordinator:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
-
-    entity_registry = types.ModuleType("homeassistant.helpers.entity_registry")
-    entity_registry.async_get = lambda hass: hass.entity_registry
-    entity_registry.async_entries_for_config_entry = (
-        lambda registry, entry_id: [
-            entry
-            for entry in registry.entries
-            if entry.config_entry_id == entry_id
-        ]
-    )
-
-    device_registry = types.ModuleType("homeassistant.helpers.device_registry")
-    device_registry.async_get = lambda hass: hass.device_registry
-    device_registry.async_entries_for_config_entry = (
-        lambda registry, entry_id: [
-            entry
-            for entry in registry.entries
-            if entry_id in entry.config_entries
-        ]
-    )
-
-    sys.modules["homeassistant"] = homeassistant
-    sys.modules["homeassistant.config_entries"] = config_entries
-    sys.modules["homeassistant.core"] = core
-    sys.modules["homeassistant.helpers"] = helpers
-    sys.modules["homeassistant.helpers.dispatcher"] = dispatcher
-    sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
-    sys.modules["homeassistant.helpers.entity_registry"] = entity_registry
-    sys.modules["homeassistant.helpers.device_registry"] = device_registry
+from ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeEntityRegistry:
@@ -92,7 +31,7 @@ class _FakeDeviceRegistry:
 
 
 def test_remove_entry_cleans_entities_and_devices_for_config_entry():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     integration = load_integration_module("__init__")
     entry = types.SimpleNamespace(entry_id="entry-a")
     hass = types.SimpleNamespace(
@@ -143,7 +82,7 @@ def test_remove_entry_cleans_entities_and_devices_for_config_entry():
 
 
 def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     integration = load_integration_module("__init__")
     entry = types.SimpleNamespace(entry_id="entry-a")
     hass = types.SimpleNamespace(
@@ -263,7 +202,7 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
 
 
 def test_setup_prunes_legacy_entries_from_registry_fallback_scan():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     integration = load_integration_module("__init__")
     entry = types.SimpleNamespace(entry_id="entry-a")
     hass = types.SimpleNamespace(

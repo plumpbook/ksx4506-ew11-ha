@@ -8,13 +8,14 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .device_metadata import format_device_name
 from .devices.thermostat import (
     TEMPERATURE_CONTROL_REQUEST,
     THERMOSTAT_DEVICE_ID,
     build_thermostat_temperature_request,
     thermostat_target_sub_id,
 )
-from .entity_base import KsxEntity, format_device_name
+from .entity_base import KsxEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:

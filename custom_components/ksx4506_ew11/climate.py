@@ -9,8 +9,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .device_metadata import format_device_name
 from .devices.thermostat import thermostat_target_sub_id
-from .entity_base import KsxEntity, format_device_name
+from .entity_base import KsxEntity
 from .thermostat_control import (
     async_send_thermostat_heat_control,
     async_send_thermostat_temperature_control,

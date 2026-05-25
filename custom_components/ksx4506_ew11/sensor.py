@@ -12,9 +12,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .device_metadata import format_device_name
 from .devices.meter import METER_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
-from .entity_base import KsxEntity, format_device_name
+from .entity_base import KsxEntity
 
 _SOURCE_SAME = object()
 

@@ -6,39 +6,7 @@ import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
-
-
-def _install_homeassistant_stubs():
-    homeassistant = types.ModuleType("homeassistant")
-
-    core = types.ModuleType("homeassistant.core")
-
-    class HomeAssistant:
-        pass
-
-    core.HomeAssistant = HomeAssistant
-
-    helpers = types.ModuleType("homeassistant.helpers")
-
-    dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
-    dispatcher.async_dispatcher_send = lambda *args, **kwargs: None
-
-    update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    class DataUpdateCoordinator:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
-
-    sys.modules["homeassistant"] = homeassistant
-    sys.modules["homeassistant.core"] = core
-    sys.modules["homeassistant.helpers"] = helpers
-    sys.modules["homeassistant.helpers.dispatcher"] = dispatcher
-    sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+from ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeCoordinator:
@@ -61,7 +29,7 @@ class _FakeCoordinator:
 
 
 def test_send_f7_command_until_logs_control_attempts(caplog):
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
     protocol_module = load_integration_module("protocol")
 
@@ -102,7 +70,7 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
 
 
 def test_meter_startup_probe_requests_whole_and_individual_meter_states():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
 
     class FakeCoordinator:

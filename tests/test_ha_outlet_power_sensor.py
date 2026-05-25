@@ -1,96 +1,9 @@
 from pathlib import Path
 import sys
-import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
-
-
-def _install_homeassistant_stubs():
-    homeassistant = types.ModuleType("homeassistant")
-    components = types.ModuleType("homeassistant.components")
-
-    sensor = types.ModuleType("homeassistant.components.sensor")
-
-    class SensorDeviceClass:
-        ENERGY = "energy"
-        POWER = "power"
-
-    class SensorStateClass:
-        MEASUREMENT = "measurement"
-        TOTAL_INCREASING = "total_increasing"
-
-    class SensorEntity:
-        pass
-
-    sensor.SensorDeviceClass = SensorDeviceClass
-    sensor.SensorEntity = SensorEntity
-    sensor.SensorStateClass = SensorStateClass
-
-    const = types.ModuleType("homeassistant.const")
-
-    class UnitOfPower:
-        WATT = "W"
-
-    class UnitOfEnergy:
-        KILO_WATT_HOUR = "kWh"
-
-    const.UnitOfEnergy = UnitOfEnergy
-    const.UnitOfPower = UnitOfPower
-
-    config_entries = types.ModuleType("homeassistant.config_entries")
-
-    class ConfigEntry:
-        pass
-
-    config_entries.ConfigEntry = ConfigEntry
-
-    core = types.ModuleType("homeassistant.core")
-
-    class HomeAssistant:
-        pass
-
-    def callback(func):
-        return func
-
-    core.HomeAssistant = HomeAssistant
-    core.callback = callback
-
-    dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
-    dispatcher.async_dispatcher_connect = lambda *args, **kwargs: None
-    dispatcher.async_dispatcher_send = lambda *args, **kwargs: None
-
-    entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
-    entity_platform.AddEntitiesCallback = object
-
-    update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    class CoordinatorEntity:
-        def __init__(self, coordinator):
-            self.coordinator = coordinator
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    class DataUpdateCoordinator:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    update_coordinator.CoordinatorEntity = CoordinatorEntity
-    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
-
-    sys.modules.setdefault("homeassistant", homeassistant)
-    sys.modules.setdefault("homeassistant.components", components)
-    sys.modules["homeassistant.components.sensor"] = sensor
-    sys.modules["homeassistant.config_entries"] = config_entries
-    sys.modules["homeassistant.const"] = const
-    sys.modules["homeassistant.core"] = core
-    sys.modules["homeassistant.helpers.dispatcher"] = dispatcher
-    sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
-    sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+from ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeRegistry:
@@ -104,7 +17,7 @@ class _FakeCoordinator:
 
 
 def test_outlet_power_sensor_exposes_decoded_watts():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     sensor = load_integration_module("sensor")
 

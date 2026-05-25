@@ -5,170 +5,7 @@ import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _integration_loader import load_integration_module  # noqa: E402
-
-
-def _install_homeassistant_stubs():
-    homeassistant = types.ModuleType("homeassistant")
-    components = types.ModuleType("homeassistant.components")
-
-    climate = types.ModuleType("homeassistant.components.climate")
-
-    class ClimateEntity:
-        pass
-
-    class ClimateEntityFeature:
-        TARGET_TEMPERATURE = 1
-
-    climate.ClimateEntity = ClimateEntity
-    climate.ClimateEntityFeature = ClimateEntityFeature
-
-    climate_const = types.ModuleType("homeassistant.components.climate.const")
-
-    class HVACMode:
-        OFF = "off"
-        HEAT = "heat"
-
-    class HVACAction:
-        OFF = "off"
-        IDLE = "idle"
-        HEATING = "heating"
-
-    climate_const.HVACAction = HVACAction
-    climate_const.HVACMode = HVACMode
-
-    sensor = types.ModuleType("homeassistant.components.sensor")
-
-    class SensorDeviceClass:
-        ENERGY = "energy"
-        POWER = "power"
-
-    class SensorStateClass:
-        MEASUREMENT = "measurement"
-        TOTAL_INCREASING = "total_increasing"
-
-    class SensorEntity:
-        pass
-
-    sensor.SensorDeviceClass = SensorDeviceClass
-    sensor.SensorEntity = SensorEntity
-    sensor.SensorStateClass = SensorStateClass
-
-    switch = types.ModuleType("homeassistant.components.switch")
-
-    class SwitchEntity:
-        pass
-
-    switch.SwitchEntity = SwitchEntity
-
-    light = types.ModuleType("homeassistant.components.light")
-
-    class ColorMode:
-        BRIGHTNESS = "brightness"
-        ONOFF = "onoff"
-
-    class LightEntity:
-        pass
-
-    light.ColorMode = ColorMode
-    light.LightEntity = LightEntity
-
-    number = types.ModuleType("homeassistant.components.number")
-
-    class NumberDeviceClass:
-        TEMPERATURE = "temperature"
-
-    class NumberEntity:
-        pass
-
-    number.NumberDeviceClass = NumberDeviceClass
-    number.NumberEntity = NumberEntity
-
-    binary_sensor = types.ModuleType("homeassistant.components.binary_sensor")
-
-    class BinarySensorDeviceClass:
-        GAS = "gas"
-        RUNNING = "running"
-
-    class BinarySensorEntity:
-        pass
-
-    binary_sensor.BinarySensorDeviceClass = BinarySensorDeviceClass
-    binary_sensor.BinarySensorEntity = BinarySensorEntity
-
-    const = types.ModuleType("homeassistant.const")
-
-    class UnitOfEnergy:
-        KILO_WATT_HOUR = "kWh"
-
-    class UnitOfPower:
-        WATT = "W"
-
-    class UnitOfTemperature:
-        CELSIUS = "C"
-
-    const.UnitOfEnergy = UnitOfEnergy
-    const.UnitOfPower = UnitOfPower
-    const.UnitOfTemperature = UnitOfTemperature
-
-    config_entries = types.ModuleType("homeassistant.config_entries")
-
-    class ConfigEntry:
-        pass
-
-    config_entries.ConfigEntry = ConfigEntry
-
-    core = types.ModuleType("homeassistant.core")
-
-    class HomeAssistant:
-        pass
-
-    def callback(func):
-        return func
-
-    core.HomeAssistant = HomeAssistant
-    core.callback = callback
-
-    dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
-    dispatcher.async_dispatcher_connect = lambda *args, **kwargs: None
-    dispatcher.async_dispatcher_send = lambda *args, **kwargs: None
-
-    entity_platform = types.ModuleType("homeassistant.helpers.entity_platform")
-    entity_platform.AddEntitiesCallback = object
-
-    update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
-
-    class CoordinatorEntity:
-        def __init__(self, coordinator):
-            self.coordinator = coordinator
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    class DataUpdateCoordinator:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __class_getitem__(cls, item):
-            return cls
-
-    update_coordinator.CoordinatorEntity = CoordinatorEntity
-    update_coordinator.DataUpdateCoordinator = DataUpdateCoordinator
-
-    sys.modules["homeassistant"] = homeassistant
-    sys.modules["homeassistant.components"] = components
-    sys.modules["homeassistant.components.binary_sensor"] = binary_sensor
-    sys.modules["homeassistant.components.climate"] = climate
-    sys.modules["homeassistant.components.climate.const"] = climate_const
-    sys.modules["homeassistant.components.light"] = light
-    sys.modules["homeassistant.components.number"] = number
-    sys.modules["homeassistant.components.sensor"] = sensor
-    sys.modules["homeassistant.components.switch"] = switch
-    sys.modules["homeassistant.config_entries"] = config_entries
-    sys.modules["homeassistant.const"] = const
-    sys.modules["homeassistant.core"] = core
-    sys.modules["homeassistant.helpers.dispatcher"] = dispatcher
-    sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
-    sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+from ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeRegistry:
@@ -220,7 +57,7 @@ class _FakeCoordinator:
 
 
 def test_light_control_uses_suroup_module_channel_payload():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
 
@@ -324,7 +161,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
 
 def test_light_control_stops_when_status_response_matches():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
 
@@ -358,7 +195,7 @@ def test_light_control_stops_when_status_response_matches():
 
 
 def test_light_control_uses_configured_max_attempts():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
 
@@ -388,7 +225,7 @@ def test_light_control_uses_configured_max_attempts():
 
 
 def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     climate = load_integration_module("climate")
     switch = load_integration_module("switch")
@@ -465,7 +302,7 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
 
 
 def test_meter_and_outlet_sensor_entities_are_expanded():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     sensor = load_integration_module("sensor")
 
@@ -534,7 +371,7 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
 
 
 def test_outlet_group_device_without_control_subid_is_not_exposed():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
 
@@ -558,7 +395,7 @@ def test_outlet_group_device_without_control_subid_is_not_exposed():
 
 
 def test_outlet_individual_switch_controls_suroup_subid():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
 
@@ -591,7 +428,7 @@ def test_outlet_individual_switch_controls_suroup_subid():
 
 
 def test_outlet_individual_switch_stops_when_status_matches():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
 
@@ -623,7 +460,7 @@ def test_outlet_individual_switch_stops_when_status_matches():
 
 
 def test_outlet_individual_switch_stops_when_control_ack_matches():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
 
@@ -655,7 +492,7 @@ def test_outlet_individual_switch_stops_when_control_ack_matches():
 
 
 def test_outlet_and_entrance_binary_sensors_are_expanded():
-    _install_homeassistant_stubs()
+    install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     binary_sensor = load_integration_module("binary_sensor")
 
