@@ -78,7 +78,7 @@ class KsxThermostatTargetTemperatureNumber(KsxEntity, NumberEntity):
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_min_value = 5
     _attr_native_max_value = 40
-    _attr_native_step = 1
+    _attr_native_step = 0.5
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:

@@ -76,6 +76,45 @@ def decode_meter_state(
     return _decode_meter_chunks(payload)
 
 
+def iter_meter_states(
+    payload: bytes,
+    *,
+    sub_id: int,
+    command_type: int,
+) -> list[tuple[int, dict[str, Any]]]:
+    """Return individual meter states carried by a status response."""
+
+    if command_type != STATUS_RESPONSE:
+        return []
+
+    if sub_id in METER_TYPES and len(payload) in (6, 7, 8):
+        decoded = decode_meter_state(
+            payload,
+            sub_id=sub_id,
+            command_type=command_type,
+        )
+        return [(sub_id, decoded)] if decoded.get("meter") else []
+
+    error, meter_data = _meter_data_without_error(payload)
+    if not meter_data or len(meter_data) % 6:
+        return []
+
+    states: list[tuple[int, dict[str, Any]]] = []
+    for index in range(0, len(meter_data), 6):
+        meter_index = index // 6
+        if meter_index >= len(METER_WHOLE_ORDER):
+            break
+        meter_sub_id = METER_WHOLE_ORDER[meter_index]
+        decoded = _decode_meter_values(
+            meter_sub_id,
+            meter_data[index : index + 6],
+            error=error if index == 0 else None,
+        )
+        if decoded:
+            states.append((meter_sub_id, decoded))
+    return states
+
+
 def meter_sub_id_for_type(meter_type: str) -> int:
     try:
         return METER_TYPE_SUB_IDS[meter_type]
@@ -104,11 +143,7 @@ def _decode_meter_chunks(payload: bytes) -> dict[str, Any]:
     if not payload:
         return {}
 
-    error = None
-    meter_data = payload
-    if len(payload) % 6 and (len(payload) - 1) % 6 == 0:
-        error = payload[0]
-        meter_data = payload[1:]
+    error, meter_data = _meter_data_without_error(payload)
 
     if not meter_data or len(meter_data) % 6:
         return {}
@@ -129,6 +164,12 @@ def _decode_meter_chunks(payload: bytes) -> dict[str, Any]:
     if error is not None:
         state["error"] = error
     return state
+
+
+def _meter_data_without_error(payload: bytes) -> tuple[int | None, bytes]:
+    if len(payload) % 6 and (len(payload) - 1) % 6 == 0:
+        return payload[0], payload[1:]
+    return None, payload
 
 
 def _decode_meter_values(

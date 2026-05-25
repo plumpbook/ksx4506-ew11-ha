@@ -72,7 +72,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_target_temperature_step = 1.0
+    _attr_target_temperature_step = 0.5
 
     def __init__(self, coordinator, dev, *, channel: int | None = None) -> None:
         super().__init__(coordinator, dev)

@@ -17,7 +17,7 @@ Capture window:
 | --- | --- | --- | --- | --- | --- |
 | `0x0E` | Lighting | `0x11`..`0x15` | `0x01`, `0x81` | `light` | Supported as channel lights. Group-style payload lengths vary by sub ID. |
 | `0x12` | Gas valve | `0x01` | `0x0F` | close-only `valve` plus binary sensors | Current capture did not include a gas status response, so open/closed state still needs field validation. |
-| `0x30` | Integrated metering | `0x03` | `0x01`, `0x81` | `sensor` | Electricity payload decodes to instant/total values. |
+| `0x30` | Integrated metering | `0x01`..`0x05`, `0x0F` | `0x01`, `0x81`, `0x0F`, `0x8F` | `sensor` | Water, gas, electricity, hot-water, and heat meter payloads decode to instant/total values when observed. |
 | `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81` | read-only `sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status only and does not expose generic switch writes. |
 | `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate` | Group status payload includes multiple zone temperature pairs. |
 | `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch`, `sensor`, `binary_sensor` | Group status packets are expanded into physical outlets such as `39-11` and `39-12`; control uses the individual sub ID. |
@@ -86,6 +86,30 @@ exposes these conservative fields:
 | `0x10` | `elevator_up_active` | low | Present in the reference implementation, but not observed locally yet. |
 | `0x04` | `batch_idle_marker` | medium | `0x04` appears in idle examples; all-lights-off examples clear this bit. |
 | `0x02` | `auxiliary_input_active` | low | Reference labels this as outing; this installation may use the same slot for another entrance-side function such as living-room-light-3. Needs capture. |
+
+## `0x30` Meter Notes
+
+The meter decoder supports the standard meter sub IDs below. Public entities are
+created only when matching packets are observed.
+
+| Sub ID | Meter | Instant unit | Total unit |
+| --- | --- | --- | --- |
+| `0x01` | water | `m3` | `m3` |
+| `0x02` | gas | `m3` | `m3` |
+| `0x03` | electricity | `W` | `kWh` |
+| `0x04` | hot water | `m3` | `m3` |
+| `0x05` | heat | `MW` | `MW` |
+| `0x0F` | whole meter packet | expanded | expanded |
+
+Whole meter status packets are expanded into individual meter devices such as
+`30-01`, `30-02`, and `30-03`.
+
+## `0x36` Thermostat Notes
+
+Thermostat temperatures use the low 7 bits for whole degrees and bit `0x80`
+for the half-degree marker. For example, `0x19` means `25.0` and `0x99` means
+`25.5`. Home Assistant climate target temperature controls therefore use
+`0.5` degree steps.
 
 ## `0x40` Common Entrance Notes
 

@@ -11,7 +11,7 @@ from .devices.common_entrance import (
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
 from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
-from .devices.meter import METER_DEVICE_ID, decode_meter_state
+from .devices.meter import METER_DEVICE_ID, decode_meter_state, iter_meter_states
 from .devices.outlet import (
     CONTROL_RESPONSE as OUTLET_CONTROL_RESPONSE,
     CUTOFF_THRESHOLD_CONTROL_RESPONSE as OUTLET_THRESHOLD_CONTROL_RESPONSE,
@@ -201,6 +201,18 @@ class DeviceRegistry:
                 return outlet_changes
             if _is_outlet_group_sub_id(sub_id):
                 return []
+
+        if kind == "sensor" and addr == METER_DEVICE_ID:
+            meter_changes = self._upsert_meter_from_frame(
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+                caps,
+            )
+            if meter_changes:
+                return meter_changes
 
         if kind == "climate" and addr == THERMOSTAT_DEVICE_ID:
             thermostat_changes = self._upsert_thermostat_from_frame(
@@ -424,6 +436,43 @@ class DeviceRegistry:
         dev.state["status_channel"] = status_channel
         dev.state["control_sub_id"] = entity_sub_id
         return dev, is_new
+
+    def _upsert_meter_from_frame(
+        self,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+        caps: set[str],
+    ) -> list[tuple[DeviceState, bool]]:
+        states = iter_meter_states(
+            payload,
+            sub_id=sub_id,
+            command_type=cmd,
+        )
+        if not states:
+            return []
+
+        changes: list[tuple[DeviceState, bool]] = []
+        for meter_sub_id, state in states:
+            key = f"{addr:02X}{meter_sub_id:02X}_sensor"
+            is_new = key not in self.devices
+            if is_new:
+                self.devices[key] = DeviceState(
+                    key=key,
+                    addr=addr,
+                    sub_id=meter_sub_id,
+                    kind="sensor",
+                    capabilities=set(caps),
+                )
+
+            dev = self.devices[key]
+            dev.last_raw_hex = raw_hex
+            dev.state.update(state)
+            dev.state["source_sub_id"] = sub_id
+            changes.append((dev, is_new))
+        return changes
 
 
 def _is_polling_request(addr: int, cmd: int) -> bool:

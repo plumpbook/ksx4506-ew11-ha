@@ -415,7 +415,7 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
                 addr=0x36,
                 sub_id=0x1F,
                 cmd=0x81,
-                payload=bytes.fromhex("00 03 00 00 00 19 17 18 18"),
+                payload=bytes.fromhex("00 03 00 00 00 99 17 18 18"),
             ),
             types.SimpleNamespace(
                 addr=0x36,
@@ -432,18 +432,18 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
     assert len(entities) == 2
     assert zone1._attr_unique_id == "ksx4506_361F_climate_ch1"
     assert zone1._attr_name == "Climate"
-    assert zone1._attr_target_temperature_step == 1.0
+    assert zone1._attr_target_temperature_step == 0.5
     assert zone1._attr_device_info["identifiers"] == {("ksx4506_ew11", "361F_climate_ch1")}
     assert zone1._attr_device_info["name"] == "Thermostat 36-1F Zone 1"
     assert zone1.target_temperature == 23
     assert zone1.current_temperature == 23
     assert zone1.hvac_mode == "heat"
 
-    asyncio.run(zone1.async_set_temperature(temperature=25))
+    asyncio.run(zone1.async_set_temperature(temperature=25.5))
     asyncio.run(zone1.async_set_hvac_mode("off"))
 
     assert coordinator.sent_f7 == [
-        (0x36, 0x11, 0x44, b"\x19", False),
+        (0x36, 0x11, 0x44, b"\x99", False),
         (0x36, 0x11, 0x43, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x36, 0x1F)]

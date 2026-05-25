@@ -205,6 +205,38 @@ def test_meter_status_is_sensor_with_parsed_value():
     assert d.state["unit"] == "m3"
 
 
+def test_meter_whole_status_expands_to_individual_meter_devices():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(
+        0x30,
+        0x0F,
+        0x81,
+        bytes.fromhex(
+            "00"
+            " 00 12 34 12 34 56"
+            " 00 00 45 00 01 23"
+            " 00 06 55 03 48 16"
+        ),
+        "f7...",
+    )
+
+    assert len(changes) == 3
+    assert sorted(reg.devices.keys()) == [
+        "3001_sensor",
+        "3002_sensor",
+        "3003_sensor",
+    ]
+    assert reg.devices["3001_sensor"].state["meter"] == "water"
+    assert reg.devices["3001_sensor"].state["total"] == 12345.6
+    assert reg.devices["3001_sensor"].state["source_sub_id"] == 0x0F
+    assert reg.devices["3002_sensor"].state["meter"] == "gas"
+    assert reg.devices["3002_sensor"].state["total"] == 12.3
+    assert reg.devices["3003_sensor"].state["meter"] == "electricity"
+    assert reg.devices["3003_sensor"].state["instant"] == 655
+    assert reg.devices["3003_sensor"].state["total"] == 3481.6
+
+
 def test_thermostat_group_status_preserves_tail_zone_for_entity():
     reg = DeviceRegistry()
 
