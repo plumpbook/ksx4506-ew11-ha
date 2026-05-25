@@ -84,8 +84,9 @@ class DeviceRegistry:
 
         changes: list[tuple[DeviceState, bool]] = []
 
-        # KS X 4506-2(light): expose grouped lights as channel entities
-        # while keeping control on the standard group/channel sub-id.
+        # KS X 4506 deployments observed through Suroup expose each lighting
+        # module as sub_id 0x11, 0x12, ... and carry channel states in payload.
+        # Standard all-channel replies such as 0x1F are still expanded.
         if kind == "light" and addr == LIGHT_DEVICE_ID:
             if len(payload) > 1:
                 low = sub_id & 0x0F
@@ -99,6 +100,7 @@ class DeviceRegistry:
                     state_byte: int,
                     control_sub_id: int,
                     status_sub_id: int,
+                    control_channel: int | None,
                 ) -> None:
                     key = f"{addr:02X}{entity_sub_id:02X}_{kind}"
                     if channel is not None:
@@ -120,7 +122,10 @@ class DeviceRegistry:
                     dev.state.update(decode_light_state_byte(state_byte))
                     dev.state["status_sub_id"] = status_sub_id
                     dev.state["control_sub_id"] = control_sub_id
-                    dev.state.pop("control_channel", None)
+                    if control_channel is None:
+                        dev.state.pop("control_channel", None)
+                    else:
+                        dev.state["control_channel"] = control_channel
                     changes.append((dev, is_new))
 
                 if is_group_reply:
@@ -132,16 +137,30 @@ class DeviceRegistry:
                             state_byte=state_byte,
                             control_sub_id=((group & 0x0F) << 4) | (ch & 0x0F),
                             status_sub_id=sub_id,
+                            control_channel=None,
                         )
                 elif high > 0 and 0x01 <= low <= 0x0E:
-                    group_sub_id = (high << 4) | 0x0F
-                    upsert_light(
-                        entity_sub_id=group_sub_id,
-                        channel=low,
-                        state_byte=payload[1],
-                        control_sub_id=sub_id,
-                        status_sub_id=sub_id,
-                    )
+                    is_suroup_module_reply = 0x11 <= sub_id <= 0x15 or len(payload) > 2
+                    standard_group_key = f"{addr:02X}{((high << 4) | 0x0F):02X}_{kind}_{low}"
+                    if not is_suroup_module_reply or standard_group_key in self.devices:
+                        upsert_light(
+                            entity_sub_id=(high << 4) | 0x0F,
+                            channel=low,
+                            state_byte=payload[1],
+                            control_sub_id=sub_id,
+                            status_sub_id=sub_id,
+                            control_channel=None,
+                        )
+                    else:
+                        for ch, state_byte in enumerate(payload[1:], start=1):
+                            upsert_light(
+                                entity_sub_id=sub_id,
+                                channel=ch,
+                                state_byte=state_byte,
+                                control_sub_id=sub_id,
+                                status_sub_id=sub_id,
+                                control_channel=ch,
+                            )
                 elif 0x01 <= low <= 0x0E:
                     upsert_light(
                         entity_sub_id=sub_id,
@@ -149,6 +168,7 @@ class DeviceRegistry:
                         state_byte=payload[1],
                         control_sub_id=sub_id,
                         status_sub_id=sub_id,
+                        control_channel=None,
                     )
 
             return changes

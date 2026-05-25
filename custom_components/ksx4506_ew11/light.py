@@ -13,7 +13,7 @@ from .devices.lighting import (
     CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
     LIGHT_DEVICE_ID,
     build_light_control_payload,
-    f7_individual_sub_id,
+    build_vendor_channel_control_payload,
 )
 from .entity_base import KsxEntity
 
@@ -73,12 +73,18 @@ class KsxLight(KsxEntity, LightEntity):
         return bool(self.dev.state.get("on", False))
 
     def _target_sub_id(self) -> int:
-        return int(self.dev.state.get("control_sub_id", f7_individual_sub_id(self.sub_id, self.channel)))
+        return int(self.dev.state.get("control_sub_id", self.sub_id))
 
     def _status_sub_id(self) -> int:
         return int(self.dev.state.get("status_sub_id", self._target_sub_id()))
 
     def _control_payload(self, *, turn_on: bool, brightness_step: int | None = None) -> bytes:
+        control_channel = self.dev.state.get("control_channel")
+        if control_channel is not None:
+            return build_vendor_channel_control_payload(
+                channel=int(control_channel),
+                turn_on=turn_on,
+            )
         return build_light_control_payload(
             turn_on=turn_on,
             brightness_step=brightness_step,

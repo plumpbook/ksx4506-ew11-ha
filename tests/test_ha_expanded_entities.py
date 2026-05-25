@@ -196,15 +196,15 @@ class _FakeCoordinator:
         return True
 
 
-def test_light_control_uses_standard_group_channel_sub_id():
+def test_light_control_uses_suroup_module_channel_payload():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
 
     group1 = discovery.DeviceState(
-        key="0E1F_light_1",
+        key="0E11_light_1",
         addr=0x0E,
-        sub_id=0x1F,
+        sub_id=0x11,
         channel=1,
         kind="light",
         state={
@@ -212,6 +212,7 @@ def test_light_control_uses_standard_group_channel_sub_id():
             "dimmable": False,
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
+            "control_channel": 1,
         },
     )
     coordinator = _FakeCoordinator(group1)
@@ -220,21 +221,22 @@ def test_light_control_uses_standard_group_channel_sub_id():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x11, 0x41, b"\x00", False),
+        (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group1_ch2 = discovery.DeviceState(
-        key="0E1F_light_2",
+        key="0E11_light_2",
         addr=0x0E,
-        sub_id=0x1F,
+        sub_id=0x11,
         channel=2,
         kind="light",
         state={
             "on": True,
             "dimmable": False,
-            "status_sub_id": 0x12,
-            "control_sub_id": 0x12,
+            "status_sub_id": 0x11,
+            "control_sub_id": 0x11,
+            "control_channel": 2,
         },
     )
     coordinator = _FakeCoordinator(group1_ch2)
@@ -243,21 +245,22 @@ def test_light_control_uses_standard_group_channel_sub_id():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x12, 0x41, b"\x00", False),
+        (0x0E, 0x11, 0x41, b"\x02\x00\x00", False),
     ]
-    assert coordinator.state_requests == [(0x0E, 0x12)]
+    assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group2_ch1 = discovery.DeviceState(
-        key="0E2F_light_1",
+        key="0E12_light_1",
         addr=0x0E,
-        sub_id=0x2F,
+        sub_id=0x12,
         channel=1,
         kind="light",
         state={
             "on": False,
             "dimmable": False,
-            "status_sub_id": 0x21,
-            "control_sub_id": 0x21,
+            "status_sub_id": 0x12,
+            "control_sub_id": 0x12,
+            "control_channel": 1,
         },
     )
     coordinator = _FakeCoordinator(group2_ch1)
@@ -266,21 +269,22 @@ def test_light_control_uses_standard_group_channel_sub_id():
     asyncio.run(entity.async_turn_on())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x21, 0x41, b"\x01", False),
+        (0x0E, 0x12, 0x41, b"\x01\x01\x00", False),
     ]
-    assert coordinator.state_requests == [(0x0E, 0x21)]
+    assert coordinator.state_requests == [(0x0E, 0x12)]
 
     group3 = discovery.DeviceState(
-        key="0E3F_light_1",
+        key="0E13_light_1",
         addr=0x0E,
-        sub_id=0x3F,
+        sub_id=0x13,
         channel=1,
         kind="light",
         state={
             "on": True,
             "dimmable": False,
-            "status_sub_id": 0x31,
-            "control_sub_id": 0x31,
+            "status_sub_id": 0x13,
+            "control_sub_id": 0x13,
+            "control_channel": 1,
         },
     )
     coordinator = _FakeCoordinator(group3)
@@ -289,9 +293,9 @@ def test_light_control_uses_standard_group_channel_sub_id():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x31, 0x41, b"\x00", False),
+        (0x0E, 0x13, 0x41, b"\x01\x00\x00", False),
     ]
-    assert coordinator.state_requests == [(0x0E, 0x31)]
+    assert coordinator.state_requests == [(0x0E, 0x13)]
 
 
 def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
