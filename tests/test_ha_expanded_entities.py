@@ -177,7 +177,7 @@ class _FakeRegistry:
 
 
 class _FakeCoordinator:
-    def __init__(self, dev, *, matched_frame=None, max_attempts=7):
+    def __init__(self, dev, *, matched_frame=None, max_attempts=10):
         self.registry = _FakeRegistry(dev)
         self.sent = []
         self.sent_f7 = []
@@ -242,7 +242,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
-    ] * 7
+    ] * 10
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group1_ch2 = discovery.DeviceState(
@@ -266,7 +266,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x02\x00\x00", False),
-    ] * 7
+    ] * 10
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group2_ch1 = discovery.DeviceState(
@@ -290,7 +290,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x12, 0x41, b"\x01\x01\x00", False),
-    ] * 7
+    ] * 10
     assert coordinator.state_requests == [(0x0E, 0x12)]
 
     group3 = discovery.DeviceState(
@@ -314,7 +314,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x13, 0x41, b"\x01\x00\x00", False),
-    ] * 7
+    ] * 10
     assert coordinator.state_requests == [(0x0E, 0x13)]
 
 
