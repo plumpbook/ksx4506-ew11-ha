@@ -19,10 +19,10 @@ def test_light_single_subid_multichannel_payload_expands_channels():
     assert reg.devices["0E1F_light_1"].state["on"] is True
     assert reg.devices["0E1F_light_1"].state["dimmable"] is False
     assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x01
-    assert reg.devices["0E1F_light_1"].state["control_channel"] == 1
+    assert "control_channel" not in reg.devices["0E1F_light_1"].state
     assert reg.devices["0E1F_light_2"].state["on"] is False
     assert reg.devices["0E1F_light_2"].state["control_sub_id"] == 0x01
-    assert reg.devices["0E1F_light_2"].state["control_channel"] == 2
+    assert "control_channel" not in reg.devices["0E1F_light_2"].state
     assert reg.devices["0E1F_light_3"].state["on"] is True
 
 
@@ -46,11 +46,11 @@ def test_vendor_light_group_subids_do_not_collapse_into_group_one():
     assert reg.devices["0E1F_light_2"].state["on"] is False
     assert reg.devices["0E1F_light_3"].state["on"] is False
     assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x11
-    assert reg.devices["0E1F_light_1"].state["control_channel"] == 1
+    assert "control_channel" not in reg.devices["0E1F_light_1"].state
     assert reg.devices["0E2F_light_1"].state["on"] is True
     assert reg.devices["0E2F_light_2"].state["on"] is True
     assert reg.devices["0E2F_light_1"].state["control_sub_id"] == 0x12
-    assert reg.devices["0E2F_light_1"].state["control_channel"] == 1
+    assert "control_channel" not in reg.devices["0E2F_light_1"].state
 
 
 def test_gas_standard_status_decodes_closed_as_off():

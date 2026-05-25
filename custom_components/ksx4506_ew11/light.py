@@ -13,7 +13,6 @@ from .devices.lighting import (
     CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
     LIGHT_DEVICE_ID,
     build_light_control_payload,
-    build_vendor_channel_control_payload,
     f7_individual_sub_id,
 )
 from .entity_base import KsxEntity
@@ -77,35 +76,27 @@ class KsxLight(KsxEntity, LightEntity):
         return int(self.dev.state.get("control_sub_id", f7_individual_sub_id(self.sub_id, self.channel)))
 
     def _status_sub_id(self) -> int:
-        return int(self.dev.state.get("status_sub_id", self.sub_id))
-
-    def _control_payload(self, *, turn_on: bool, **kwargs) -> bytes:
-        control_channel = self.dev.state.get("control_channel")
-        if isinstance(control_channel, int):
-            return build_vendor_channel_control_payload(
-                channel=control_channel,
-                turn_on=turn_on,
-            )
-
-        brightness_step = None
-        if turn_on and self.dev.state.get("dimmable"):
-            bri = kwargs.get("brightness")
-            if bri is None:
-                brightness_step = int(self.dev.state.get("brightness_step", 1) or 1)
-            else:
-                brightness_step = max(1, min(15, round((int(bri) * 15) / 255)))
-        return build_light_control_payload(
-            turn_on=turn_on,
-            brightness_step=brightness_step,
-        )
+        return int(self.dev.state.get("status_sub_id", self._target_sub_id()))
 
     async def async_turn_on(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
+            brightness_step = None
+            if self.dev.state.get("dimmable"):
+                bri = kwargs.get("brightness")
+                if bri is None:
+                    brightness_step = int(self.dev.state.get("brightness_step", 1) or 1)
+                else:
+                    brightness_step = max(1, min(15, round((int(bri) * 15) / 255)))
+
+            target_sub = self._target_sub_id()
             await self.coordinator.async_send_f7_command(
                 self.addr,
-                self._target_sub_id(),
+                target_sub,
                 F7_LIGHT_CONTROL_REQUEST,
-                self._control_payload(turn_on=True, **kwargs),
+                build_light_control_payload(
+                    turn_on=True,
+                    brightness_step=brightness_step,
+                ),
             )
 
             await asyncio.sleep(0.12)
@@ -115,11 +106,12 @@ class KsxLight(KsxEntity, LightEntity):
 
     async def async_turn_off(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
+            target_sub = self._target_sub_id()
             await self.coordinator.async_send_f7_command(
                 self.addr,
-                self._target_sub_id(),
+                target_sub,
                 F7_LIGHT_CONTROL_REQUEST,
-                self._control_payload(turn_on=False),
+                build_light_control_payload(turn_on=False),
             )
 
             await asyncio.sleep(0.12)

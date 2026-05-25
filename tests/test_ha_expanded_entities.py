@@ -196,7 +196,7 @@ class _FakeCoordinator:
         return True
 
 
-def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
+def test_light_control_uses_observed_status_sub_id_with_standard_payload():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
@@ -212,7 +212,6 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
             "dimmable": False,
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
-            "control_channel": 1,
         },
     )
     coordinator = _FakeCoordinator(group1)
@@ -221,7 +220,7 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x11, 0x41, bytes.fromhex("01 00 00"), False),
+        (0x0E, 0x11, 0x41, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
@@ -236,7 +235,6 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
             "dimmable": False,
             "status_sub_id": 0x12,
             "control_sub_id": 0x12,
-            "control_channel": 1,
         },
     )
     coordinator = _FakeCoordinator(group2)
@@ -245,7 +243,7 @@ def test_light_group_channel_control_uses_module_sub_id_and_channel_payload():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x12, 0x41, bytes.fromhex("01 00 00"), False),
+        (0x0E, 0x12, 0x41, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x12)]
 
