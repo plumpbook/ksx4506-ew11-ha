@@ -8,21 +8,21 @@ _module = load_integration_module("discovery")
 DeviceRegistry = _module.DeviceRegistry
 
 
-def test_light_single_subid_multichannel_payload_expands_channels():
+def test_group_light_payload_expands_channels_with_standard_control_subids():
     reg = DeviceRegistry()
-    # vendor variant: sub_id(0x01) + multi-channel payload [err, ch1, ch2, ch3]
-    changes = reg.upsert_from_frame(0x0E, 0x01, 0x81, bytes([0x00, 0x01, 0x00, 0x01]), "f7...")
+    changes = reg.upsert_from_frame(0x0E, 0x1F, 0x81, bytes([0x00, 0x01, 0x00, 0x01]), "f7...")
 
     assert len(changes) == 3
     keys = sorted(k for k in reg.devices.keys())
     assert keys == ["0E1F_light_1", "0E1F_light_2", "0E1F_light_3"]
     assert reg.devices["0E1F_light_1"].state["on"] is True
     assert reg.devices["0E1F_light_1"].state["dimmable"] is False
-    assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x1F
-    assert reg.devices["0E1F_light_1"].state["control_channel"] == 1
+    assert reg.devices["0E1F_light_1"].state["status_sub_id"] == 0x1F
+    assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x11
+    assert "control_channel" not in reg.devices["0E1F_light_1"].state
     assert reg.devices["0E1F_light_2"].state["on"] is False
-    assert reg.devices["0E1F_light_2"].state["control_sub_id"] == 0x1F
-    assert reg.devices["0E1F_light_2"].state["control_channel"] == 2
+    assert reg.devices["0E1F_light_2"].state["control_sub_id"] == 0x12
+    assert "control_channel" not in reg.devices["0E1F_light_2"].state
     assert reg.devices["0E1F_light_3"].state["on"] is True
 
 
@@ -30,27 +30,25 @@ def test_light_status_byte_dimming_decode():
     reg = DeviceRegistry()
     # [err=0x00, state=0xA3] => dim step 10, dimmable, ON
     reg.upsert_from_frame(0x0E, 0x01, 0x81, bytes([0x00, 0xA3]), "f7...")
-    d = reg.devices["0E1F_light_1"]
+    d = reg.devices["0E01_light"]
     assert d.state["on"] is True
     assert d.state["dimmable"] is True
     assert d.state["brightness_step"] == 0x0A
 
 
-def test_vendor_light_group_subids_do_not_collapse_into_group_one():
+def test_group_channel_light_subids_map_to_standard_group_channels():
     reg = DeviceRegistry()
 
     reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 00 00 00"), "f70e118104000000006d08")
     reg.upsert_from_frame(0x0E, 0x12, 0x81, bytes.fromhex("00 01 01"), "f70e1281030001016906")
 
     assert reg.devices["0E1F_light_1"].state["on"] is False
-    assert reg.devices["0E1F_light_2"].state["on"] is False
-    assert reg.devices["0E1F_light_3"].state["on"] is False
-    assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x1F
-    assert reg.devices["0E1F_light_1"].state["control_channel"] == 1
-    assert reg.devices["0E2F_light_1"].state["on"] is True
-    assert reg.devices["0E2F_light_2"].state["on"] is True
-    assert reg.devices["0E2F_light_1"].state["control_sub_id"] == 0x2F
-    assert reg.devices["0E2F_light_1"].state["control_channel"] == 1
+    assert reg.devices["0E1F_light_2"].state["on"] is True
+    assert "0E1F_light_3" not in reg.devices
+    assert "0E2F_light_1" not in reg.devices
+    assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x11
+    assert reg.devices["0E1F_light_2"].state["control_sub_id"] == 0x12
+    assert "control_channel" not in reg.devices["0E1F_light_1"].state
 
 
 def test_gas_standard_status_decodes_closed_as_off():

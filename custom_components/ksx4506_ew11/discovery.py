@@ -84,74 +84,72 @@ class DeviceRegistry:
 
         changes: list[tuple[DeviceState, bool]] = []
 
-        # KS X 4506-2(light): expose channel entities only (no group aggregate entity).
+        # KS X 4506-2(light): expose grouped lights as channel entities
+        # while keeping control on the standard group/channel sub-id.
         if kind == "light" and addr == LIGHT_DEVICE_ID:
             if len(payload) > 1:
                 low = sub_id & 0x0F
                 high = (sub_id >> 4) & 0x0F
-                is_group_reply = low == 0x0F
+                is_group_reply = high > 0 and low == 0x0F
 
-                items: list[tuple[int, int]] = []
-                if is_group_reply or len(payload) > 2:
-                    # Group status reply: [err][ch1..chN]
-                    items = [(ch, b) for ch, b in enumerate(payload[1:], start=1)]
-                else:
-                    # Single status reply: [err][state]
-                    if (high == 0 and low > 0) or _is_vendor_light_group_sub_id(high, low):
-                        # vendor single-group form: 0x03/0x13 -> group3 ch1
-                        ch = 1
-                    else:
-                        ch = low if low > 0 else 1
+                def upsert_light(
+                    *,
+                    entity_sub_id: int,
+                    channel: int | None,
+                    state_byte: int,
+                    control_sub_id: int,
+                    status_sub_id: int,
+                ) -> None:
+                    key = f"{addr:02X}{entity_sub_id:02X}_{kind}"
+                    if channel is not None:
+                        key = f"{key}_{channel}"
 
-                    items = [(ch, payload[1])]
-
-                # Canonical group key for dedup across mixed reply forms.
-                if is_group_reply:
-                    group = high if high > 0 else 1
-                elif len(payload) > 2:
-                    group = _canonical_light_group(high, low)
-                else:
-                    group = _canonical_light_group(high, low)
-
-                canonical_sub_id = ((group & 0x0F) << 4) | 0x0F
-
-                use_group_channel_control = (
-                    is_group_reply or len(payload) > 2 or _is_vendor_light_group_sub_id(high, low)
-                )
-
-                existing_channels = {
-                    d.channel
-                    for d in self.devices.values()
-                    if d.kind == "light"
-                    and d.addr == addr
-                    and d.sub_id == canonical_sub_id
-                    and d.channel is not None
-                }
-                for ch, state_byte in items:
-                    if existing_channels and ch not in existing_channels and 1 in existing_channels:
-                        ch = 1
-                    key = f"{addr:02X}{canonical_sub_id:02X}_{kind}_{ch}"
                     is_new = key not in self.devices
                     if is_new:
                         self.devices[key] = DeviceState(
                             key=key,
                             addr=addr,
-                            sub_id=canonical_sub_id,
-                            channel=ch,
+                            sub_id=entity_sub_id,
+                            channel=channel,
                             kind=kind,
                             capabilities=set(caps),
                         )
+
                     dev = self.devices[key]
                     dev.last_raw_hex = raw_hex
                     dev.state.update(decode_light_state_byte(state_byte))
-                    dev.state["status_sub_id"] = sub_id
-                    if use_group_channel_control:
-                        dev.state["control_sub_id"] = canonical_sub_id
-                        dev.state["control_channel"] = ch
-                    else:
-                        dev.state["control_sub_id"] = sub_id
-                        dev.state.pop("control_channel", None)
+                    dev.state["status_sub_id"] = status_sub_id
+                    dev.state["control_sub_id"] = control_sub_id
+                    dev.state.pop("control_channel", None)
                     changes.append((dev, is_new))
+
+                if is_group_reply:
+                    group = high
+                    for ch, state_byte in enumerate(payload[1:], start=1):
+                        upsert_light(
+                            entity_sub_id=sub_id,
+                            channel=ch,
+                            state_byte=state_byte,
+                            control_sub_id=((group & 0x0F) << 4) | (ch & 0x0F),
+                            status_sub_id=sub_id,
+                        )
+                elif high > 0 and 0x01 <= low <= 0x0E:
+                    group_sub_id = (high << 4) | 0x0F
+                    upsert_light(
+                        entity_sub_id=group_sub_id,
+                        channel=low,
+                        state_byte=payload[1],
+                        control_sub_id=sub_id,
+                        status_sub_id=sub_id,
+                    )
+                elif 0x01 <= low <= 0x0E:
+                    upsert_light(
+                        entity_sub_id=sub_id,
+                        channel=None,
+                        state_byte=payload[1],
+                        control_sub_id=sub_id,
+                        status_sub_id=sub_id,
+                    )
 
             return changes
 
@@ -230,18 +228,6 @@ class DeviceRegistry:
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
-
-
-def _is_vendor_light_group_sub_id(high: int, low: int) -> bool:
-    return high == 0x01 and 0x01 <= low <= 0x0E
-
-
-def _canonical_light_group(high: int, low: int) -> int:
-    if _is_vendor_light_group_sub_id(high, low):
-        return low
-    if high == 0:
-        return low if low > 0 else 1
-    return high
 
 
 def _is_polling_request(addr: int, cmd: int) -> bool:

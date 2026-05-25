@@ -16,27 +16,30 @@ def test_group_light_creates_channels_only_no_group_entity():
     assert "0E1F_light_1" in reg.devices
     assert "0E1F_light_2" in reg.devices
     assert "0E1F_light_3" in reg.devices
+    assert reg.devices["0E1F_light_1"].state["control_sub_id"] == 0x11
+    assert reg.devices["0E1F_light_2"].state["control_sub_id"] == 0x12
 
 
-def test_single_reply_channel_out_of_known_range_falls_back_to_ch1():
+def test_group_channel_individual_reply_keeps_standard_channel():
     reg = DeviceRegistry()
     # group4 has one channel from grouped state
     reg.upsert_from_frame(0x0E, 0x4F, 0x81, bytes([0x00, 0x01]), "f7...")
 
-    # single reply comes as sub_id 0x44 (field variant) -> should map to group4 ch1
+    # standard grouped channel sub_id 0x44 -> group4 ch4
     reg.upsert_from_frame(0x0E, 0x44, 0x81, bytes([0x00, 0x01]), "f7...")
 
     assert "0E4F_light_1" in reg.devices
-    assert "0E4F_light_4" not in reg.devices
+    assert "0E4F_light_4" in reg.devices
+    assert reg.devices["0E4F_light_4"].state["control_sub_id"] == 0x44
 
 
-def test_single_group_subid_maps_to_group_ch1():
+def test_ungrouped_light_subid_stays_individual_light():
     reg = DeviceRegistry()
-    # vendor single-group replies: 0x03/0x04/0x05 => group3/4/5 channel1
+    # no-group lighting: 0x03/0x04/0x05 are individual light IDs
     reg.upsert_from_frame(0x0E, 0x03, 0x81, bytes([0x00, 0x01]), "f7...")
     reg.upsert_from_frame(0x0E, 0x04, 0x81, bytes([0x00, 0x00]), "f7...")
     reg.upsert_from_frame(0x0E, 0x05, 0x81, bytes([0x00, 0x01]), "f7...")
 
-    assert "0E3F_light_1" in reg.devices
-    assert "0E4F_light_1" in reg.devices
-    assert "0E5F_light_1" in reg.devices
+    assert "0E03_light" in reg.devices
+    assert "0E04_light" in reg.devices
+    assert "0E05_light" in reg.devices

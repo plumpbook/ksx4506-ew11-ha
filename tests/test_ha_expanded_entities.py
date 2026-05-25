@@ -196,7 +196,7 @@ class _FakeCoordinator:
         return True
 
 
-def test_light_control_uses_group_channel_command_with_observed_status_sub_id():
+def test_light_control_uses_standard_group_channel_sub_id():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     light = load_integration_module("light")
@@ -211,8 +211,7 @@ def test_light_control_uses_group_channel_command_with_observed_status_sub_id():
             "on": True,
             "dimmable": False,
             "status_sub_id": 0x11,
-            "control_sub_id": 0x1F,
-            "control_channel": 1,
+            "control_sub_id": 0x11,
         },
     )
     coordinator = _FakeCoordinator(group1)
@@ -221,57 +220,55 @@ def test_light_control_uses_group_channel_command_with_observed_status_sub_id():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x1F, 0x41, b"\x01\x00\x00", False),
+        (0x0E, 0x11, 0x41, b"\x00", False),
     ]
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
-    group2 = discovery.DeviceState(
+    group1_ch2 = discovery.DeviceState(
+        key="0E1F_light_2",
+        addr=0x0E,
+        sub_id=0x1F,
+        channel=2,
+        kind="light",
+        state={
+            "on": True,
+            "dimmable": False,
+            "status_sub_id": 0x12,
+            "control_sub_id": 0x12,
+        },
+    )
+    coordinator = _FakeCoordinator(group1_ch2)
+    entity = light.KsxLight(coordinator, group1_ch2)
+
+    asyncio.run(entity.async_turn_off())
+
+    assert coordinator.sent_f7 == [
+        (0x0E, 0x12, 0x41, b"\x00", False),
+    ]
+    assert coordinator.state_requests == [(0x0E, 0x12)]
+
+    group2_ch1 = discovery.DeviceState(
         key="0E2F_light_1",
         addr=0x0E,
         sub_id=0x2F,
         channel=1,
         kind="light",
         state={
-            "on": True,
-            "dimmable": False,
-            "status_sub_id": 0x12,
-            "control_sub_id": 0x2F,
-            "control_channel": 1,
-        },
-    )
-    coordinator = _FakeCoordinator(group2)
-    entity = light.KsxLight(coordinator, group2)
-
-    asyncio.run(entity.async_turn_off())
-
-    assert coordinator.sent_f7 == [
-        (0x0E, 0x2F, 0x41, b"\x01\x00\x00", False),
-    ]
-    assert coordinator.state_requests == [(0x0E, 0x12)]
-
-    group2_ch2 = discovery.DeviceState(
-        key="0E2F_light_2",
-        addr=0x0E,
-        sub_id=0x2F,
-        channel=2,
-        kind="light",
-        state={
             "on": False,
             "dimmable": False,
-            "status_sub_id": 0x12,
-            "control_sub_id": 0x2F,
-            "control_channel": 2,
+            "status_sub_id": 0x21,
+            "control_sub_id": 0x21,
         },
     )
-    coordinator = _FakeCoordinator(group2_ch2)
-    entity = light.KsxLight(coordinator, group2_ch2)
+    coordinator = _FakeCoordinator(group2_ch1)
+    entity = light.KsxLight(coordinator, group2_ch1)
 
     asyncio.run(entity.async_turn_on())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x2F, 0x41, b"\x02\x01\x00", False),
+        (0x0E, 0x21, 0x41, b"\x01", False),
     ]
-    assert coordinator.state_requests == [(0x0E, 0x12)]
+    assert coordinator.state_requests == [(0x0E, 0x21)]
 
     group3 = discovery.DeviceState(
         key="0E3F_light_1",
@@ -282,9 +279,8 @@ def test_light_control_uses_group_channel_command_with_observed_status_sub_id():
         state={
             "on": True,
             "dimmable": False,
-            "status_sub_id": 0x13,
-            "control_sub_id": 0x3F,
-            "control_channel": 1,
+            "status_sub_id": 0x31,
+            "control_sub_id": 0x31,
         },
     )
     coordinator = _FakeCoordinator(group3)
@@ -293,9 +289,9 @@ def test_light_control_uses_group_channel_command_with_observed_status_sub_id():
     asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
-        (0x0E, 0x3F, 0x41, b"\x01\x00\x00", False),
+        (0x0E, 0x31, 0x41, b"\x00", False),
     ]
-    assert coordinator.state_requests == [(0x0E, 0x13)]
+    assert coordinator.state_requests == [(0x0E, 0x31)]
 
 
 def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
