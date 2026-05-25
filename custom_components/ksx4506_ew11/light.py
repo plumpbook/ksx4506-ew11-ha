@@ -13,6 +13,7 @@ from .devices.lighting import (
     CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
     LIGHT_DEVICE_ID,
     build_light_control_payload,
+    build_vendor_channel_control_payload,
     f7_individual_sub_id,
 )
 from .entity_base import KsxEntity
@@ -78,6 +79,22 @@ class KsxLight(KsxEntity, LightEntity):
     def _status_sub_id(self) -> int:
         return int(self.dev.state.get("status_sub_id", self._target_sub_id()))
 
+    def _control_channel(self) -> int | None:
+        channel = self.dev.state.get("control_channel")
+        return int(channel) if isinstance(channel, int) else None
+
+    def _control_payload(self, *, turn_on: bool, brightness_step: int | None = None) -> bytes:
+        control_channel = self._control_channel()
+        if control_channel is not None:
+            return build_vendor_channel_control_payload(
+                channel=control_channel,
+                turn_on=turn_on,
+            )
+        return build_light_control_payload(
+            turn_on=turn_on,
+            brightness_step=brightness_step,
+        )
+
     async def async_turn_on(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
             brightness_step = None
@@ -93,7 +110,7 @@ class KsxLight(KsxEntity, LightEntity):
                 self.addr,
                 target_sub,
                 F7_LIGHT_CONTROL_REQUEST,
-                build_light_control_payload(
+                self._control_payload(
                     turn_on=True,
                     brightness_step=brightness_step,
                 ),
@@ -111,7 +128,7 @@ class KsxLight(KsxEntity, LightEntity):
                 self.addr,
                 target_sub,
                 F7_LIGHT_CONTROL_REQUEST,
-                build_light_control_payload(turn_on=False),
+                self._control_payload(turn_on=False),
             )
 
             await asyncio.sleep(0.12)

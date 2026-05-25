@@ -115,6 +115,10 @@ class DeviceRegistry:
 
                 canonical_sub_id = ((group & 0x0F) << 4) | 0x0F
 
+                use_group_channel_control = (
+                    is_group_reply or len(payload) > 2 or _is_vendor_light_group_sub_id(high, low)
+                )
+
                 existing_channels = {
                     d.channel
                     for d in self.devices.values()
@@ -141,7 +145,12 @@ class DeviceRegistry:
                     dev.last_raw_hex = raw_hex
                     dev.state.update(decode_light_state_byte(state_byte))
                     dev.state["status_sub_id"] = sub_id
-                    dev.state["control_sub_id"] = sub_id
+                    if use_group_channel_control:
+                        dev.state["control_sub_id"] = canonical_sub_id
+                        dev.state["control_channel"] = ch
+                    else:
+                        dev.state["control_sub_id"] = sub_id
+                        dev.state.pop("control_channel", None)
                     changes.append((dev, is_new))
 
             return changes
