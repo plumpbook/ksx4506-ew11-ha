@@ -90,6 +90,21 @@ class KsxLight(KsxEntity, LightEntity):
             brightness_step=brightness_step,
         )
 
+    def _control_repeats(self) -> int:
+        return max(1, min(7, int(self.dev.state.get("control_repeats", 1))))
+
+    async def _async_send_light_control(self, target_sub: int, payload: bytes) -> None:
+        repeats = self._control_repeats()
+        for attempt in range(repeats):
+            await self.coordinator.async_send_f7_command(
+                self.addr,
+                target_sub,
+                F7_LIGHT_CONTROL_REQUEST,
+                payload,
+            )
+            if attempt < repeats - 1:
+                await asyncio.sleep(0.1)
+
     async def async_turn_on(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
             brightness_step = None
@@ -101,10 +116,8 @@ class KsxLight(KsxEntity, LightEntity):
                     brightness_step = max(1, min(15, round((int(bri) * 15) / 255)))
 
             target_sub = self._target_sub_id()
-            await self.coordinator.async_send_f7_command(
-                self.addr,
+            await self._async_send_light_control(
                 target_sub,
-                F7_LIGHT_CONTROL_REQUEST,
                 self._control_payload(
                     turn_on=True,
                     brightness_step=brightness_step,
@@ -119,10 +132,8 @@ class KsxLight(KsxEntity, LightEntity):
     async def async_turn_off(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
             target_sub = self._target_sub_id()
-            await self.coordinator.async_send_f7_command(
-                self.addr,
+            await self._async_send_light_control(
                 target_sub,
-                F7_LIGHT_CONTROL_REQUEST,
                 self._control_payload(turn_on=False),
             )
 

@@ -213,6 +213,7 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
             "control_channel": 1,
+            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group1)
@@ -222,7 +223,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
-    ]
+    ] * 7
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group1_ch2 = discovery.DeviceState(
@@ -237,6 +238,7 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x11,
             "control_sub_id": 0x11,
             "control_channel": 2,
+            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group1_ch2)
@@ -246,7 +248,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x02\x00\x00", False),
-    ]
+    ] * 7
     assert coordinator.state_requests == [(0x0E, 0x11)]
 
     group2_ch1 = discovery.DeviceState(
@@ -261,6 +263,7 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x12,
             "control_sub_id": 0x12,
             "control_channel": 1,
+            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group2_ch1)
@@ -270,7 +273,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x12, 0x41, b"\x01\x01\x00", False),
-    ]
+    ] * 7
     assert coordinator.state_requests == [(0x0E, 0x12)]
 
     group3 = discovery.DeviceState(
@@ -285,6 +288,7 @@ def test_light_control_uses_suroup_module_channel_payload():
             "status_sub_id": 0x13,
             "control_sub_id": 0x13,
             "control_channel": 1,
+            "control_repeats": 7,
         },
     )
     coordinator = _FakeCoordinator(group3)
@@ -294,7 +298,7 @@ def test_light_control_uses_suroup_module_channel_payload():
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x13, 0x41, b"\x01\x00\x00", False),
-    ]
+    ] * 7
     assert coordinator.state_requests == [(0x0E, 0x13)]
 
 
