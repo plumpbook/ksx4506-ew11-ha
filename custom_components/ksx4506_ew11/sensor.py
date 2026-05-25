@@ -67,24 +67,30 @@ def _sensor_entities_for_device(coordinator, dev):
     if dev.kind == "unknown":
         out.append(KsxUnknownDiagnostic(coordinator, dev))
     if dev.kind == "switch" and dev.addr == OUTLET_DEVICE_ID:
-        for channel, source_channel in _outlet_display_channels(dev):
-            out.append(
-                KsxOutletPowerSensor(
-                    coordinator,
-                    dev,
-                    channel=channel,
-                    source_channel=source_channel,
+        if "control_sub_id" in dev.state:
+            if "power_w" in dev.state:
+                out.append(KsxOutletPowerSensor(coordinator, dev))
+            if "threshold_w" in dev.state:
+                out.append(KsxOutletThresholdSensor(coordinator, dev))
+        else:
+            for channel, source_channel in _outlet_display_channels(dev):
+                out.append(
+                    KsxOutletPowerSensor(
+                        coordinator,
+                        dev,
+                        channel=channel,
+                        source_channel=source_channel,
+                    )
                 )
-            )
-        for channel, source_channel in _outlet_threshold_display_channels(dev):
-            out.append(
-                KsxOutletThresholdSensor(
-                    coordinator,
-                    dev,
-                    channel=channel,
-                    source_channel=source_channel,
+            for channel, source_channel in _outlet_threshold_display_channels(dev):
+                out.append(
+                    KsxOutletThresholdSensor(
+                        coordinator,
+                        dev,
+                        channel=channel,
+                        source_channel=source_channel,
+                    )
                 )
-            )
     return out
 
 

@@ -12,7 +12,15 @@ from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_st
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
 from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
 from .devices.meter import METER_DEVICE_ID, decode_meter_state
-from .devices.outlet import OUTLET_DEVICE_ID, decode_outlet_state, decode_switch_state
+from .devices.outlet import (
+    CONTROL_RESPONSE as OUTLET_CONTROL_RESPONSE,
+    CUTOFF_THRESHOLD_CONTROL_RESPONSE as OUTLET_THRESHOLD_CONTROL_RESPONSE,
+    CUTOFF_THRESHOLD_RESPONSE as OUTLET_THRESHOLD_RESPONSE,
+    OUTLET_DEVICE_ID,
+    STATUS_RESPONSE as OUTLET_STATUS_RESPONSE,
+    decode_outlet_state,
+    decode_switch_state,
+)
 from .devices.thermostat import THERMOSTAT_DEVICE_ID, decode_thermostat_state
 
 # cmd value는 프로젝트 진행 중 실측 캡처로 보정 필요
@@ -173,6 +181,21 @@ class DeviceRegistry:
 
             return changes
 
+        # Suroup-compatible outlet model: grouped status packets such as 0x1F
+        # carry multiple physical outlets, but each outlet is controlled through
+        # its own sub-id (0x11, 0x12, ...).
+        if kind == "switch" and addr == OUTLET_DEVICE_ID:
+            outlet_changes = self._upsert_outlet_from_frame(
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+                caps,
+            )
+            if outlet_changes:
+                return outlet_changes
+
         # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
         is_new = key not in self.devices
@@ -249,6 +272,98 @@ class DeviceRegistry:
         if dev.kind in {"sensor", "unknown"} or not dev.state:
             dev.state["value_hex"] = payload.hex()
 
+    def _upsert_outlet_from_frame(
+        self,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+        caps: set[str],
+    ) -> list[tuple[DeviceState, bool]]:
+        if cmd not in {
+            OUTLET_STATUS_RESPONSE,
+            OUTLET_CONTROL_RESPONSE,
+            OUTLET_THRESHOLD_RESPONSE,
+            OUTLET_THRESHOLD_CONTROL_RESPONSE,
+        }:
+            return []
+
+        low = sub_id & 0x0F
+        high = (sub_id >> 4) & 0x0F
+        count = _outlet_payload_channel_count(cmd, payload)
+        if count <= 0:
+            return []
+
+        changes: list[tuple[DeviceState, bool]] = []
+        if high > 0 and low == 0x0F:
+            for channel in range(1, count + 1):
+                entity_sub_id = ((high & 0x0F) << 4) | (channel & 0x0F)
+                changes.append(
+                    self._upsert_single_outlet(
+                        addr=addr,
+                        entity_sub_id=entity_sub_id,
+                        status_sub_id=sub_id,
+                        status_channel=channel,
+                        cmd=cmd,
+                        payload=payload,
+                        raw_hex=raw_hex,
+                        caps=caps,
+                    )
+                )
+            return changes
+
+        changes.append(
+            self._upsert_single_outlet(
+                addr=addr,
+                entity_sub_id=sub_id,
+                status_sub_id=sub_id,
+                status_channel=1,
+                cmd=cmd,
+                payload=payload,
+                raw_hex=raw_hex,
+                caps=caps,
+            )
+        )
+        return changes
+
+    def _upsert_single_outlet(
+        self,
+        *,
+        addr: int,
+        entity_sub_id: int,
+        status_sub_id: int,
+        status_channel: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+        caps: set[str],
+    ) -> tuple[DeviceState, bool]:
+        key = f"{addr:02X}{entity_sub_id:02X}_switch"
+        is_new = key not in self.devices
+        if is_new:
+            self.devices[key] = DeviceState(
+                key=key,
+                addr=addr,
+                sub_id=entity_sub_id,
+                kind="switch",
+                capabilities=set(caps),
+            )
+
+        dev = self.devices[key]
+        dev.last_raw_hex = raw_hex
+        state = decode_outlet_state(
+            payload,
+            unit=entity_sub_id & 0x0F,
+            channel=status_channel,
+            command_type=cmd,
+        )
+        dev.state.update(state)
+        dev.state["status_sub_id"] = status_sub_id
+        dev.state["status_channel"] = status_channel
+        dev.state["control_sub_id"] = entity_sub_id
+        return dev, is_new
+
 
 def _is_polling_request(addr: int, cmd: int) -> bool:
     if addr == COMMON_ENTRANCE_DEVICE_ID:
@@ -261,3 +376,19 @@ def _is_polling_request(addr: int, cmd: int) -> bool:
     }:
         return cmd == GENERIC_STATUS_REQUEST
     return False
+
+
+def _outlet_payload_channel_count(cmd: int, payload: bytes) -> int:
+    if not payload:
+        return 0
+    if cmd in {OUTLET_STATUS_RESPONSE} and len(payload) >= 4 and (len(payload) - 1) % 3 == 0:
+        return (len(payload) - 1) // 3
+    if (
+        cmd in {OUTLET_THRESHOLD_RESPONSE, OUTLET_THRESHOLD_CONTROL_RESPONSE}
+        and len(payload) >= 3
+        and (len(payload) - 1) % 2 == 0
+    ):
+        return (len(payload) - 1) // 2
+    if cmd == OUTLET_CONTROL_RESPONSE and len(payload) >= 2:
+        return len(payload) - 1
+    return 0

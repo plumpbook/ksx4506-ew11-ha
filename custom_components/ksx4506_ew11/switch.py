@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -8,11 +10,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .devices.outlet import (
+    CONTROL_RESPONSE as F7_OUTLET_CONTROL_RESPONSE,
     GENERIC_SWITCH_COMMAND,
     OUTLET_DEVICE_ID,
     CONTROL_REQUEST as F7_OUTLET_CONTROL_REQUEST,
+    STATUS_RESPONSE as F7_OUTLET_STATUS_RESPONSE,
     build_outlet_control_request,
     build_generic_switch_payload,
+    decode_outlet_state,
 )
 from .devices.thermostat import (
     HEAT_CONTROL_REQUEST,
@@ -21,6 +26,7 @@ from .devices.thermostat import (
     thermostat_target_sub_id,
 )
 from .entity_base import KsxEntity
+from .protocol import KsFrame
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -71,6 +77,8 @@ def _switch_entities_for_device(coordinator, dev):
         return []
 
     if dev.addr == OUTLET_DEVICE_ID:
+        if "control_sub_id" in dev.state:
+            return [KsxOutletSwitch(coordinator, dev)]
         return [
             KsxOutletChannelSwitch(
                 coordinator,
@@ -123,6 +131,79 @@ class KsxSwitch(KsxEntity, SwitchEntity):
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=False),
         )
+
+
+class KsxOutletSwitch(KsxSwitch):
+    _attr_name = "Switch"
+
+    @property
+    def is_on(self) -> bool | None:
+        if "on" not in self.dev.state:
+            return None
+        return bool(self.dev.state.get("on"))
+
+    async def async_turn_on(self, **kwargs):
+        await self._async_set_outlet(True)
+
+    async def async_turn_off(self, **kwargs):
+        await self._async_set_outlet(False)
+
+    async def _async_set_outlet(self, turn_on: bool) -> None:
+        target_sub = int(self.dev.state.get("control_sub_id", self.sub_id))
+        status_sub = int(self.dev.state.get("status_sub_id", target_sub))
+        frame = build_outlet_control_request(target_sub, turn_on=turn_on)
+
+        send_until = getattr(self.coordinator, "async_send_f7_command_until", None)
+        if send_until is None:
+            await self.coordinator.async_send_f7_command(
+                self.addr,
+                frame.sub_id,
+                F7_OUTLET_CONTROL_REQUEST,
+                frame.data,
+            )
+            matched = None
+        else:
+            matched = await send_until(
+                self.addr,
+                frame.sub_id,
+                F7_OUTLET_CONTROL_REQUEST,
+                frame.data,
+                self._control_success_matcher(
+                    target_sub=target_sub,
+                    status_sub=status_sub,
+                    turn_on=turn_on,
+                ),
+            )
+
+        if matched is None or matched.cmd != F7_OUTLET_STATUS_RESPONSE:
+            await asyncio.sleep(0.12)
+            await self.coordinator.async_request_f7_state(self.addr, status_sub)
+
+    def _control_success_matcher(
+        self,
+        *,
+        target_sub: int,
+        status_sub: int,
+        turn_on: bool,
+    ):
+        status_channel = int(self.dev.state.get("status_channel", 1))
+
+        def matcher(frame: KsFrame) -> bool:
+            if frame.addr != self.addr:
+                return False
+            if frame.sub_id == target_sub and frame.cmd == F7_OUTLET_CONTROL_RESPONSE:
+                return True
+            if frame.sub_id != status_sub or frame.cmd != F7_OUTLET_STATUS_RESPONSE:
+                return False
+            state = decode_outlet_state(
+                frame.payload,
+                unit=target_sub & 0x0F,
+                channel=status_channel,
+                command_type=frame.cmd,
+            )
+            return state.get("on") is bool(turn_on)
+
+        return matcher
 
 
 class KsxOutletChannelSwitch(KsxSwitch):

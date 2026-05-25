@@ -85,6 +85,12 @@ def _entrance_panel_binary_sensors(coordinator, dev):
 
 def _outlet_binary_sensors(coordinator, dev):
     out = []
+    if "control_sub_id" in dev.state:
+        return [
+            KsxOutletBinarySensor(coordinator, dev, "auto_cut", "Auto Cut"),
+            KsxOutletBinarySensor(coordinator, dev, "under_threshold", "Under Threshold"),
+            KsxOutletBinarySensor(coordinator, dev, "overload", "Overload"),
+        ]
     for channel, source_channel in _outlet_binary_display_channels(dev):
         out.extend(
             [
@@ -167,6 +173,10 @@ class KsxStateBinarySensor(KsxEntity, BinarySensorEntity):
         if self._state_key not in self.dev.state:
             return None
         return bool(self.dev.state[self._state_key])
+
+
+class KsxOutletBinarySensor(KsxStateBinarySensor):
+    pass
 
 
 class KsxOutletChannelBinarySensor(KsxEntity, BinarySensorEntity):

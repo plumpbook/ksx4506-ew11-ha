@@ -74,6 +74,35 @@ def test_outlet_standard_status_decodes_supply_and_power():
     assert d.state["auto_cut"] is True
 
 
+def test_group_outlet_status_expands_to_individual_control_subids():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(
+        0x39,
+        0x1F,
+        0x81,
+        bytes.fromhex("00 10 00 79 00 00 26"),
+        "f7...",
+    )
+
+    assert len(changes) == 2
+    assert sorted(reg.devices.keys()) == ["3911_switch", "3912_switch"]
+    first = reg.devices["3911_switch"]
+    second = reg.devices["3912_switch"]
+    assert first.sub_id == 0x11
+    assert first.state["status_sub_id"] == 0x1F
+    assert first.state["status_channel"] == 1
+    assert first.state["control_sub_id"] == 0x11
+    assert first.state["on"] is True
+    assert first.state["power_w"] == 7.9
+    assert second.sub_id == 0x12
+    assert second.state["status_sub_id"] == 0x1F
+    assert second.state["status_channel"] == 2
+    assert second.state["control_sub_id"] == 0x12
+    assert second.state["on"] is False
+    assert second.state["power_w"] == 2.6
+
+
 def test_outlet_threshold_response_decodes_cutoff_threshold():
     reg = DeviceRegistry()
 

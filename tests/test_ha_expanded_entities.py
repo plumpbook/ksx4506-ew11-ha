@@ -564,6 +564,71 @@ def test_outlet_channel_switch_controls_specific_channel():
     ]
 
 
+def test_outlet_individual_switch_controls_suroup_subid():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    switch = load_integration_module("switch")
+
+    dev = discovery.DeviceState(
+        key="3911_switch",
+        addr=0x39,
+        sub_id=0x11,
+        kind="switch",
+        state={
+            "on": False,
+            "status_sub_id": 0x1F,
+            "status_channel": 1,
+            "control_sub_id": 0x11,
+        },
+    )
+    coordinator = _FakeCoordinator(dev, max_attempts=3)
+
+    entities = switch._switch_entities_for_device(coordinator, dev)
+    entity = entities[0]
+
+    assert len(entities) == 1
+    assert entity._attr_unique_id == "ksx4506_3911_switch"
+    assert entity._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
+    assert entity._attr_device_info["name"] == "KSX 39-11"
+
+    asyncio.run(entity.async_turn_on())
+
+    assert coordinator.sent_f7 == [(0x39, 0x11, 0x41, b"\x11", False)] * 3
+    assert coordinator.state_requests == [(0x39, 0x1F)]
+
+
+def test_outlet_individual_switch_stops_when_status_matches():
+    _install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    switch = load_integration_module("switch")
+
+    dev = discovery.DeviceState(
+        key="3912_switch",
+        addr=0x39,
+        sub_id=0x12,
+        kind="switch",
+        state={
+            "on": False,
+            "status_sub_id": 0x1F,
+            "status_channel": 2,
+            "control_sub_id": 0x12,
+        },
+    )
+    matched = types.SimpleNamespace(
+        addr=0x39,
+        sub_id=0x1F,
+        cmd=0x81,
+        payload=bytes.fromhex("00 00 00 00 10 00 01"),
+    )
+    coordinator = _FakeCoordinator(dev, matched_frame=matched)
+    entity = switch._switch_entities_for_device(coordinator, dev)[0]
+
+    asyncio.run(entity.async_turn_on())
+
+    assert coordinator.sent_f7 == [(0x39, 0x12, 0x41, b"\x11", False)]
+    assert coordinator.state_requests == []
+
+
 def test_outlet_and_entrance_binary_sensors_are_expanded():
     _install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
