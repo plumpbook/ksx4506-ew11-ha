@@ -3,6 +3,7 @@ from __future__ import annotations
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .coordinator import Ksx4506Coordinator
+from .devices.meter import METER_DEVICE_ID, meter_device_name
 from .discovery import DeviceState
 
 _DEVICE_NAME_PREFIXES = {
@@ -56,6 +57,10 @@ def format_device_name(
 ) -> str:
     prefix = _DEVICE_NAME_PREFIXES.get(addr)
     if prefix is None:
+        if addr == METER_DEVICE_ID:
+            name = meter_device_name(sub_id)
+            if name is not None:
+                return name
         name = f"KSX {addr:02X}-{sub_id:02X}"
         if channel is not None:
             return f"{name} ch{channel}"

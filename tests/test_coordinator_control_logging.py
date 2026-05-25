@@ -99,3 +99,33 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
     assert "TX F7 control attempt dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control wait timeout dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control matched dev=0x39 sub=0x11 cmd=0x41 attempt=2/3" in messages
+
+
+def test_meter_startup_probe_requests_whole_and_individual_meter_states():
+    _install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+
+    class FakeCoordinator:
+        def __init__(self):
+            self.state_requests = []
+
+        async def async_request_f7_state(self, dev_id, sub_id):
+            self.state_requests.append((dev_id, sub_id))
+            return True
+
+    fake = FakeCoordinator()
+    fake.async_probe_meter_states = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_probe_meter_states,
+        fake,
+    )
+
+    asyncio.run(fake.async_probe_meter_states(delay=0, interval=0))
+
+    assert fake.state_requests == [
+        (0x30, 0x0F),
+        (0x30, 0x01),
+        (0x30, 0x02),
+        (0x30, 0x03),
+        (0x30, 0x04),
+        (0x30, 0x05),
+    ]

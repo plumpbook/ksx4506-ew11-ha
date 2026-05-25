@@ -22,11 +22,13 @@ from .devices.common_entrance import (
     COMMON_ENTRANCE_DEVICE_ID,
     format_common_entrance_packet_log,
 )
+from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
 from .discovery import DeviceRegistry
 from .ew11_client import Ew11Client
 from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
+_METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
 
 
 class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
@@ -57,14 +59,22 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             min(20, int(config.get(CONF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS))),
         )
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
+        self._meter_probe_task: asyncio.Task | None = None
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
 
     async def async_start(self) -> None:
         await self._client.start()
+        if self._meter_probe_task is None or self._meter_probe_task.done():
+            self._meter_probe_task = asyncio.create_task(self.async_probe_meter_states())
 
     async def async_stop(self) -> None:
+        if self._meter_probe_task:
+            self._meter_probe_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._meter_probe_task
+            self._meter_probe_task = None
         await self._client.stop()
 
     async def _on_frame(self, frame: KsFrame) -> None:
@@ -265,3 +275,26 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
         # Generic state request command for KS X 4506 family
         return await self.async_send_f7_command(dev_id, sub_id, 0x01, b"")
+
+    async def async_probe_meter_states(
+        self,
+        *,
+        delay: float = 1.0,
+        interval: float = 0.2,
+    ) -> None:
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            for sub_id in _METER_STARTUP_PROBE_SUB_IDS:
+                ok = await self.async_request_f7_state(METER_DEVICE_ID, sub_id)
+                _LOGGER.debug(
+                    "Meter startup probe sub=0x%02X ok=%s",
+                    sub_id,
+                    ok,
+                )
+                if interval > 0:
+                    await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Meter startup probe failed")

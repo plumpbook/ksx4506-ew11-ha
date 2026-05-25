@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 
 from homeassistant.config_entries import ConfigEntry
@@ -9,6 +10,9 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import Ksx4506Coordinator
+from .devices.meter import meter_device_name
+
+_LOGGER = logging.getLogger(__name__)
 
 _LEGACY_OUTLET_GROUP_ENTITY_RE = re.compile(
     r"^ksx4506_39[0-9A-F]F_switch_ch\d+(?:_.+)?$",
@@ -23,6 +27,7 @@ _LEGACY_THERMOSTAT_INDIVIDUAL_ENTITY_RE = re.compile(
 _LEGACY_THERMOSTAT_INDIVIDUAL_DEVICE_RE = re.compile(
     r"^36[1-9A-E][1-9A-E]_climate(?:_ch\d+)?$",
 )
+_METER_DEVICE_RE = re.compile(r"^30([0-9A-F]{2})_sensor$")
 _THERMOSTAT_CLIMATE_ENTITY_RE = re.compile(
     r"^ksx4506_36[0-9A-F]{2}_climate(?:_ch\d+)?$",
 )
@@ -81,6 +86,9 @@ def _async_prune_legacy_registry_entries(
     Individual thermostat ACK/status packets such as 36-11 are merged into the
     group status device, e.g. 36-1F Zone 1. Older builds could briefly expose
     those ACK packets as separate devices and must be removed.
+
+    Older meter devices used generic names such as "KSX 30-03". The current
+    model uses explicit names such as "Electric Meter 30-03".
     """
 
     ent_reg = er.async_get(hass)
@@ -105,6 +113,18 @@ def _async_prune_legacy_registry_entries(
             dev_reg.async_update_device(
                 device_entry.id,
                 remove_config_entry_id=entry.entry_id,
+            )
+            continue
+        meter_name = _meter_device_name_for_entry(device_entry)
+        if meter_name and _meter_device_name_needs_update(device_entry, meter_name):
+            _LOGGER.debug(
+                "Updating meter device name device_id=%s name=%s",
+                device_entry.id,
+                meter_name,
+            )
+            dev_reg.async_update_device(
+                device_entry.id,
+                name=meter_name,
             )
 
 
@@ -152,7 +172,9 @@ def _device_entries_for_cleanup(dev_reg, entry: ConfigEntry) -> list:
             continue
         if _is_legacy_outlet_group_device(
             device_entry
-        ) or _is_legacy_thermostat_individual_device(device_entry):
+        ) or _is_legacy_thermostat_individual_device(
+            device_entry
+        ) or _meter_device_name_for_entry(device_entry):
             entries.append(device_entry)
             seen.add(key)
 
@@ -212,3 +234,22 @@ def _is_legacy_thermostat_individual_device(device_entry) -> bool:
         ) and _LEGACY_THERMOSTAT_INDIVIDUAL_DEVICE_RE.match(identifier):
             return True
     return False
+
+
+def _meter_device_name_for_entry(device_entry) -> str | None:
+    for domain, identifier in getattr(device_entry, "identifiers", set()):
+        if domain != DOMAIN:
+            continue
+        if not isinstance(identifier, str):
+            continue
+        match = _METER_DEVICE_RE.match(identifier)
+        if not match:
+            continue
+        return meter_device_name(int(match.group(1), 16))
+    return None
+
+
+def _meter_device_name_needs_update(device_entry, expected_name: str) -> bool:
+    if getattr(device_entry, "name_by_user", None):
+        return False
+    return getattr(device_entry, "name", None) != expected_name

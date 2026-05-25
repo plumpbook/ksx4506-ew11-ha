@@ -221,6 +221,20 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
                     identifiers={("ksx4506_ew11", "3951_switch")},
                 ),
                 types.SimpleNamespace(
+                    id="legacy-meter-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "3003_sensor")},
+                    name="KSX 30-03",
+                    name_by_user=None,
+                ),
+                types.SimpleNamespace(
+                    id="user-named-meter-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "3004_sensor")},
+                    name="KSX 30-04",
+                    name_by_user="My Hot Water",
+                ),
+                types.SimpleNamespace(
                     id="other-entry-legacy-device",
                     config_entries={"entry-b"},
                     identifiers={("ksx4506_ew11", "395F_switch_ch1")},
@@ -244,6 +258,7 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
     assert hass.device_registry.updated == [
         ("legacy-device", {"remove_config_entry_id": "entry-a"}),
         ("legacy-thermostat-device", {"remove_config_entry_id": "entry-a"}),
+        ("legacy-meter-device", {"name": "Electric Meter 30-03"}),
     ]
 
 

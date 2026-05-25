@@ -490,8 +490,15 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
         "ksx4506_3003_sensor_instant",
         "ksx4506_3003_sensor_total",
     ]
+    assert meter_entities[0]._attr_device_info["identifiers"] == {
+        ("ksx4506_ew11", "3003_sensor")
+    }
+    assert meter_entities[0]._attr_device_info["name"] == "Electric Meter 30-03"
+    assert meter_entities[0]._attr_name == "Instant"
     assert meter_entities[0].native_value == 687.0
     assert meter_entities[0].device_class == "power"
+    assert meter_entities[1]._attr_device_info["name"] == "Electric Meter 30-03"
+    assert meter_entities[1]._attr_name == "Total"
     assert meter_entities[1].native_value == 3506.37
     assert meter_entities[1].device_class == "energy"
 

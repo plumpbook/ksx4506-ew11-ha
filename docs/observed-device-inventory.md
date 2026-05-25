@@ -90,7 +90,7 @@ exposes these conservative fields:
 ## `0x30` Meter Notes
 
 The meter decoder supports the standard meter sub IDs below. Public entities are
-created only when matching packets are observed.
+created when matching packets are observed or returned by startup status probes.
 
 | Sub ID | Meter | Instant unit | Total unit |
 | --- | --- | --- | --- |
