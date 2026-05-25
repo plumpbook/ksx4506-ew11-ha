@@ -136,3 +136,64 @@ def test_remove_entry_cleans_entities_and_devices_for_config_entry():
         ("device-a", {"remove_config_entry_id": "entry-a"}),
         ("device-shared", {"remove_config_entry_id": "entry-a"}),
     ]
+
+
+def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
+    _install_homeassistant_stubs()
+    integration = load_integration_module("__init__")
+    entry = types.SimpleNamespace(entry_id="entry-a")
+    hass = types.SimpleNamespace(
+        entity_registry=_FakeEntityRegistry(
+            [
+                types.SimpleNamespace(
+                    entity_id="switch.legacy_group",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_395F_switch_ch1",
+                ),
+                types.SimpleNamespace(
+                    entity_id="sensor.legacy_group_power",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_395F_switch_ch1_power",
+                ),
+                types.SimpleNamespace(
+                    entity_id="switch.current_outlet",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_3951_switch",
+                ),
+                types.SimpleNamespace(
+                    entity_id="switch.other_entry_legacy_group",
+                    config_entry_id="entry-b",
+                    unique_id="ksx4506_395F_switch_ch1",
+                ),
+            ]
+        ),
+        device_registry=_FakeDeviceRegistry(
+            [
+                types.SimpleNamespace(
+                    id="legacy-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "395F_switch_ch1")},
+                ),
+                types.SimpleNamespace(
+                    id="current-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "3951_switch")},
+                ),
+                types.SimpleNamespace(
+                    id="other-entry-legacy-device",
+                    config_entries={"entry-b"},
+                    identifiers={("ksx4506_ew11", "395F_switch_ch1")},
+                ),
+            ]
+        ),
+    )
+
+    integration._async_prune_legacy_outlet_group_registry_entries(hass, entry)
+
+    assert hass.entity_registry.removed == [
+        "switch.legacy_group",
+        "sensor.legacy_group_power",
+    ]
+    assert hass.device_registry.updated == [
+        ("legacy-device", {"remove_config_entry_id": "entry-a"}),
+    ]
