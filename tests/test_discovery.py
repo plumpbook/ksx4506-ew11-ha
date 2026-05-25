@@ -113,6 +113,15 @@ def test_outlet_threshold_response_decodes_cutoff_threshold():
     assert d.state["thresholds"] == [{"channel": 1, "threshold_w": 13.1}]
 
 
+def test_unparsed_group_outlet_packet_does_not_create_legacy_entity():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(0x39, 0x5F, 0x99, bytes.fromhex("00 10"), "f7...")
+
+    assert changes == []
+    assert reg.devices == {}
+
+
 def test_polling_requests_for_stateful_devices_are_ignored():
     reg = DeviceRegistry()
 

@@ -195,6 +195,8 @@ class DeviceRegistry:
             )
             if outlet_changes:
                 return outlet_changes
+            if _is_outlet_group_sub_id(sub_id):
+                return []
 
         # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
@@ -392,3 +394,7 @@ def _outlet_payload_channel_count(cmd: int, payload: bytes) -> int:
     if cmd == OUTLET_CONTROL_RESPONSE and len(payload) >= 2:
         return len(payload) - 1
     return 0
+
+
+def _is_outlet_group_sub_id(sub_id: int) -> bool:
+    return ((sub_id >> 4) & 0x0F) > 0 and (sub_id & 0x0F) == 0x0F
