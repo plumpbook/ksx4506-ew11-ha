@@ -1,13 +1,13 @@
 {
-  "domain": "ksx4506_ew11",
-  "name": "KS X 4506 EW11",
-  "version": "0.1.0",
-  "documentation": "https://github.com/plumpbook/ksx4506-ew11-ha",
-  "issue_tracker": "https://github.com/plumpbook/ksx4506-ew11-ha/issues",
+  "codeowners": ["@plumpbook"],
   "config_flow": true,
+  "documentation": "https://github.com/plumpbook/ksx4506-ew11-ha",
+  "domain": "ksx4506_ew11",
   "integration_type": "hub",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/plumpbook/ksx4506-ew11-ha/issues",
+  "loggers": ["custom_components.ksx4506_ew11"],
+  "name": "KS X 4506 EW11",
   "requirements": [],
-  "codeowners": ["@plumpbook"],
-  "loggers": ["custom_components.ksx4506_ew11"]
+  "version": "0.1.0"
 }
