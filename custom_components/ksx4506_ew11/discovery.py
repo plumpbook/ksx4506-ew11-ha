@@ -10,7 +10,11 @@ from .devices.common_entrance import (
 )
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
-from .devices.lighting import LIGHT_DEVICE_ID, decode_light_state_byte
+from .devices.lighting import (
+    LIGHT_DEVICE_ID,
+    STATUS_RESPONSE as LIGHT_STATUS_RESPONSE,
+    decode_light_state_byte,
+)
 from .devices.meter import METER_DEVICE_ID, decode_meter_state, iter_meter_states
 from .devices.outlet import (
     CONTROL_RESPONSE as OUTLET_CONTROL_RESPONSE,
@@ -96,10 +100,13 @@ class DeviceRegistry:
 
         changes: list[tuple[DeviceState, bool]] = []
 
+        if addr == LIGHT_DEVICE_ID and cmd != LIGHT_STATUS_RESPONSE:
+            return []
+
         # KS X 4506 deployments observed through Suroup expose each lighting
         # module as sub_id 0x11, 0x12, ... and carry channel states in payload.
         # Standard all-channel replies such as 0x1F are still expanded.
-        if kind == "light" and addr == LIGHT_DEVICE_ID:
+        if kind == "light" and addr == LIGHT_DEVICE_ID and cmd == LIGHT_STATUS_RESPONSE:
             if len(payload) > 1:
                 low = sub_id & 0x0F
                 high = (sub_id >> 4) & 0x0F

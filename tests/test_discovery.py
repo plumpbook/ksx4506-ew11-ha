@@ -39,7 +39,13 @@ def test_light_status_byte_dimming_decode():
 def test_suroup_light_module_subids_expand_own_channels():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 00 00 00"), "f70e118104000000006d08")
+    reg.upsert_from_frame(
+        0x0E,
+        0x11,
+        0x81,
+        bytes.fromhex("00 00 00 00"),
+        "f70e118104000000006d08",
+    )
     reg.upsert_from_frame(0x0E, 0x12, 0x81, bytes.fromhex("00 01 01"), "f70e1281030001016906")
 
     assert reg.devices["0E11_light_1"].state["on"] is False
@@ -50,6 +56,26 @@ def test_suroup_light_module_subids_expand_own_channels():
     assert reg.devices["0E12_light_1"].state["on"] is True
     assert reg.devices["0E12_light_2"].state["on"] is True
     assert "0E1F_light_1" not in reg.devices
+
+
+def test_light_control_response_does_not_create_channels():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 00 00 00"), "f70e118104000000006d08")
+    changes = reg.upsert_from_frame(
+        0x0E,
+        0x11,
+        0xC1,
+        bytes.fromhex("00 01 F0 79 10"),
+        "f70e11c1050001f07910b40a",
+    )
+
+    assert changes == []
+    assert sorted(reg.devices.keys()) == [
+        "0E11_light_1",
+        "0E11_light_2",
+        "0E11_light_3",
+    ]
 
 
 def test_gas_standard_status_decodes_closed_as_off():

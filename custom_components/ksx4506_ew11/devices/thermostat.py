@@ -113,20 +113,17 @@ def encode_thermostat_temperature(temperature: float) -> int:
     if not isinstance(temperature, (int, float)):
         raise TypeError("thermostat temperature must be a number")
 
-    doubled = round(float(temperature) * 2)
-    if abs(float(temperature) * 2 - doubled) > 0.001:
-        raise ValueError("thermostat temperature must use 0.5 degree increments")
-
-    whole = doubled // 2
-    half = bool(doubled % 2)
+    whole = round(float(temperature))
+    if abs(float(temperature) - whole) > 0.001:
+        raise ValueError("thermostat temperature must use whole degree increments")
     if whole < 0 or whole > 0x7F:
-        raise ValueError("thermostat temperature must be in 0..127.5")
+        raise ValueError("thermostat temperature must be in 0..127")
 
-    return (whole & 0x7F) | (0x80 if half else 0x00)
+    return whole & 0x7F
 
 
 def decode_thermostat_temperature(value: int) -> float:
-    return (value & 0x7F) + (0.5 if value & 0x80 else 0.0)
+    return float(value & 0x7F)
 
 
 def _decode_standard_thermostat_state(
