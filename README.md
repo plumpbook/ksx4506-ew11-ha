@@ -26,7 +26,7 @@ EW11(RS485→TCP)로 수신한 KS X 4506 프레임을 파싱하여 Home Assistan
 | `0x12` | 가스 밸브 | `valve`, `binary_sensor` | 닫기만 지원 | 안전상 열기/토글은 제공하지 않습니다. 상태 응답은 추가 실측이 필요합니다. |
 | `0x30` | 통합 계량 | `sensor` | 읽기 전용 | 전기, 수도, 가스, 온수, 난방 계량의 순간/누적값을 관측 또는 상태 요청 응답 기반으로 센서로 제공합니다. |
 | `0x33` | 현관 패널 | `sensor` | 읽기 전용 | 일괄소등, 엘리베이터 호출, 거실 조명 제어가 물리적으로 있으나 제어 패킷 실측 전까지 버튼은 만들지 않습니다. |
-| `0x36` | 난방/온도조절 | `climate`, `switch` | 일부 지원 | 그룹 상태를 zone별 climate로 분해합니다. 난방 on/off와 0.5도 단위 설정온도를 제공합니다. |
+| `0x36` | 난방/온도조절 | `climate`, `switch` | 일부 지원 | 그룹 상태를 zone별 climate로 분해합니다. 난방 on/off와 정수 단위 설정온도를 제공합니다. |
 | `0x39` | 콘센트/대기전력 차단 | `switch`, `sensor`, `binary_sensor` | 지원 | 그룹 상태 패킷을 물리 콘센트별로 분해하고, `39-11` 등 개별 sub ID로 제어합니다. 전력/auto cut/threshold/overload 상태를 노출합니다. |
 | `0x40` | 공동현관 | `sensor` | 읽기 전용 | 공동현관 이벤트로 분류합니다. 공유 출입 제어라 열기 버튼은 기본 제공하지 않습니다. |
 | `0x60` | 미확인 센서 | `sensor` | 읽기 전용 | 1바이트 응답을 raw 값으로만 노출합니다. 의미는 추가 실측 필요입니다. |
@@ -34,7 +34,18 @@ EW11(RS485→TCP)로 수신한 KS X 4506 프레임을 파싱하여 Home Assistan
 세부 관측 패킷과 미확정 항목은 [Observed Device Inventory](docs/observed-device-inventory.md)에 정리합니다.
 
 ## 설치
-1. 이 저장소를 HA `config/custom_components/ksx4506_ew11`에 복사
+
+### HACS 설치
+1. HACS → Custom repositories
+2. Repository: `https://github.com/plumpbook/ksx4506-ew11-ha`
+3. Type: `Integration`
+4. `KS X 4506 EW11` 설치
+5. Home Assistant 재시작
+6. 설정 → 기기 및 서비스 → 통합 추가 → `KS X 4506 EW11`
+7. EW11 IP/Port 입력 (기본 8899)
+
+### 수동 설치
+1. 이 저장소의 `custom_components/ksx4506_ew11` 디렉터리를 HA `config/custom_components/ksx4506_ew11`에 복사
 2. Home Assistant 재시작
 3. 설정 → 기기 및 서비스 → 통합 추가 → `KS X 4506 EW11`
 4. EW11 IP/Port 입력 (기본 8899)
