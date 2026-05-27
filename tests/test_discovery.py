@@ -146,6 +146,12 @@ def test_unparsed_group_outlet_packet_does_not_create_legacy_entity():
 
     assert changes == []
     assert reg.devices == {}
+    report = reg.unsupported_packet_report()
+    assert report["total_seen"] == 1
+    assert report["packets"][0]["reason"] == "unhandled_outlet_packet"
+    assert report["packets"][0]["device_id"] == "0x39"
+    assert report["packets"][0]["sub_id"] == "0x5F"
+    assert report["packets"][0]["command_type"] == "0x99"
 
 
 def test_polling_requests_for_stateful_devices_are_ignored():
@@ -154,6 +160,7 @@ def test_polling_requests_for_stateful_devices_are_ignored():
     assert reg.upsert_from_frame(0x30, 0x03, 0x01, b"", "f730030100c5f0") == []
     assert reg.upsert_from_frame(0x36, 0x1F, 0x01, b"", "f7361f0100df2c") == []
     assert reg.upsert_from_frame(0x39, 0x1F, 0x01, b"", "f7391f0100d020") == []
+    assert reg.unsupported_packet_report()["total_seen"] == 0
 
 
 def test_entrance_panel_status_decodes_without_switch_entity():
@@ -216,6 +223,40 @@ def test_generic_sensor_polling_request_does_not_change_sensor_state():
 
     d = reg.devices["6001_sensor"]
     assert d.state["value_hex"] == "00"
+
+
+def test_unknown_packet_creates_diagnostic_device_and_report():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("AA BB"), "f799018102aabb1234")
+
+    assert len(changes) == 1
+    dev, is_new = changes[0]
+    assert is_new is True
+    assert dev.kind == "unknown"
+    assert dev.state["device_id"] == "0x99"
+    assert dev.state["sub_id"] == "0x01"
+    assert dev.state["command_type"] == "0x81"
+    assert dev.state["payload_len"] == 2
+
+    report = reg.unsupported_packet_report()
+    assert report["total_seen"] == 1
+    assert report["unique_signatures"] == 1
+    assert report["packets"][0]["reason"] == "unknown_packet"
+    assert report["packets"][0]["last_payload_hex"] == "AABB"
+
+
+def test_repeated_unsupported_packets_are_counted_by_signature():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("AA BB"), "f799018102aabb1234")
+    reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("CC DD"), "f799018102ccdd5678")
+
+    report = reg.unsupported_packet_report()
+    assert report["total_seen"] == 2
+    assert report["unique_signatures"] == 1
+    assert report["packets"][0]["count"] == 2
+    assert report["packets"][0]["last_payload_hex"] == "CCDD"
 
 
 def test_meter_status_is_sensor_with_parsed_value():

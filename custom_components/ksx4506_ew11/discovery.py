@@ -11,7 +11,10 @@ from .devices.common_entrance import (
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
 from .devices.gas import GAS_DEVICE_ID, decode_gas_state
 from .devices.lighting import (
+    CONTROL_REQUEST as LIGHT_CONTROL_REQUEST,
+    CONTROL_RESPONSE as LIGHT_CONTROL_RESPONSE,
     LIGHT_DEVICE_ID,
+    STATUS_REQUEST as LIGHT_STATUS_REQUEST,
     STATUS_RESPONSE as LIGHT_STATUS_RESPONSE,
     decode_light_state_byte,
 )
@@ -77,13 +80,44 @@ class DeviceState:
     last_raw_hex: str = ""
 
 
+@dataclass
+class UnsupportedPacketRecord:
+    reason: str
+    addr: int
+    sub_id: int
+    cmd: int
+    payload_len: int
+    count: int
+    first_seen_seq: int
+    last_seen_seq: int
+    last_payload_hex: str
+    last_raw_hex: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "reason": self.reason,
+            "device_id": f"0x{self.addr:02X}",
+            "sub_id": f"0x{self.sub_id:02X}",
+            "command_type": f"0x{self.cmd:02X}",
+            "payload_len": self.payload_len,
+            "count": self.count,
+            "first_seen_seq": self.first_seen_seq,
+            "last_seen_seq": self.last_seen_seq,
+            "last_payload_hex": self.last_payload_hex.upper(),
+            "last_raw_hex": self.last_raw_hex.upper(),
+        }
+
+
 GENERIC_SENSOR_DEVICE_ID = 0x60
 GENERIC_STATUS_REQUEST = 0x01
+MAX_UNSUPPORTED_PACKET_RECORDS = 50
 
 
 class DeviceRegistry:
     def __init__(self) -> None:
         self.devices: dict[str, DeviceState] = {}
+        self.unsupported_packets: dict[str, UnsupportedPacketRecord] = {}
+        self._unsupported_seen_seq = 0
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
         if _is_polling_request(addr, cmd):
@@ -101,6 +135,15 @@ class DeviceRegistry:
         changes: list[tuple[DeviceState, bool]] = []
 
         if addr == LIGHT_DEVICE_ID and cmd != LIGHT_STATUS_RESPONSE:
+            if cmd not in {LIGHT_STATUS_REQUEST, LIGHT_CONTROL_REQUEST, LIGHT_CONTROL_RESPONSE}:
+                self.record_unsupported_packet(
+                    "unhandled_light_packet",
+                    addr,
+                    sub_id,
+                    cmd,
+                    payload,
+                    raw_hex,
+                )
             return []
 
         # KS X 4506 deployments observed through Suroup expose each lighting
@@ -206,8 +249,15 @@ class DeviceRegistry:
             )
             if outlet_changes:
                 return outlet_changes
-            if _is_outlet_group_sub_id(sub_id):
-                return []
+            self.record_unsupported_packet(
+                "unhandled_outlet_packet",
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
+            return []
 
         if kind == "sensor" and addr == METER_DEVICE_ID:
             meter_changes = self._upsert_meter_from_frame(
@@ -235,7 +285,25 @@ class DeviceRegistry:
                 cmd in THERMOSTAT_STATE_RESPONSE_COMMANDS
                 and _is_individual_thermostat_sub_id(sub_id)
             ):
+                self.record_unsupported_packet(
+                    "thermostat_individual_without_group_state",
+                    addr,
+                    sub_id,
+                    cmd,
+                    payload,
+                    raw_hex,
+                )
                 return []
+
+        if kind == "unknown":
+            self.record_unsupported_packet(
+                "unknown_packet",
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
 
         # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
@@ -255,6 +323,59 @@ class DeviceRegistry:
         self._apply_state(dev, cmd, payload)
         changes.append((dev, is_new))
         return changes
+
+    def record_unsupported_packet(
+        self,
+        reason: str,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+    ) -> None:
+        self._unsupported_seen_seq += 1
+        payload_hex = payload.hex()
+        key = f"{reason}:{addr:02X}:{sub_id:02X}:{cmd:02X}:{len(payload)}"
+        record = self.unsupported_packets.get(key)
+        if record is None:
+            record = UnsupportedPacketRecord(
+                reason=reason,
+                addr=addr,
+                sub_id=sub_id,
+                cmd=cmd,
+                payload_len=len(payload),
+                count=0,
+                first_seen_seq=self._unsupported_seen_seq,
+                last_seen_seq=self._unsupported_seen_seq,
+                last_payload_hex=payload_hex,
+                last_raw_hex=raw_hex,
+            )
+            self.unsupported_packets[key] = record
+
+        record.count += 1
+        record.last_seen_seq = self._unsupported_seen_seq
+        record.last_payload_hex = payload_hex
+        record.last_raw_hex = raw_hex
+
+        if len(self.unsupported_packets) > MAX_UNSUPPORTED_PACKET_RECORDS:
+            oldest_key = min(
+                self.unsupported_packets,
+                key=lambda item: self.unsupported_packets[item].last_seen_seq,
+            )
+            del self.unsupported_packets[oldest_key]
+
+    def unsupported_packet_report(self, *, limit: int = MAX_UNSUPPORTED_PACKET_RECORDS) -> dict[str, Any]:
+        packets = sorted(
+            self.unsupported_packets.values(),
+            key=lambda item: item.last_seen_seq,
+            reverse=True,
+        )
+        limited = packets[: max(0, limit)]
+        return {
+            "total_seen": sum(packet.count for packet in packets),
+            "unique_signatures": len(packets),
+            "packets": [packet.as_dict() for packet in limited],
+        }
 
     def _apply_state(self, dev: DeviceState, cmd: int, payload: bytes) -> None:
         # ACK state packets in KS X 4506 deployments are often 0x81.
@@ -308,6 +429,16 @@ class DeviceRegistry:
                     payload,
                     command_type=cmd,
                 )
+            )
+
+        elif dev.kind == "unknown":
+            dev.state.update(
+                {
+                    "device_id": f"0x{dev.addr:02X}",
+                    "sub_id": f"0x{dev.sub_id:02X}",
+                    "command_type": f"0x{cmd:02X}",
+                    "payload_len": len(payload),
+                }
             )
 
         if dev.kind in {"sensor", "unknown"} or not dev.state:
@@ -509,10 +640,6 @@ def _outlet_payload_channel_count(cmd: int, payload: bytes) -> int:
     if cmd == OUTLET_CONTROL_RESPONSE and len(payload) >= 2:
         return len(payload) - 1
     return 0
-
-
-def _is_outlet_group_sub_id(sub_id: int) -> bool:
-    return ((sub_id >> 4) & 0x0F) > 0 and (sub_id & 0x0F) == 0x0F
 
 
 def _is_individual_thermostat_sub_id(sub_id: int) -> bool:

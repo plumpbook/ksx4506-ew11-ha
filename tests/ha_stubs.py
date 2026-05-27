@@ -18,6 +18,7 @@ def install_homeassistant_stubs() -> None:
     _install_config_entries()
     _install_const()
     _install_core()
+    _install_diagnostics()
     _install_device_registry()
     _install_dispatcher()
     _install_entity_registry()
@@ -116,6 +117,19 @@ def _install_core() -> None:
     core.HomeAssistant = HomeAssistant
     core.callback = callback
     sys.modules["homeassistant.core"] = core
+
+
+def _install_diagnostics() -> None:
+    diagnostics = types.ModuleType("homeassistant.components.diagnostics")
+
+    def async_redact_data(data, to_redact):
+        return {
+            key: "**REDACTED**" if key in to_redact else value
+            for key, value in data.items()
+        }
+
+    diagnostics.async_redact_data = async_redact_data
+    sys.modules["homeassistant.components.diagnostics"] = diagnostics
 
 
 def _install_device_registry() -> None:

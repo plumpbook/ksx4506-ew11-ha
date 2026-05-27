@@ -63,6 +63,24 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 
 이 통합은 EW11로 들어오는 패킷을 기반으로 장치를 자동 발견합니다. 설치 직후 엔티티가 적게 보이면 벽패드나 기존 앱에서 장치를 한 번씩 조작해 보세요.
 
+## 미지원 패킷 제보
+
+아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다.
+
+1. 벽패드 또는 기존 앱에서 문제의 동작을 실행합니다.
+2. Home Assistant에서 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11`로 이동합니다.
+3. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
+4. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
+
+또는 `Unsupported Packets` 진단 센서의 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
+
+제보 시 다음 정보가 있으면 장치 지원을 추가하기 쉽습니다.
+
+- 어떤 동작을 했는지
+- 벽패드 또는 아파트 시스템 제조사/모델
+- Home Assistant 버전
+- EW11 serial 설정
+
 ## 수동 설치
 
 HACS를 사용하지 않는 경우:

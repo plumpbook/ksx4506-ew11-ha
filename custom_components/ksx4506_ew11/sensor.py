@@ -10,9 +10,10 @@ from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
-from .device_metadata import format_device_name
+from .device_metadata import DEVICE_MANUFACTURER, DEVICE_MODEL, format_device_name
 from .devices.meter import METER_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
 from .entity_base import KsxEntity
@@ -30,7 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             out.extend(_sensor_entities_for_device(coordinator, d))
         return out
 
-    init_ents = build_all()
+    init_ents = [KsxUnsupportedPacketsSensor(coordinator, entry), *build_all()]
     if init_ents:
         async_add_entities(init_ents)
         added_keys.update(e._attr_unique_id for e in init_ents)
@@ -332,6 +333,37 @@ class KsxUnknownDiagnostic(KsxEntity, SensorEntity):
     @property
     def native_value(self):
         return self.dev.last_raw_hex
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            **dict(self.dev.state),
+            "last_raw_hex": self.dev.last_raw_hex.upper(),
+        }
+
+
+class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_name = "Unsupported Packets"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"ksx4506_{entry.entry_id}_unsupported_packets"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": DEVICE_MODEL,
+        }
+
+    @property
+    def native_value(self):
+        return self.coordinator.registry.unsupported_packet_report(limit=0)["total_seen"]
+
+    @property
+    def extra_state_attributes(self):
+        return self.coordinator.registry.unsupported_packet_report(limit=20)
 
 
 def _meter_attributes(state):

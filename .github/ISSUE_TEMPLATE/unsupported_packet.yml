@@ -1,0 +1,61 @@
+name: Unsupported packet report
+description: Report KS X 4506 packets that are not decoded by the integration yet.
+title: "[Unsupported Packet]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve device support.
+
+        Before submitting, open Home Assistant and copy data from:
+        - `Settings` -> `Devices & services` -> `KS X 4506 EW11` -> `Download diagnostics`
+        - or the `Unsupported Packets` diagnostic sensor attributes
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics or unsupported packet report
+      description: Paste the diagnostics JSON or the Unsupported Packets sensor attributes here.
+      render: json
+    validations:
+      required: true
+
+  - type: input
+    id: device_action
+    attributes:
+      label: What action produced the packet?
+      description: "Example: pressing wallpad elevator call, turning on bedroom light 2, opening mobile app page."
+    validations:
+      required: true
+
+  - type: input
+    id: wallpad_vendor
+    attributes:
+      label: Wallpad or apartment system
+      description: Vendor/model if known.
+    validations:
+      required: false
+
+  - type: input
+    id: home_assistant_version
+    attributes:
+      label: Home Assistant version
+      description: "Example: 2026.5.0"
+    validations:
+      required: false
+
+  - type: input
+    id: ew11_serial_settings
+    attributes:
+      label: EW11 serial settings
+      description: "Example: 9600 8N1"
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Add screenshots, expected behavior, or anything unusual.
+    validations:
+      required: false
