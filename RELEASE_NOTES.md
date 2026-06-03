@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.2.2
+- 등록된 EW11 항목의 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`를 `구성`/`Options` 화면에서 변경할 수 있게 했습니다.
+- Options 값이 기존 등록값보다 우선 적용되도록 coordinator, diagnostics, `Unsupported Packets` 센서를 정리했습니다.
+- 옵션 변경 후 config entry를 자동 reload해서 재등록 없이 새 설정이 적용되도록 했습니다.
+- `expose_packet_samples`는 기본값을 계속 `false`로 유지하고, 필요할 때만 명시적으로 켤 수 있게 했습니다.
+
 ## v0.2.1
 - 기본 diagnostics와 `Unsupported Packets` 센서 속성에서 raw/payload 패킷 샘플을 숨기도록 변경했습니다.
 - raw 패킷 샘플이 필요한 경우에만 `expose_packet_samples` 옵션으로 명시적으로 노출할 수 있게 했습니다.

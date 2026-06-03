@@ -30,6 +30,7 @@ def install_homeassistant_stubs() -> None:
     _install_switch()
     _install_update_coordinator()
     _install_valve()
+    _install_voluptuous()
 
 
 def _install_binary_sensor() -> None:
@@ -83,7 +84,31 @@ def _install_config_entries() -> None:
     class ConfigEntry:
         pass
 
+    class _BaseFlow:
+        def __init_subclass__(cls, **kwargs):
+            super().__init_subclass__()
+
+        async def async_set_unique_id(self, unique_id):
+            self.unique_id = unique_id
+
+        def _abort_if_unique_id_configured(self):
+            return None
+
+        def async_show_form(self, **kwargs):
+            return {"type": "form", **kwargs}
+
+        def async_create_entry(self, **kwargs):
+            return {"type": "create_entry", **kwargs}
+
+    class ConfigFlow(_BaseFlow):
+        pass
+
+    class OptionsFlow(_BaseFlow):
+        pass
+
     config_entries.ConfigEntry = ConfigEntry
+    config_entries.ConfigFlow = ConfigFlow
+    config_entries.OptionsFlow = OptionsFlow
     sys.modules["homeassistant.config_entries"] = config_entries
 
 
@@ -268,6 +293,73 @@ def _install_valve() -> None:
     valve.ValveEntity = ValveEntity
     valve.ValveEntityFeature = ValveEntityFeature
     sys.modules["homeassistant.components.valve"] = valve
+
+
+def _install_voluptuous() -> None:
+    voluptuous = types.ModuleType("voluptuous")
+
+    class Invalid(Exception):
+        pass
+
+    class Schema:
+        def __init__(self, schema):
+            self.schema = schema
+
+        def __call__(self, value):
+            return value
+
+    class Required:
+        def __init__(self, key, *, default=None):
+            self.key = key
+            self.default = default
+
+        def __hash__(self):
+            return hash((self.key, self.default))
+
+        def __eq__(self, other):
+            return (
+                isinstance(other, Required)
+                and self.key == other.key
+                and self.default == other.default
+            )
+
+    def All(*validators):
+        def validate(value):
+            for validator in validators:
+                value = validator(value)
+            return value
+
+        return validate
+
+    def Coerce(value_type):
+        return value_type
+
+    def Range(*, min=None, max=None):
+        def validate(value):
+            if min is not None and value < min:
+                raise Invalid("value is too small")
+            if max is not None and value > max:
+                raise Invalid("value is too large")
+            return value
+
+        return validate
+
+    def In(values):
+        def validate(value):
+            if value not in values:
+                raise Invalid("value is not allowed")
+            return value
+
+        return validate
+
+    voluptuous.All = All
+    voluptuous.Coerce = Coerce
+    voluptuous.In = In
+    voluptuous.Invalid = Invalid
+    voluptuous.Range = Range
+    voluptuous.Required = Required
+    voluptuous.Schema = Schema
+    sys.modules["voluptuous"] = voluptuous
 
 
 def _install_entity_registry() -> None:

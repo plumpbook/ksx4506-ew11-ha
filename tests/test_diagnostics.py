@@ -41,6 +41,7 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
         data={
             "host": "ew11.example.invalid",
             "port": 8899,
+            const.CONF_EXPOSE_PACKET_SAMPLES: False,
         },
     )
     hass = types.SimpleNamespace(data={const.DOMAIN: {entry.entry_id: coordinator}})
@@ -78,13 +79,15 @@ def test_config_entry_diagnostics_can_include_packet_samples_when_enabled():
         data={
             "host": "ew11.example.invalid",
             "port": 8899,
-            const.CONF_EXPOSE_PACKET_SAMPLES: True,
+            const.CONF_EXPOSE_PACKET_SAMPLES: False,
         },
+        options={const.CONF_EXPOSE_PACKET_SAMPLES: True},
     )
     hass = types.SimpleNamespace(data={const.DOMAIN: {entry.entry_id: coordinator}})
 
     data = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
 
     assert data["unsupported_packets"]["packet_samples_redacted"] is False
+    assert data["config_entry"]["data"][const.CONF_EXPOSE_PACKET_SAMPLES] is True
     assert data["unsupported_packets"]["latest_packet"]["last_payload_hex"] == "AABB"
     assert data["unsupported_packets"]["latest_packet"]["last_raw_hex"] == "F799018102AABB1234"

@@ -12,6 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .config import effective_config
 from .const import CONF_EXPOSE_PACKET_SAMPLES, DOMAIN, SIGNAL_DEVICE_ADDED
 from .device_metadata import DEVICE_MANUFACTURER, DEVICE_MODEL, format_device_name
 from .devices.meter import METER_DEVICE_ID
@@ -351,7 +352,7 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._include_packet_samples = bool(
-            entry.data.get(CONF_EXPOSE_PACKET_SAMPLES, False)
+            effective_config(entry).get(CONF_EXPOSE_PACKET_SAMPLES, False)
         )
         self._attr_unique_id = f"ksx4506_{entry.entry_id}_unsupported_packets"
         self._attr_device_info = {

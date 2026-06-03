@@ -46,6 +46,10 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 | `gas_unlock` | `false` | 가스밸브 위험 동작 안전가드 해제 여부 |
 | `expose_packet_samples` | `false` | 미지원 패킷 진단에 raw/payload hex 샘플을 포함할지 여부 |
 
+등록 후 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`는 통합의 `구성` 또는 `Options` 화면에서 변경할 수 있습니다. 기존 EW11 설정을 바꾸기 위해 `통합 추가`를 다시 누르면 같은 EW11 host/port와 충돌할 수 있습니다.
+
+`host`, `port`, `checksum`, `stx`, `etx`는 연결/프레임 기준값이라 등록 후 옵션 화면에서는 변경하지 않습니다. 이 값이 바뀌면 기존 항목을 삭제한 뒤 다시 추가하세요.
+
 ## EW11 권장 설정
 
 - Mode: TCP Server
@@ -84,6 +88,8 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 또는 `Unsupported Packets` 진단 센서의 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
 
 기본 진단에는 raw 패킷 샘플이 포함되지 않습니다. raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 `expose_packet_samples`를 켠 뒤 개인 정보와 위치 정보를 제거해서 공유하세요.
+
+`expose_packet_samples`는 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11` -> `구성` 또는 `Options`에서 켤 수 있습니다.
 
 제보 시 다음 정보가 있으면 장치 지원을 추가하기 쉽습니다.
 

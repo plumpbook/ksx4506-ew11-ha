@@ -6,6 +6,7 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .config import effective_config
 from .const import CONF_EXPOSE_PACKET_SAMPLES, CONF_HOST, DOMAIN
 from .coordinator import Ksx4506Coordinator
 
@@ -19,7 +20,8 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics data that can be attached to GitHub issues."""
 
     coordinator: Ksx4506Coordinator | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    include_packet_samples = bool(entry.data.get(CONF_EXPOSE_PACKET_SAMPLES, False))
+    config = effective_config(entry)
+    include_packet_samples = bool(config.get(CONF_EXPOSE_PACKET_SAMPLES, False))
     unsupported = (
         coordinator.registry.unsupported_packet_report(
             include_packet_samples=include_packet_samples,
@@ -36,7 +38,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "config_entry": {
             "title": _redact_title(entry.title, entry.data.get(CONF_HOST)),
-            "data": async_redact_data(dict(entry.data), TO_REDACT),
+            "data": async_redact_data(config, TO_REDACT),
         },
         "known_devices": _known_device_summary(coordinator),
         "unsupported_packets": unsupported,

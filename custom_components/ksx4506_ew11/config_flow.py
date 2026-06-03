@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback
 
+from .config import effective_config
 from .const import (
     CONF_CHECKSUM,
     CONF_ETX,
@@ -54,6 +57,11 @@ def _validate_host(value: str) -> str:
 class Ksx4506ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry):
+        return Ksx4506OptionsFlow(config_entry)
+
     async def async_step_user(self, user_input=None):
         if user_input is not None:
             await self.async_set_unique_id(f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}")
@@ -90,3 +98,51 @@ class Ksx4506ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema)
+
+
+class Ksx4506OptionsFlow(config_entries.OptionsFlow):
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        self._config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        config = effective_config(self._config_entry)
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_TIMEOUT,
+                    default=config.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+                ): vol.All(
+                    vol.Coerce(float),
+                    vol.Range(min=0.1, max=30),
+                ),
+                vol.Required(
+                    CONF_RETRY,
+                    default=config.get(CONF_RETRY, DEFAULT_RETRY),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=0, max=10),
+                ),
+                vol.Required(
+                    CONF_MAX_ATTEMPTS,
+                    default=config.get(CONF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=1, max=20),
+                ),
+                vol.Required(
+                    CONF_GAS_UNLOCK,
+                    default=config.get(CONF_GAS_UNLOCK, False),
+                ): bool,
+                vol.Required(
+                    CONF_EXPOSE_PACKET_SAMPLES,
+                    default=config.get(
+                        CONF_EXPOSE_PACKET_SAMPLES,
+                        DEFAULT_EXPOSE_PACKET_SAMPLES,
+                    ),
+                ): bool,
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)
