@@ -35,6 +35,7 @@ class Ksx4506Codec:
         self._checksum_mode = checksum_mode
         self._buf = bytearray()
         self._last_ok_f7_hex: str | None = None
+        self._last_bad_f7_hex: str | None = None
 
     def feed(self, data: bytes) -> list[KsFrame]:
         self._buf.extend(data)
@@ -165,7 +166,24 @@ class Ksx4506Codec:
         }
 
         if not parity:
-            _LOGGER.warning("parity error :: %s", json.dumps(info, ensure_ascii=False, indent=2))
+            _LOGGER.warning(
+                "drop F7: checksum mismatch dev=0x%02X sub=0x%02X cmd=0x%02X "
+                "len=%d recv=0x%02X/0x%02X calc=0x%02X/0x%02X",
+                dev_id,
+                sub_id,
+                cmd,
+                length,
+                recv_xor,
+                recv_add,
+                calc_xor,
+                calc_add,
+            )
+            if self._last_bad_f7_hex != info["hexString"]:
+                self._last_bad_f7_hex = info["hexString"]
+                _LOGGER.debug(
+                    "drop F7 packet :: %s",
+                    json.dumps(info, ensure_ascii=False, indent=2),
+                )
             return
 
         # 정상 패킷은 중복 로그 억제

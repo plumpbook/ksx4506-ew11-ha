@@ -244,8 +244,13 @@ def test_unknown_packet_is_reported_without_creating_device():
     assert report["latest_packet"]["sub_id"] == "0x01"
     assert report["latest_packet"]["command_type"] == "0x81"
     assert report["latest_packet"]["payload_len"] == 2
-    assert report["latest_packet"]["last_payload_hex"] == "AABB"
+    assert report["latest_packet"]["packet_samples_available"] is True
+    assert "last_payload_hex" not in report["latest_packet"]
     assert report["packets"][0] == report["latest_packet"]
+
+    detailed = reg.unsupported_packet_report(include_packet_samples=True)
+    assert detailed["latest_packet"]["last_payload_hex"] == "AABB"
+    assert detailed["latest_packet"]["last_raw_hex"] == "F799018102AABB1234"
 
 
 def test_known_device_invalid_sub_id_is_candidate_without_device():
@@ -292,9 +297,12 @@ def test_repeated_unsupported_packets_are_counted_by_signature():
     assert report["total_seen"] == 2
     assert report["unique_signatures"] == 1
     assert report["latest_packet"]["count"] == 2
-    assert report["latest_packet"]["last_payload_hex"] == "CCDD"
+    assert "last_payload_hex" not in report["latest_packet"]
     assert report["packets"][0]["count"] == 2
-    assert report["packets"][0]["last_payload_hex"] == "CCDD"
+
+    detailed = reg.unsupported_packet_report(include_packet_samples=True)
+    assert detailed["latest_packet"]["last_payload_hex"] == "CCDD"
+    assert detailed["packets"][0]["last_payload_hex"] == "CCDD"
 
 
 def test_meter_status_is_sensor_with_parsed_value():

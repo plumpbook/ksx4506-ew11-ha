@@ -1,4 +1,5 @@
 from importlib.util import module_from_spec, spec_from_file_location
+import logging
 from pathlib import Path
 import sys
 import types
@@ -83,3 +84,28 @@ def test_build_f7_packet_roundtrip():
     assert f.sub_id == 0x01
     assert f.cmd == 0x41
     assert f.payload == b"\x02\x01\x00"
+
+
+def test_bad_f7_checksum_warning_does_not_expose_raw_packet(caplog):
+    c = Ksx4506Codec()
+    pkt = bytearray(_build_f7(0x40, 0x02, 0x10, bytes.fromhex("62 02 00 00 00 00")))
+    pkt[-1] ^= 0xFF
+    raw_hex = bytes(pkt).hex()
+
+    caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11.protocol")
+
+    assert c.feed(bytes(pkt)) == []
+
+    warning_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    ]
+    debug_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.DEBUG
+    ]
+    assert warning_messages
+    assert raw_hex not in "\n".join(warning_messages)
+    assert raw_hex in "\n".join(debug_messages)

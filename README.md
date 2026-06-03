@@ -44,6 +44,7 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 | `stx` | `02` | STX 프레임 시작 바이트 |
 | `etx` | `03` | ETX 프레임 종료 바이트 |
 | `gas_unlock` | `false` | 가스밸브 위험 동작 안전가드 해제 여부 |
+| `expose_packet_samples` | `false` | 미지원 패킷 진단에 raw/payload hex 샘플을 포함할지 여부 |
 
 ## EW11 권장 설정
 
@@ -82,6 +83,8 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 
 또는 `Unsupported Packets` 진단 센서의 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
 
+기본 진단에는 raw 패킷 샘플이 포함되지 않습니다. raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 `expose_packet_samples`를 켠 뒤 개인 정보와 위치 정보를 제거해서 공유하세요.
+
 제보 시 다음 정보가 있으면 장치 지원을 추가하기 쉽습니다.
 
 - 어떤 동작을 했는지
@@ -116,7 +119,7 @@ HACS를 사용하지 않는 경우:
 
 - 벽패드 또는 기존 앱에서 장치를 한 번씩 조작합니다.
 - Home Assistant 로그에서 `ksx4506_ew11` 메시지를 확인합니다.
-- 아직 해석되지 않은 장치는 Unknown 진단 센서로 먼저 노출될 수 있습니다.
+- 아직 해석되지 않은 패킷은 장치로 자동 생성되지 않고 `Unsupported Packets` 진단 센서에 요약됩니다.
 
 ### 연결 실패
 
@@ -150,7 +153,7 @@ HACS를 사용하지 않는 경우:
 - KS X 4506 파서
 - 체크섬 검증
 - 제어 명령 패킷 빌더
-- 자동 탐지 레지스트리 + Unknown 진단 센서
+- 자동 탐지 레지스트리 + 미지원 패킷 진단 센서
 - Home Assistant custom integration
 - 명령 큐 + 재시도 + ACK 대기
 - 위험 동작 안전가드

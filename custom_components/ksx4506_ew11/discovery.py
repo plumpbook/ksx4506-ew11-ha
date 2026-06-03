@@ -150,8 +150,8 @@ class UnsupportedPacketRecord:
     last_raw_hex: str
     sample_raw_hexes: list[str] = field(default_factory=list)
 
-    def as_dict(self) -> dict[str, Any]:
-        return {
+    def as_dict(self, *, include_packet_samples: bool = False) -> dict[str, Any]:
+        data = {
             "category": self.category,
             "reason": self.reason,
             "device_id": f"0x{self.addr:02X}",
@@ -161,12 +161,20 @@ class UnsupportedPacketRecord:
             "count": self.count,
             "first_seen_seq": self.first_seen_seq,
             "last_seen_seq": self.last_seen_seq,
-            "last_payload_hex": self.last_payload_hex.upper(),
-            "last_raw_hex": self.last_raw_hex.upper(),
-            "sample_raw_hexes": [
-                sample.upper() for sample in self.sample_raw_hexes
-            ],
+            "packet_samples_available": bool(self.sample_raw_hexes),
+            "packet_sample_count": len(self.sample_raw_hexes),
         }
+        if include_packet_samples:
+            data.update(
+                {
+                    "last_payload_hex": self.last_payload_hex.upper(),
+                    "last_raw_hex": self.last_raw_hex.upper(),
+                    "sample_raw_hexes": [
+                        sample.upper() for sample in self.sample_raw_hexes
+                    ],
+                }
+            )
+        return data
 
 
 MAX_UNSUPPORTED_PACKET_RECORDS = 50
@@ -515,7 +523,12 @@ class DeviceRegistry:
             )
             del records[oldest_key]
 
-    def unsupported_packet_report(self, *, limit: int = MAX_UNSUPPORTED_PACKET_RECORDS) -> dict[str, Any]:
+    def unsupported_packet_report(
+        self,
+        *,
+        limit: int = MAX_UNSUPPORTED_PACKET_RECORDS,
+        include_packet_samples: bool = False,
+    ) -> dict[str, Any]:
         unsupported_packets = sorted(
             self.unsupported_packets.values(),
             key=lambda item: item.last_seen_seq,
@@ -532,19 +545,29 @@ class DeviceRegistry:
             reverse=True,
         )
         limited = packets[: max(0, limit)]
-        latest_packet = packets[0].as_dict() if packets else None
+        latest_packet = (
+            packets[0].as_dict(include_packet_samples=include_packet_samples)
+            if packets
+            else None
+        )
         return {
             "total_seen": sum(packet.count for packet in packets),
             "unsupported_seen": sum(packet.count for packet in unsupported_packets),
             "candidate_seen": sum(packet.count for packet in candidate_packets),
             "unique_signatures": len(packets),
             "latest_packet": latest_packet,
-            "packets": [packet.as_dict() for packet in limited],
+            "packet_samples_redacted": not include_packet_samples,
+            "packets": [
+                packet.as_dict(include_packet_samples=include_packet_samples)
+                for packet in limited
+            ],
             "unsupported_packets": [
-                packet.as_dict() for packet in unsupported_packets[: max(0, limit)]
+                packet.as_dict(include_packet_samples=include_packet_samples)
+                for packet in unsupported_packets[: max(0, limit)]
             ],
             "candidate_packets": [
-                packet.as_dict() for packet in candidate_packets[: max(0, limit)]
+                packet.as_dict(include_packet_samples=include_packet_samples)
+                for packet in candidate_packets[: max(0, limit)]
             ],
         }
 

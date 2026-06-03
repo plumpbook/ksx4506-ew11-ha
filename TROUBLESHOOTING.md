@@ -1,7 +1,7 @@
 # 트러블슈팅
 
 ## 1) 엔티티가 안 생김
-- unknown diagnostic 센서 raw hex 확인
+- `Unsupported Packets` 진단 센서에서 device/sub/cmd 요약 확인
 - checksum mode(sum8/xor8) 변경
 - STX/ETX(02/03) 값 확인
 
@@ -18,3 +18,8 @@
 ## 4) 가스밸브 제어 차단됨
 - 기본 안전가드 동작 정상
 - config_flow의 `gas_unlock`를 명시적으로 켠 경우만 허용
+
+## 5) raw 패킷 샘플이 필요함
+- 기본 진단은 보안을 위해 raw/payload hex를 숨깁니다.
+- 장치 지원 추가에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 켭니다.
+- 공개 이슈에 올리기 전 집 주소, 동/호수, 개인 식별 정보와 함께 캡처된 맥락을 제거하세요.

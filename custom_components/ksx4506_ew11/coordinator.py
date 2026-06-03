@@ -20,6 +20,7 @@ from .const import (
 from .devices.common_entrance import (
     CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
+    decode_common_entrance_state,
     format_common_entrance_packet_log,
 )
 from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
@@ -95,7 +96,16 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 direction="RX",
             )
             if frame.cmd == CALL_EVENT:
-                _LOGGER.info(log_message)
+                state = decode_common_entrance_state(
+                    frame.payload,
+                    command_type=frame.cmd,
+                )
+                _LOGGER.info(
+                    "Common entrance call event sub=0x%02X detected=%s",
+                    frame.sub_id,
+                    state.get("call_detected", False),
+                )
+                _LOGGER.debug(log_message)
             else:
                 _LOGGER.debug(log_message)
         changes = self.registry.upsert_from_frame(

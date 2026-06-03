@@ -97,3 +97,41 @@ def test_meter_startup_probe_requests_whole_and_individual_meter_states():
         (0x30, 0x04),
         (0x30, 0x05),
     ]
+
+
+def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    protocol_module = load_integration_module("protocol")
+
+    class FakeCoordinator:
+        def __init__(self):
+            self.registry = coordinator_module.DeviceRegistry()
+            self.hass = object()
+            self.data = None
+
+        def async_set_updated_data(self, data):
+            self.data = data
+
+        def _notify_frame_waiters(self, frame):
+            return None
+
+    fake = FakeCoordinator()
+    fake._on_frame = types.MethodType(coordinator_module.Ksx4506Coordinator._on_frame, fake)
+    frame = protocol_module.KsFrame(
+        addr=0x40,
+        sub_id=0x02,
+        cmd=0x10,
+        payload=bytes.fromhex("62 02 00 00 00 00"),
+        checksum=0,
+        raw=bytes.fromhex("F7 40 02 10 06 62 02 00 00 00 00 C3 76"),
+    )
+
+    caplog.set_level(logging.INFO, logger="custom_components.ksx4506_ew11.coordinator")
+
+    asyncio.run(fake._on_frame(frame))
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Common entrance call event sub=0x02 detected=True" in messages
+    assert "F740021006620200000000C376" not in messages.upper()
+    assert "620200000000" not in messages

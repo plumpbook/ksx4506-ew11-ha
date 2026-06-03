@@ -68,7 +68,7 @@ The protocol library can start inside the custom integration for speed. If it be
 Phase 1 should focus on low-risk protocol plumbing and compact device models:
 
 1. Frame codec and checksum tests
-2. EW11 TCP transport with reconnect and raw hex logging
+2. EW11 TCP transport with reconnect and redacted-by-default packet diagnostics
 3. Lighting: Home Assistant `light`
 4. Gas valve: close-only Home Assistant `valve` plus leak/moving binary sensors
 5. Door lock: likely `lock` or read-only status first, depending on real-world safety policy

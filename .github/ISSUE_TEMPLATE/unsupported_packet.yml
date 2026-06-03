@@ -11,11 +11,15 @@ body:
         - `Settings` -> `Devices & services` -> `KS X 4506 EW11` -> `Download diagnostics`
         - or the `Unsupported Packets` diagnostic sensor attributes
 
+        Default diagnostics redact raw packet samples. If you enabled
+        `expose_packet_samples`, review the data before posting because raw
+        packets may reveal device layout or activity patterns.
+
   - type: textarea
     id: diagnostics
     attributes:
       label: Diagnostics or unsupported packet report
-      description: Paste the diagnostics JSON or the Unsupported Packets sensor attributes here.
+      description: Paste the default diagnostics JSON or the Unsupported Packets sensor attributes here. Avoid posting raw packet samples unless they are explicitly needed.
       render: json
     validations:
       required: true
