@@ -80,20 +80,30 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 
 아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다.
 
-1. 벽패드 또는 기존 앱에서 문제의 동작을 실행합니다.
-2. Home Assistant에서 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11`로 이동합니다.
-3. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
-4. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
+기본 제보에는 raw 패킷 샘플이 포함되지 않습니다. 먼저 안전한 기본 diagnostics로 제보하고, 장치 분석에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 잠시 켜세요.
+
+1. Home Assistant에서 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11`로 이동합니다.
+2. 해당 EW11 허브의 `Unsupported Packets` 센서 값이 증가하는지 확인합니다.
+3. 벽패드 또는 기존 앱에서 문제의 동작을 한 번 실행합니다.
+4. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
+5. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
 
 또는 `Unsupported Packets` 진단 센서의 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
 
-기본 진단에는 raw 패킷 샘플이 포함되지 않습니다. raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 `expose_packet_samples`를 켠 뒤 개인 정보와 위치 정보를 제거해서 공유하세요.
+raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 아래 순서로 공유하세요.
 
-`expose_packet_samples`는 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11` -> `구성` 또는 `Options`에서 켤 수 있습니다.
+1. `설정` -> `기기 및 서비스` -> `KS X 4506 EW11` -> EW11 허브의 `구성` 또는 `Options`로 이동합니다.
+2. `expose_packet_samples`를 켭니다.
+3. 문제의 동작을 한 번만 다시 실행합니다.
+4. diagnostics를 다시 내려받습니다.
+5. `expose_packet_samples`를 다시 끕니다.
+6. 진단 JSON에서 위치, 이름, 실제 네트워크 주소, 계정명 등 공개하면 안 되는 정보를 제거한 뒤 공유합니다.
+
+제보에는 실제 집 주소, 동/호수, 개인 네트워크 주소, 외부 접속 주소, 계정명, 가족 이름을 넣지 마세요. 예시가 필요하면 `ew11.example.invalid` 같은 reserved hostname이나 `192.0.2.10` 같은 문서용 IP를 사용하세요.
 
 제보 시 다음 정보가 있으면 장치 지원을 추가하기 쉽습니다.
 
-- 어떤 동작을 했는지
+- 어떤 동작을 어떤 순서로 했는지
 - 벽패드 또는 아파트 시스템 제조사/모델
 - Home Assistant 버전
 - EW11 serial 설정

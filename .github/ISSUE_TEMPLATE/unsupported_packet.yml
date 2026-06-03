@@ -7,30 +7,68 @@ body:
       value: |
         Thanks for helping improve device support.
 
-        Before submitting, open Home Assistant and copy data from:
-        - `Settings` -> `Devices & services` -> `KS X 4506 EW11` -> `Download diagnostics`
-        - or the `Unsupported Packets` diagnostic sensor attributes
+        Start with the default redacted diagnostics:
+        1. Open `Settings` -> `Devices & services` -> `KS X 4506 EW11`.
+        2. Reproduce the wallpad/app action once.
+        3. Click `Download diagnostics`.
+        4. Paste the diagnostics JSON below.
 
-        Default diagnostics redact raw packet samples. If you enabled
-        `expose_packet_samples`, review the data before posting because raw
-        packets may reveal device layout or activity patterns.
+        Raw packet samples are hidden by default. Only enable
+        `expose_packet_samples` if packet-level analysis is needed. If you
+        include raw samples, review and sanitize the data before posting because
+        raw packets may reveal device layout or activity patterns.
 
   - type: textarea
     id: diagnostics
     attributes:
-      label: Diagnostics or unsupported packet report
-      description: Paste the default diagnostics JSON or the Unsupported Packets sensor attributes here. Avoid posting raw packet samples unless they are explicitly needed.
+      label: Redacted diagnostics or unsupported packet summary
+      description: Paste the default diagnostics JSON or the Unsupported Packets sensor attributes here. This should normally be enough for triage.
       render: json
     validations:
       required: true
+
+  - type: dropdown
+    id: raw_samples_included
+    attributes:
+      label: Are raw packet samples included?
+      description: Select "Yes" only if you enabled expose_packet_samples and intentionally included raw/payload hex samples.
+      options:
+        - "No, this report only contains redacted diagnostics"
+        - "Yes, I reviewed and sanitized raw packet samples"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: public_safety_checklist
+    attributes:
+      label: Public sharing checklist
+      description: Remove local details before posting a public issue.
+      options:
+        - label: I removed home address, unit/line/floor details, account names, and personal names.
+          required: true
+        - label: I removed private network addresses, remote access hostnames, and unrelated local paths.
+          required: true
 
   - type: input
     id: device_action
     attributes:
       label: What action produced the packet?
-      description: "Example: pressing wallpad elevator call, turning on bedroom light 2, opening mobile app page."
+      description: "Example: pressing wallpad elevator call, turning on a room light, opening the mobile app page."
     validations:
       required: true
+
+  - type: textarea
+    id: action_timeline
+    attributes:
+      label: Action timeline
+      description: List the exact order and approximate timing of actions. This helps match packets to device behavior.
+      placeholder: |
+        1. Opened the wallpad page for the target device.
+        2. Turned the device on.
+        3. Waited about 3 seconds.
+        4. Turned the device off.
+    validations:
+      required: false
 
   - type: input
     id: wallpad_vendor
