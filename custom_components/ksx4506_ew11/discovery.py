@@ -304,6 +304,7 @@ class DeviceRegistry:
                 payload,
                 raw_hex,
             )
+            return []
 
         # Default one-device mapping (addr+sub+kind)
         key = f"{addr:02X}{sub_id:02X}_{kind}"
@@ -371,9 +372,11 @@ class DeviceRegistry:
             reverse=True,
         )
         limited = packets[: max(0, limit)]
+        latest_packet = packets[0].as_dict() if packets else None
         return {
             "total_seen": sum(packet.count for packet in packets),
             "unique_signatures": len(packets),
+            "latest_packet": latest_packet,
             "packets": [packet.as_dict() for packet in limited],
         }
 

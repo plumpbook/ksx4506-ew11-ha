@@ -43,5 +43,6 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     assert data["config_entry"]["data"]["host"] == "**REDACTED**"
     assert data["config_entry"]["data"]["port"] == 8899
     assert data["unsupported_packets"]["total_seen"] == 1
+    assert data["unsupported_packets"]["latest_packet"]["device_id"] == "0x99"
     assert data["unsupported_packets"]["packets"][0]["device_id"] == "0x99"
     assert "unsupported_packet.yml" in data["report_url"]

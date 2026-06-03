@@ -30,6 +30,14 @@ _METER_DEVICE_RE = re.compile(r"^30([0-9A-F]{2})_sensor$")
 _THERMOSTAT_CLIMATE_ENTITY_RE = re.compile(
     r"^ksx4506_36[0-9A-F]{2}_climate(?:_ch\d+)?$",
 )
+_LEGACY_UNKNOWN_ENTITY_RE = re.compile(
+    r"^ksx4506_[0-9A-F]{4}_unknown$",
+    re.IGNORECASE,
+)
+_LEGACY_UNKNOWN_DEVICE_RE = re.compile(
+    r"^[0-9A-F]{4}_unknown$",
+    re.IGNORECASE,
+)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -69,6 +77,10 @@ def async_prune_legacy_registry_entries(
     group status device, e.g. 36-1F Zone 1. Older builds could briefly expose
     those ACK packets as separate devices and must be removed.
 
+    Older unknown-packet builds exposed every unknown addr/sub-id pair as a
+    diagnostic device. Unknown packets are now report-only via the Unsupported
+    Packets sensor and diagnostics download.
+
     Older meter devices used generic names such as "KSX 30-03". The current
     model uses explicit names such as "Electric Meter 30-03".
     """
@@ -79,7 +91,9 @@ def async_prune_legacy_registry_entries(
     for entity_entry in _entity_entries_for_cleanup(ent_reg, entry):
         if _is_legacy_outlet_group_entity(
             entity_entry
-        ) or _is_legacy_thermostat_entity(entity_entry):
+        ) or _is_legacy_thermostat_entity(
+            entity_entry
+        ) or _is_legacy_unknown_entity(entity_entry):
             ent_reg.async_remove(entity_entry.entity_id)
             continue
         if _is_thermostat_climate_entity_with_legacy_name(entity_entry):
@@ -91,7 +105,9 @@ def async_prune_legacy_registry_entries(
     for device_entry in _device_entries_for_cleanup(dev_reg, entry):
         if _is_legacy_outlet_group_device(
             device_entry
-        ) or _is_legacy_thermostat_individual_device(device_entry):
+        ) or _is_legacy_thermostat_individual_device(
+            device_entry
+        ) or _is_legacy_unknown_device(device_entry):
             dev_reg.async_update_device(
                 device_entry.id,
                 remove_config_entry_id=entry.entry_id,
@@ -135,6 +151,7 @@ def _entity_entries_for_cleanup(ent_reg, entry: ConfigEntry) -> list:
         if (
             _is_legacy_outlet_group_entity(entity_entry)
             or _is_legacy_thermostat_entity(entity_entry)
+            or _is_legacy_unknown_entity(entity_entry)
             or _is_thermostat_climate_entity_with_legacy_name(entity_entry)
         ):
             entries.append(entity_entry)
@@ -170,6 +187,7 @@ def _device_needs_cleanup(device_entry) -> bool:
     return (
         _is_legacy_outlet_group_device(device_entry)
         or _is_legacy_thermostat_individual_device(device_entry)
+        or _is_legacy_unknown_device(device_entry)
         or _meter_device_name_for_entry(device_entry) is not None
     )
 
@@ -186,6 +204,13 @@ def _is_legacy_thermostat_entity(entity_entry) -> bool:
     return isinstance(unique_id, str) and (
         bool(_LEGACY_THERMOSTAT_TARGET_NUMBER_ENTITY_RE.match(unique_id))
         or bool(_LEGACY_THERMOSTAT_INDIVIDUAL_ENTITY_RE.match(unique_id))
+    )
+
+
+def _is_legacy_unknown_entity(entity_entry) -> bool:
+    unique_id = getattr(entity_entry, "unique_id", None)
+    return isinstance(unique_id, str) and bool(
+        _LEGACY_UNKNOWN_ENTITY_RE.match(unique_id)
     )
 
 
@@ -218,6 +243,15 @@ def _is_legacy_thermostat_individual_device(device_entry) -> bool:
             identifier,
             str,
         ) and _LEGACY_THERMOSTAT_INDIVIDUAL_DEVICE_RE.match(identifier):
+            return True
+    return False
+
+
+def _is_legacy_unknown_device(device_entry) -> bool:
+    for domain, identifier in getattr(device_entry, "identifiers", set()):
+        if domain != DOMAIN:
+            continue
+        if isinstance(identifier, str) and _LEGACY_UNKNOWN_DEVICE_RE.match(identifier):
             return True
     return False
 

@@ -119,6 +119,11 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
                     unique_id="ksx4506_3611_climate_ch1_heat",
                 ),
                 types.SimpleNamespace(
+                    entity_id="sensor.legacy_unknown_packet",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_B314_unknown",
+                ),
+                types.SimpleNamespace(
                     entity_id="climate.current_thermostat",
                     config_entry_id="entry-a",
                     unique_id="ksx4506_361F_climate_ch1",
@@ -153,6 +158,11 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
                     id="legacy-thermostat-device",
                     config_entries={"entry-a"},
                     identifiers={("ksx4506_ew11", "3611_climate_ch1")},
+                ),
+                types.SimpleNamespace(
+                    id="legacy-unknown-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "B314_unknown")},
                 ),
                 types.SimpleNamespace(
                     id="current-device",
@@ -190,6 +200,7 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
         "number.legacy_target_temperature",
         "climate.legacy_individual_thermostat",
         "switch.legacy_individual_heat",
+        "sensor.legacy_unknown_packet",
     ]
     assert hass.entity_registry.updated == [
         ("climate.legacy_named_thermostat", {"original_name": "Climate"}),
@@ -197,6 +208,7 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
     assert hass.device_registry.updated == [
         ("legacy-device", {"remove_config_entry_id": "entry-a"}),
         ("legacy-thermostat-device", {"remove_config_entry_id": "entry-a"}),
+        ("legacy-unknown-device", {"remove_config_entry_id": "entry-a"}),
         ("legacy-meter-device", {"name": "Electric Meter 30-03"}),
     ]
 

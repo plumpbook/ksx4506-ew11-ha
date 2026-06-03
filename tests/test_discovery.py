@@ -225,25 +225,24 @@ def test_generic_sensor_polling_request_does_not_change_sensor_state():
     assert d.state["value_hex"] == "00"
 
 
-def test_unknown_packet_creates_diagnostic_device_and_report():
+def test_unknown_packet_is_reported_without_creating_device():
     reg = DeviceRegistry()
 
     changes = reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("AA BB"), "f799018102aabb1234")
 
-    assert len(changes) == 1
-    dev, is_new = changes[0]
-    assert is_new is True
-    assert dev.kind == "unknown"
-    assert dev.state["device_id"] == "0x99"
-    assert dev.state["sub_id"] == "0x01"
-    assert dev.state["command_type"] == "0x81"
-    assert dev.state["payload_len"] == 2
+    assert changes == []
+    assert reg.devices == {}
 
     report = reg.unsupported_packet_report()
     assert report["total_seen"] == 1
     assert report["unique_signatures"] == 1
-    assert report["packets"][0]["reason"] == "unknown_packet"
-    assert report["packets"][0]["last_payload_hex"] == "AABB"
+    assert report["latest_packet"]["reason"] == "unknown_packet"
+    assert report["latest_packet"]["device_id"] == "0x99"
+    assert report["latest_packet"]["sub_id"] == "0x01"
+    assert report["latest_packet"]["command_type"] == "0x81"
+    assert report["latest_packet"]["payload_len"] == 2
+    assert report["latest_packet"]["last_payload_hex"] == "AABB"
+    assert report["packets"][0] == report["latest_packet"]
 
 
 def test_repeated_unsupported_packets_are_counted_by_signature():
@@ -255,6 +254,8 @@ def test_repeated_unsupported_packets_are_counted_by_signature():
     report = reg.unsupported_packet_report()
     assert report["total_seen"] == 2
     assert report["unique_signatures"] == 1
+    assert report["latest_packet"]["count"] == 2
+    assert report["latest_packet"]["last_payload_hex"] == "CCDD"
     assert report["packets"][0]["count"] == 2
     assert report["packets"][0]["last_payload_hex"] == "CCDD"
 
