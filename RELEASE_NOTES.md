@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.2.1
+- 기본 diagnostics와 `Unsupported Packets` 센서 속성에서 raw/payload 패킷 샘플을 숨기도록 변경했습니다.
+- raw 패킷 샘플이 필요한 경우에만 `expose_packet_samples` 옵션으로 명시적으로 노출할 수 있게 했습니다.
+- 패리티 실패와 공동현관 이벤트 로그에서 raw 패킷이 기본 로그에 남지 않도록 정리했습니다.
+- 미지원/후보 패킷이 장치로 자동 생성되지 않도록 discovery gating을 강화했습니다.
+- 기존에 생성된 legacy/orphaned registry 항목 정리를 보강했습니다.
+- EW11 설정값의 host, port, timeout, retry, STX/ETX 검증을 강화했습니다.
+- EW11 포트 외부 노출 금지와 공개 이슈 raw 패킷 공유 주의사항을 문서에 추가했습니다.
+
 ## v0.2.0
 - HACS 설치와 업데이트에 맞춘 저장소 메타데이터와 문서를 정리했습니다.
 - 조명, 콘센트, 난방, 가스, 계량, 현관, 공동현관 장치의 자동 발견과 엔티티 이름을 정리했습니다.
