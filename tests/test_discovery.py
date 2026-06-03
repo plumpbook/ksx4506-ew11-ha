@@ -76,6 +76,7 @@ def test_light_control_response_does_not_create_channels():
         "0E11_light_2",
         "0E11_light_3",
     ]
+    assert reg.unsupported_packet_report()["total_seen"] == 0
 
 
 def test_gas_standard_status_decodes_closed_as_off():
@@ -139,7 +140,7 @@ def test_outlet_threshold_response_decodes_cutoff_threshold():
     assert d.state["thresholds"] == [{"channel": 1, "threshold_w": 13.1}]
 
 
-def test_unparsed_group_outlet_packet_does_not_create_legacy_entity():
+def test_unsupported_outlet_command_does_not_create_legacy_entity():
     reg = DeviceRegistry()
 
     changes = reg.upsert_from_frame(0x39, 0x5F, 0x99, bytes.fromhex("00 10"), "f7...")
@@ -148,7 +149,8 @@ def test_unparsed_group_outlet_packet_does_not_create_legacy_entity():
     assert reg.devices == {}
     report = reg.unsupported_packet_report()
     assert report["total_seen"] == 1
-    assert report["packets"][0]["reason"] == "unhandled_outlet_packet"
+    assert report["packets"][0]["category"] == "unsupported"
+    assert report["packets"][0]["reason"] == "unsupported_command"
     assert report["packets"][0]["device_id"] == "0x39"
     assert report["packets"][0]["sub_id"] == "0x5F"
     assert report["packets"][0]["command_type"] == "0x99"
@@ -236,13 +238,48 @@ def test_unknown_packet_is_reported_without_creating_device():
     report = reg.unsupported_packet_report()
     assert report["total_seen"] == 1
     assert report["unique_signatures"] == 1
-    assert report["latest_packet"]["reason"] == "unknown_packet"
+    assert report["latest_packet"]["category"] == "unsupported"
+    assert report["latest_packet"]["reason"] == "unsupported_device_id"
     assert report["latest_packet"]["device_id"] == "0x99"
     assert report["latest_packet"]["sub_id"] == "0x01"
     assert report["latest_packet"]["command_type"] == "0x81"
     assert report["latest_packet"]["payload_len"] == 2
     assert report["latest_packet"]["last_payload_hex"] == "AABB"
     assert report["packets"][0] == report["latest_packet"]
+
+
+def test_known_device_invalid_sub_id_is_candidate_without_device():
+    reg = DeviceRegistry()
+
+    for addr, sub_id, cmd, payload in [
+        (0x0E, 0xF1, 0x81, bytes.fromhex("00 01")),
+        (0x12, 0x14, 0x81, bytes.fromhex("00 02")),
+        (0x33, 0x14, 0x81, bytes.fromhex("00 04 00")),
+        (0x40, 0x14, 0x82, bytes.fromhex("00 00")),
+        (0x60, 0x14, 0x81, bytes.fromhex("00")),
+    ]:
+        assert reg.upsert_from_frame(addr, sub_id, cmd, payload, "f7...") == []
+
+    assert reg.devices == {}
+    report = reg.unsupported_packet_report()
+    assert report["unsupported_seen"] == 0
+    assert report["candidate_seen"] == 5
+    assert report["total_seen"] == 5
+    assert {packet["category"] for packet in report["packets"]} == {"candidate"}
+    assert {packet["reason"] for packet in report["packets"]} == {"unregistered_sub_id"}
+
+
+def test_supported_command_with_invalid_payload_is_candidate():
+    reg = DeviceRegistry()
+
+    changes = reg.upsert_from_frame(0x0E, 0x1F, 0x81, bytes.fromhex("00"), "f7...")
+
+    assert changes == []
+    assert reg.devices == {}
+    report = reg.unsupported_packet_report()
+    assert report["candidate_seen"] == 1
+    assert report["latest_packet"]["category"] == "candidate"
+    assert report["latest_packet"]["reason"] == "candidate_light_packet"
 
 
 def test_repeated_unsupported_packets_are_counted_by_signature():
@@ -358,3 +395,7 @@ def test_thermostat_individual_ack_without_group_does_not_create_device():
     assert changes == []
     assert "3611_climate" not in reg.devices
     assert reg.devices == {}
+    report = reg.unsupported_packet_report()
+    assert report["candidate_seen"] == 1
+    assert report["latest_packet"]["category"] == "candidate"
+    assert report["latest_packet"]["reason"] == "thermostat_individual_without_group_state"

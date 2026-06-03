@@ -27,6 +27,13 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
         bytes.fromhex("AA BB"),
         "f799018102aabb1234",
     )
+    coordinator.registry.upsert_from_frame(
+        0x0E,
+        0xF1,
+        0x81,
+        bytes.fromhex("00 01"),
+        "f70ef1810200011234",
+    )
 
     entry = types.SimpleNamespace(
         entry_id="entry-1",
@@ -42,7 +49,11 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     assert data["config_entry"]["title"] == "EW11 **REDACTED**"
     assert data["config_entry"]["data"]["host"] == "**REDACTED**"
     assert data["config_entry"]["data"]["port"] == 8899
-    assert data["unsupported_packets"]["total_seen"] == 1
-    assert data["unsupported_packets"]["latest_packet"]["device_id"] == "0x99"
-    assert data["unsupported_packets"]["packets"][0]["device_id"] == "0x99"
+    assert data["unsupported_packets"]["total_seen"] == 2
+    assert data["unsupported_packets"]["unsupported_seen"] == 1
+    assert data["unsupported_packets"]["candidate_seen"] == 1
+    assert data["unsupported_packets"]["latest_packet"]["device_id"] == "0x0E"
+    assert data["unsupported_packets"]["unsupported_packets"][0]["device_id"] == "0x99"
+    assert data["unsupported_packets"]["candidate_packets"][0]["device_id"] == "0x0E"
+    assert data["unsupported_packets"]["candidate_packets"][0]["sub_id"] == "0xF1"
     assert "unsupported_packet.yml" in data["report_url"]

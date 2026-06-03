@@ -243,3 +243,102 @@ def test_setup_prunes_legacy_entries_from_registry_fallback_scan():
     assert hass.device_registry.updated == [
         ("fallback-device", {"remove_config_entry_id": "entry-a"}),
     ]
+
+
+def test_setup_prunes_invalid_candidate_registry_entries():
+    install_homeassistant_stubs()
+    integration = load_integration_module("__init__")
+    entry = types.SimpleNamespace(entry_id="entry-a")
+    hass = types.SimpleNamespace(
+        entity_registry=_FakeEntityRegistry(
+            [
+                types.SimpleNamespace(
+                    entity_id="light.invalid_f1",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_0EFF_light_1",
+                ),
+                types.SimpleNamespace(
+                    entity_id="valve.invalid_gas",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_1214_gas_valve",
+                ),
+                types.SimpleNamespace(
+                    entity_id="binary_sensor.invalid_gas_leak",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_1214_gas_valve_leak",
+                ),
+                types.SimpleNamespace(
+                    entity_id="sensor.invalid_entrance",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_3314_entrance_panel",
+                ),
+                types.SimpleNamespace(
+                    entity_id="sensor.invalid_common_entrance",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_4014_common_entrance",
+                ),
+                types.SimpleNamespace(
+                    entity_id="sensor.invalid_generic",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_6014_sensor",
+                ),
+                types.SimpleNamespace(
+                    entity_id="valve.valid_gas",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_1201_gas_valve",
+                ),
+            ]
+        ),
+        device_registry=_FakeDeviceRegistry(
+            [
+                types.SimpleNamespace(
+                    id="invalid-f1-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "0EFF_light_1")},
+                ),
+                types.SimpleNamespace(
+                    id="invalid-gas-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "1214_gas_valve")},
+                ),
+                types.SimpleNamespace(
+                    id="invalid-entrance-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "3314_entrance_panel")},
+                ),
+                types.SimpleNamespace(
+                    id="invalid-common-entrance-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "4014_common_entrance")},
+                ),
+                types.SimpleNamespace(
+                    id="invalid-generic-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "6014_sensor")},
+                ),
+                types.SimpleNamespace(
+                    id="valid-gas-device",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "1201_gas_valve")},
+                ),
+            ]
+        ),
+    )
+
+    integration._async_prune_legacy_registry_entries(hass, entry)
+
+    assert hass.entity_registry.removed == [
+        "light.invalid_f1",
+        "valve.invalid_gas",
+        "binary_sensor.invalid_gas_leak",
+        "sensor.invalid_entrance",
+        "sensor.invalid_common_entrance",
+        "sensor.invalid_generic",
+    ]
+    assert hass.device_registry.updated == [
+        ("invalid-f1-device", {"remove_config_entry_id": "entry-a"}),
+        ("invalid-gas-device", {"remove_config_entry_id": "entry-a"}),
+        ("invalid-entrance-device", {"remove_config_entry_id": "entry-a"}),
+        ("invalid-common-entrance-device", {"remove_config_entry_id": "entry-a"}),
+        ("invalid-generic-device", {"remove_config_entry_id": "entry-a"}),
+    ]

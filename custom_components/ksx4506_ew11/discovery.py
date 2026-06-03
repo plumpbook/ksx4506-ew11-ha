@@ -4,12 +4,22 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .devices.common_entrance import (
+    CALL_EVENT as COMMON_ENTRANCE_CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
+    OPEN_REQUEST as COMMON_ENTRANCE_OPEN_REQUEST,
     STATUS_REQUEST as COMMON_ENTRANCE_STATUS_REQUEST,
+    STATUS_RESPONSE as COMMON_ENTRANCE_STATUS_RESPONSE,
     decode_common_entrance_state,
 )
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
-from .devices.gas import GAS_DEVICE_ID, decode_gas_state
+from .devices.gas import (
+    CONTROL_REQUEST as GAS_CONTROL_REQUEST,
+    CONTROL_RESPONSE as GAS_CONTROL_RESPONSE,
+    GAS_DEVICE_ID,
+    STATUS_REQUEST as GAS_STATUS_REQUEST,
+    STATUS_RESPONSE as GAS_STATUS_RESPONSE,
+    decode_gas_state,
+)
 from .devices.lighting import (
     CONTROL_REQUEST as LIGHT_CONTROL_REQUEST,
     CONTROL_RESPONSE as LIGHT_CONTROL_RESPONSE,
@@ -18,42 +28,38 @@ from .devices.lighting import (
     STATUS_RESPONSE as LIGHT_STATUS_RESPONSE,
     decode_light_state_byte,
 )
-from .devices.meter import METER_DEVICE_ID, decode_meter_state, iter_meter_states
+from .devices.meter import (
+    CHARACTERISTIC_REQUEST as METER_CHARACTERISTIC_REQUEST,
+    CHARACTERISTIC_RESPONSE as METER_CHARACTERISTIC_RESPONSE,
+    METER_DEVICE_ID,
+    STATUS_REQUEST as METER_STATUS_REQUEST,
+    STATUS_RESPONSE as METER_STATUS_RESPONSE,
+    VALID_METER_SUB_IDS,
+    decode_meter_state,
+    iter_meter_states,
+)
 from .devices.outlet import (
+    CONTROL_REQUEST as OUTLET_CONTROL_REQUEST,
     CONTROL_RESPONSE as OUTLET_CONTROL_RESPONSE,
     CUTOFF_THRESHOLD_CONTROL_RESPONSE as OUTLET_THRESHOLD_CONTROL_RESPONSE,
     CUTOFF_THRESHOLD_RESPONSE as OUTLET_THRESHOLD_RESPONSE,
     OUTLET_DEVICE_ID,
+    STATUS_REQUEST as OUTLET_STATUS_REQUEST,
     STATUS_RESPONSE as OUTLET_STATUS_RESPONSE,
     decode_outlet_state,
     decode_switch_state,
 )
 from .devices.thermostat import (
+    AWAY_CONTROL_REQUEST as THERMOSTAT_AWAY_CONTROL_REQUEST,
+    HEAT_CONTROL_REQUEST as THERMOSTAT_HEAT_CONTROL_REQUEST,
+    HOT_WATER_CONTROL_REQUEST as THERMOSTAT_HOT_WATER_CONTROL_REQUEST,
+    SCHEDULE_CONTROL_REQUEST as THERMOSTAT_SCHEDULE_CONTROL_REQUEST,
     STATE_RESPONSE_COMMANDS as THERMOSTAT_STATE_RESPONSE_COMMANDS,
+    STATUS_REQUEST as THERMOSTAT_STATUS_REQUEST,
+    TEMPERATURE_CONTROL_REQUEST as THERMOSTAT_TEMPERATURE_CONTROL_REQUEST,
     THERMOSTAT_DEVICE_ID,
     decode_thermostat_state,
 )
-
-# cmd value는 프로젝트 진행 중 실측 캡처로 보정 필요
-CMD_TYPE_MAP = {
-    # Generic guesses
-    0x10: ("light", {"on_off"}),
-    0x20: ("switch", {"on_off"}),
-    0x30: ("climate", {"target_temp", "hvac_mode"}),
-    0x40: ("fan", {"on_off", "speed"}),
-    0x50: ("sensor", {"state"}),
-    0x60: ("gas_valve", {"on_off"}),
-
-    # Observed on EW11 captures (KS X 4506 deployments)
-    0x11: ("light", {"on_off"}),
-    0x12: ("switch", {"on_off"}),
-    0x13: ("switch", {"on_off"}),
-    0x14: ("switch", {"on_off"}),
-    0x15: ("switch", {"on_off"}),
-    0x1F: ("sensor", {"state"}),
-    0x33: ("entrance_panel", {"state"}),
-    0x39: ("climate", {"target_temp", "current_temp"}),
-}
 
 # Device ID mapping from suroup/ezville reference.
 DEVICE_ID_MAP = {
@@ -65,6 +71,55 @@ DEVICE_ID_MAP = {
     OUTLET_DEVICE_ID: ("switch", {"on_off"}),  # outlet
     COMMON_ENTRANCE_DEVICE_ID: ("common_entrance", {"state"}),
     0x60: ("sensor", {"state"}),
+}
+
+ENTRANCE_PANEL_STATUS_RESPONSE = 0x81
+ENTRANCE_PANEL_EVENT_RESPONSE = 0x33
+GENERIC_SENSOR_DEVICE_ID = 0x60
+GENERIC_STATUS_REQUEST = 0x01
+
+REQUEST_COMMANDS_BY_DEVICE = {
+    LIGHT_DEVICE_ID: {LIGHT_STATUS_REQUEST, LIGHT_CONTROL_REQUEST},
+    GAS_DEVICE_ID: {GAS_STATUS_REQUEST, GAS_CONTROL_REQUEST},
+    METER_DEVICE_ID: {METER_STATUS_REQUEST, METER_CHARACTERISTIC_REQUEST},
+    ENTRANCE_PANEL_DEVICE_ID: set(),
+    THERMOSTAT_DEVICE_ID: {
+        THERMOSTAT_STATUS_REQUEST,
+        THERMOSTAT_HEAT_CONTROL_REQUEST,
+        THERMOSTAT_TEMPERATURE_CONTROL_REQUEST,
+        THERMOSTAT_AWAY_CONTROL_REQUEST,
+        THERMOSTAT_SCHEDULE_CONTROL_REQUEST,
+        THERMOSTAT_HOT_WATER_CONTROL_REQUEST,
+    },
+    OUTLET_DEVICE_ID: {OUTLET_STATUS_REQUEST, OUTLET_CONTROL_REQUEST},
+    COMMON_ENTRANCE_DEVICE_ID: {
+        COMMON_ENTRANCE_STATUS_REQUEST,
+        COMMON_ENTRANCE_OPEN_REQUEST,
+    },
+    GENERIC_SENSOR_DEVICE_ID: {GENERIC_STATUS_REQUEST},
+}
+
+STATE_COMMANDS_BY_DEVICE = {
+    LIGHT_DEVICE_ID: {LIGHT_STATUS_RESPONSE, LIGHT_CONTROL_RESPONSE},
+    GAS_DEVICE_ID: {GAS_STATUS_RESPONSE, GAS_CONTROL_RESPONSE},
+    METER_DEVICE_ID: {METER_STATUS_RESPONSE, METER_CHARACTERISTIC_RESPONSE},
+    ENTRANCE_PANEL_DEVICE_ID: {
+        ENTRANCE_PANEL_STATUS_RESPONSE,
+        ENTRANCE_PANEL_EVENT_RESPONSE,
+    },
+    THERMOSTAT_DEVICE_ID: THERMOSTAT_STATE_RESPONSE_COMMANDS,
+    OUTLET_DEVICE_ID: {
+        OUTLET_STATUS_RESPONSE,
+        OUTLET_CONTROL_RESPONSE,
+        OUTLET_THRESHOLD_RESPONSE,
+        OUTLET_THRESHOLD_CONTROL_RESPONSE,
+    },
+    COMMON_ENTRANCE_DEVICE_ID: {COMMON_ENTRANCE_STATUS_RESPONSE},
+    GENERIC_SENSOR_DEVICE_ID: {LIGHT_STATUS_RESPONSE},
+}
+
+EVENT_COMMANDS_BY_DEVICE = {
+    COMMON_ENTRANCE_DEVICE_ID: {COMMON_ENTRANCE_CALL_EVENT},
 }
 
 
@@ -82,6 +137,7 @@ class DeviceState:
 
 @dataclass
 class UnsupportedPacketRecord:
+    category: str
     reason: str
     addr: int
     sub_id: int
@@ -92,9 +148,11 @@ class UnsupportedPacketRecord:
     last_seen_seq: int
     last_payload_hex: str
     last_raw_hex: str
+    sample_raw_hexes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "category": self.category,
             "reason": self.reason,
             "device_id": f"0x{self.addr:02X}",
             "sub_id": f"0x{self.sub_id:02X}",
@@ -105,45 +163,66 @@ class UnsupportedPacketRecord:
             "last_seen_seq": self.last_seen_seq,
             "last_payload_hex": self.last_payload_hex.upper(),
             "last_raw_hex": self.last_raw_hex.upper(),
+            "sample_raw_hexes": [
+                sample.upper() for sample in self.sample_raw_hexes
+            ],
         }
 
 
-GENERIC_SENSOR_DEVICE_ID = 0x60
-GENERIC_STATUS_REQUEST = 0x01
 MAX_UNSUPPORTED_PACKET_RECORDS = 50
+MAX_CANDIDATE_PACKET_RECORDS = 100
+MAX_PACKET_RECORD_SAMPLES = 5
 
 
 class DeviceRegistry:
     def __init__(self) -> None:
         self.devices: dict[str, DeviceState] = {}
         self.unsupported_packets: dict[str, UnsupportedPacketRecord] = {}
+        self.candidate_packets: dict[str, UnsupportedPacketRecord] = {}
         self._unsupported_seen_seq = 0
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
-        if _is_polling_request(addr, cmd):
+        if addr not in DEVICE_ID_MAP:
+            self.record_unsupported_packet(
+                "unsupported_device_id",
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
             return []
 
-        # Device 0x40 uses command 0x10 for common entrance events. Without
-        # this override the generic command map would misclassify it as light.
-        if addr == COMMON_ENTRANCE_DEVICE_ID:
-            kind, caps = DEVICE_ID_MAP[addr]
-        else:
-            kind, caps = CMD_TYPE_MAP.get(cmd, ("unknown", {"diagnostic"}))
-        if kind == "unknown":
-            kind, caps = DEVICE_ID_MAP.get(addr, (kind, caps))
+        kind, caps = DEVICE_ID_MAP[addr]
+
+        if _is_ignored_request(addr, cmd):
+            return []
+
+        if not _is_supported_command(addr, cmd):
+            self.record_unsupported_packet(
+                "unsupported_command",
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
+            return []
+
+        if not _is_valid_sub_id_for_device(addr, sub_id):
+            self.record_candidate_packet(
+                "unregistered_sub_id",
+                addr,
+                sub_id,
+                cmd,
+                payload,
+                raw_hex,
+            )
+            return []
 
         changes: list[tuple[DeviceState, bool]] = []
 
         if addr == LIGHT_DEVICE_ID and cmd != LIGHT_STATUS_RESPONSE:
-            if cmd not in {LIGHT_STATUS_REQUEST, LIGHT_CONTROL_REQUEST, LIGHT_CONTROL_RESPONSE}:
-                self.record_unsupported_packet(
-                    "unhandled_light_packet",
-                    addr,
-                    sub_id,
-                    cmd,
-                    payload,
-                    raw_hex,
-                )
             return []
 
         # KS X 4506 deployments observed through Suroup expose each lighting
@@ -233,6 +312,15 @@ class DeviceRegistry:
                         control_channel=None,
                     )
 
+            if not changes:
+                self.record_candidate_packet(
+                    "candidate_light_packet",
+                    addr,
+                    sub_id,
+                    cmd,
+                    payload,
+                    raw_hex,
+                )
             return changes
 
         # Suroup-compatible outlet model: grouped status packets such as 0x1F
@@ -249,8 +337,8 @@ class DeviceRegistry:
             )
             if outlet_changes:
                 return outlet_changes
-            self.record_unsupported_packet(
-                "unhandled_outlet_packet",
+            self.record_candidate_packet(
+                "candidate_outlet_packet",
                 addr,
                 sub_id,
                 cmd,
@@ -270,6 +358,16 @@ class DeviceRegistry:
             )
             if meter_changes:
                 return meter_changes
+            if cmd == METER_STATUS_RESPONSE:
+                self.record_candidate_packet(
+                    "candidate_meter_packet",
+                    addr,
+                    sub_id,
+                    cmd,
+                    payload,
+                    raw_hex,
+                )
+                return []
 
         if kind == "climate" and addr == THERMOSTAT_DEVICE_ID:
             thermostat_changes = self._upsert_thermostat_from_frame(
@@ -285,7 +383,7 @@ class DeviceRegistry:
                 cmd in THERMOSTAT_STATE_RESPONSE_COMMANDS
                 and _is_individual_thermostat_sub_id(sub_id)
             ):
-                self.record_unsupported_packet(
+                self.record_candidate_packet(
                     "thermostat_individual_without_group_state",
                     addr,
                     sub_id,
@@ -336,38 +434,100 @@ class DeviceRegistry:
     ) -> None:
         self._unsupported_seen_seq += 1
         payload_hex = payload.hex()
-        key = f"{reason}:{addr:02X}:{sub_id:02X}:{cmd:02X}:{len(payload)}"
-        record = self.unsupported_packets.get(key)
+        self._record_packet(
+            self.unsupported_packets,
+            category="unsupported",
+            reason=reason,
+            addr=addr,
+            sub_id=sub_id,
+            cmd=cmd,
+            payload_hex=payload_hex,
+            raw_hex=raw_hex,
+            max_records=MAX_UNSUPPORTED_PACKET_RECORDS,
+        )
+
+    def record_candidate_packet(
+        self,
+        reason: str,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        raw_hex: str,
+    ) -> None:
+        self._unsupported_seen_seq += 1
+        self._record_packet(
+            self.candidate_packets,
+            category="candidate",
+            reason=reason,
+            addr=addr,
+            sub_id=sub_id,
+            cmd=cmd,
+            payload_hex=payload.hex(),
+            raw_hex=raw_hex,
+            max_records=MAX_CANDIDATE_PACKET_RECORDS,
+        )
+
+    def _record_packet(
+        self,
+        records: dict[str, UnsupportedPacketRecord],
+        *,
+        category: str,
+        reason: str,
+        addr: int,
+        sub_id: int,
+        cmd: int,
+        payload_hex: str,
+        raw_hex: str,
+        max_records: int,
+    ) -> None:
+        key = f"{category}:{reason}:{addr:02X}:{sub_id:02X}:{cmd:02X}:{len(payload_hex) // 2}"
+        record = records.get(key)
         if record is None:
             record = UnsupportedPacketRecord(
+                category=category,
                 reason=reason,
                 addr=addr,
                 sub_id=sub_id,
                 cmd=cmd,
-                payload_len=len(payload),
+                payload_len=len(payload_hex) // 2,
                 count=0,
                 first_seen_seq=self._unsupported_seen_seq,
                 last_seen_seq=self._unsupported_seen_seq,
                 last_payload_hex=payload_hex,
                 last_raw_hex=raw_hex,
+                sample_raw_hexes=[],
             )
-            self.unsupported_packets[key] = record
+            records[key] = record
 
         record.count += 1
         record.last_seen_seq = self._unsupported_seen_seq
         record.last_payload_hex = payload_hex
         record.last_raw_hex = raw_hex
+        if raw_hex not in record.sample_raw_hexes:
+            record.sample_raw_hexes.append(raw_hex)
+            del record.sample_raw_hexes[:-MAX_PACKET_RECORD_SAMPLES]
 
-        if len(self.unsupported_packets) > MAX_UNSUPPORTED_PACKET_RECORDS:
+        if len(records) > max_records:
             oldest_key = min(
-                self.unsupported_packets,
-                key=lambda item: self.unsupported_packets[item].last_seen_seq,
+                records,
+                key=lambda item: records[item].last_seen_seq,
             )
-            del self.unsupported_packets[oldest_key]
+            del records[oldest_key]
 
     def unsupported_packet_report(self, *, limit: int = MAX_UNSUPPORTED_PACKET_RECORDS) -> dict[str, Any]:
-        packets = sorted(
+        unsupported_packets = sorted(
             self.unsupported_packets.values(),
+            key=lambda item: item.last_seen_seq,
+            reverse=True,
+        )
+        candidate_packets = sorted(
+            self.candidate_packets.values(),
+            key=lambda item: item.last_seen_seq,
+            reverse=True,
+        )
+        packets = sorted(
+            [*unsupported_packets, *candidate_packets],
             key=lambda item: item.last_seen_seq,
             reverse=True,
         )
@@ -375,9 +535,17 @@ class DeviceRegistry:
         latest_packet = packets[0].as_dict() if packets else None
         return {
             "total_seen": sum(packet.count for packet in packets),
+            "unsupported_seen": sum(packet.count for packet in unsupported_packets),
+            "candidate_seen": sum(packet.count for packet in candidate_packets),
             "unique_signatures": len(packets),
             "latest_packet": latest_packet,
             "packets": [packet.as_dict() for packet in limited],
+            "unsupported_packets": [
+                packet.as_dict() for packet in unsupported_packets[: max(0, limit)]
+            ],
+            "candidate_packets": [
+                packet.as_dict() for packet in candidate_packets[: max(0, limit)]
+            ],
         }
 
     def _apply_state(self, dev: DeviceState, cmd: int, payload: bytes) -> None:
@@ -616,16 +784,36 @@ class DeviceRegistry:
         return changes
 
 
-def _is_polling_request(addr: int, cmd: int) -> bool:
-    if addr == COMMON_ENTRANCE_DEVICE_ID:
-        return cmd in {GENERIC_STATUS_REQUEST, COMMON_ENTRANCE_STATUS_REQUEST}
+def _is_ignored_request(addr: int, cmd: int) -> bool:
+    return cmd in REQUEST_COMMANDS_BY_DEVICE.get(addr, set())
+
+
+def _is_supported_command(addr: int, cmd: int) -> bool:
+    return cmd in (
+        REQUEST_COMMANDS_BY_DEVICE.get(addr, set())
+        | STATE_COMMANDS_BY_DEVICE.get(addr, set())
+        | EVENT_COMMANDS_BY_DEVICE.get(addr, set())
+    )
+
+
+def _is_valid_sub_id_for_device(addr: int, sub_id: int) -> bool:
+    if sub_id < 0x01 or sub_id > 0xFF:
+        return False
+
+    if addr == METER_DEVICE_ID:
+        return sub_id in VALID_METER_SUB_IDS
+
     if addr in {
+        GAS_DEVICE_ID,
+        ENTRANCE_PANEL_DEVICE_ID,
+        COMMON_ENTRANCE_DEVICE_ID,
         GENERIC_SENSOR_DEVICE_ID,
-        METER_DEVICE_ID,
-        THERMOSTAT_DEVICE_ID,
-        OUTLET_DEVICE_ID,
     }:
-        return cmd == GENERIC_STATUS_REQUEST
+        return 0x01 <= sub_id <= 0x0E
+
+    if addr in {LIGHT_DEVICE_ID, THERMOSTAT_DEVICE_ID, OUTLET_DEVICE_ID}:
+        return 0x01 <= sub_id <= 0xEF and (sub_id & 0x0F) != 0
+
     return False
 
 

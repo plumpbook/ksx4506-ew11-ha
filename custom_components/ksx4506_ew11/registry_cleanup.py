@@ -38,6 +38,32 @@ _LEGACY_UNKNOWN_DEVICE_RE = re.compile(
     r"^[0-9A-F]{4}_unknown$",
     re.IGNORECASE,
 )
+_INVALID_CANDIDATE_ENTITY_RES = [
+    re.compile(r"^ksx4506_0EF[0-9A-F]_light(?:_.+)?$", re.IGNORECASE),
+    re.compile(
+        r"^ksx4506_12(?:0F|[1-9A-F][0-9A-F])_gas_valve(?:_.+)?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^ksx4506_33(?:0F|[1-9A-F][0-9A-F])_entrance_panel(?:_.+)?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^ksx4506_40(?:0F|[1-9A-F][0-9A-F])_common_entrance(?:_.+)?$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^ksx4506_60(?:0F|[1-9A-F][0-9A-F])_sensor(?:_.+)?$",
+        re.IGNORECASE,
+    ),
+]
+_INVALID_CANDIDATE_DEVICE_RES = [
+    re.compile(r"^0EF[0-9A-F]_light(?:_\d+)?$", re.IGNORECASE),
+    re.compile(r"^12(?:0F|[1-9A-F][0-9A-F])_gas_valve$", re.IGNORECASE),
+    re.compile(r"^33(?:0F|[1-9A-F][0-9A-F])_entrance_panel$", re.IGNORECASE),
+    re.compile(r"^40(?:0F|[1-9A-F][0-9A-F])_common_entrance$", re.IGNORECASE),
+    re.compile(r"^60(?:0F|[1-9A-F][0-9A-F])_sensor$", re.IGNORECASE),
+]
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -81,6 +107,10 @@ def async_prune_legacy_registry_entries(
     diagnostic device. Unknown packets are now report-only via the Unsupported
     Packets sensor and diagnostics download.
 
+    Builds before strict discovery could also expose candidate packets as real
+    devices, such as Light 0E-F1 or KSX 12-14. These packets are now kept in
+    diagnostics until a device-specific decoder can confirm them.
+
     Older meter devices used generic names such as "KSX 30-03". The current
     model uses explicit names such as "Electric Meter 30-03".
     """
@@ -93,7 +123,9 @@ def async_prune_legacy_registry_entries(
             entity_entry
         ) or _is_legacy_thermostat_entity(
             entity_entry
-        ) or _is_legacy_unknown_entity(entity_entry):
+        ) or _is_legacy_unknown_entity(entity_entry) or _is_invalid_candidate_entity(
+            entity_entry
+        ):
             ent_reg.async_remove(entity_entry.entity_id)
             continue
         if _is_thermostat_climate_entity_with_legacy_name(entity_entry):
@@ -107,7 +139,9 @@ def async_prune_legacy_registry_entries(
             device_entry
         ) or _is_legacy_thermostat_individual_device(
             device_entry
-        ) or _is_legacy_unknown_device(device_entry):
+        ) or _is_legacy_unknown_device(device_entry) or _is_invalid_candidate_device(
+            device_entry
+        ):
             dev_reg.async_update_device(
                 device_entry.id,
                 remove_config_entry_id=entry.entry_id,
@@ -152,6 +186,7 @@ def _entity_entries_for_cleanup(ent_reg, entry: ConfigEntry) -> list:
             _is_legacy_outlet_group_entity(entity_entry)
             or _is_legacy_thermostat_entity(entity_entry)
             or _is_legacy_unknown_entity(entity_entry)
+            or _is_invalid_candidate_entity(entity_entry)
             or _is_thermostat_climate_entity_with_legacy_name(entity_entry)
         ):
             entries.append(entity_entry)
@@ -188,6 +223,7 @@ def _device_needs_cleanup(device_entry) -> bool:
         _is_legacy_outlet_group_device(device_entry)
         or _is_legacy_thermostat_individual_device(device_entry)
         or _is_legacy_unknown_device(device_entry)
+        or _is_invalid_candidate_device(device_entry)
         or _meter_device_name_for_entry(device_entry) is not None
     )
 
@@ -211,6 +247,13 @@ def _is_legacy_unknown_entity(entity_entry) -> bool:
     unique_id = getattr(entity_entry, "unique_id", None)
     return isinstance(unique_id, str) and bool(
         _LEGACY_UNKNOWN_ENTITY_RE.match(unique_id)
+    )
+
+
+def _is_invalid_candidate_entity(entity_entry) -> bool:
+    unique_id = getattr(entity_entry, "unique_id", None)
+    return isinstance(unique_id, str) and any(
+        pattern.match(unique_id) for pattern in _INVALID_CANDIDATE_ENTITY_RES
     )
 
 
@@ -252,6 +295,17 @@ def _is_legacy_unknown_device(device_entry) -> bool:
         if domain != DOMAIN:
             continue
         if isinstance(identifier, str) and _LEGACY_UNKNOWN_DEVICE_RE.match(identifier):
+            return True
+    return False
+
+
+def _is_invalid_candidate_device(device_entry) -> bool:
+    for domain, identifier in getattr(device_entry, "identifiers", set()):
+        if domain != DOMAIN:
+            continue
+        if isinstance(identifier, str) and any(
+            pattern.match(identifier) for pattern in _INVALID_CANDIDATE_DEVICE_RES
+        ):
             return True
     return False
 
