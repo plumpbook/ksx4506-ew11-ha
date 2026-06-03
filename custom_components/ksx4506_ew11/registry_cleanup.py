@@ -69,6 +69,7 @@ _INVALID_CANDIDATE_DEVICE_RES = [
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove HA registry entries owned by a deleted EW11 config entry."""
 
+    await _async_ensure_registries_loaded(hass)
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
     entity_entries = list(er.async_entries_for_config_entry(ent_reg, entry.entry_id))
@@ -84,7 +85,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         )
 
 
-def async_prune_legacy_registry_entries(
+async def async_prune_legacy_registry_entries(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> None:
@@ -115,6 +116,35 @@ def async_prune_legacy_registry_entries(
     model uses explicit names such as "Electric Meter 30-03".
     """
 
+    await _async_ensure_registries_loaded(hass)
+    _prune_legacy_registry_entries(hass, entry)
+
+
+async def async_prune_legacy_outlet_group_registry_entries(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    await async_prune_legacy_registry_entries(hass, entry)
+
+
+async def _async_ensure_registries_loaded(hass: HomeAssistant) -> None:
+    hass_data = getattr(hass, "data", None)
+    if not isinstance(hass_data, dict):
+        return
+
+    entity_data_key = getattr(er, "DATA_REGISTRY", None)
+    if entity_data_key is not None and entity_data_key not in hass_data:
+        await er.async_load(hass)
+
+    device_data_key = getattr(dr, "DATA_REGISTRY", None)
+    if device_data_key is not None and device_data_key not in hass_data:
+        await dr.async_load(hass)
+
+
+def _prune_legacy_registry_entries(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
 
@@ -142,10 +172,15 @@ def async_prune_legacy_registry_entries(
         ) or _is_legacy_unknown_device(device_entry) or _is_invalid_candidate_device(
             device_entry
         ):
-            dev_reg.async_update_device(
-                device_entry.id,
-                remove_config_entry_id=entry.entry_id,
-            )
+            if getattr(device_entry, "config_entries", None):
+                dev_reg.async_update_device(
+                    device_entry.id,
+                    remove_config_entry_id=entry.entry_id,
+                )
+            else:
+                async_remove_device = getattr(dev_reg, "async_remove_device", None)
+                if async_remove_device:
+                    async_remove_device(device_entry.id)
             continue
         meter_name = _meter_device_name_for_entry(device_entry)
         if meter_name and _meter_device_name_needs_update(device_entry, meter_name):
@@ -158,13 +193,6 @@ def async_prune_legacy_registry_entries(
                 device_entry.id,
                 name=meter_name,
             )
-
-
-def async_prune_legacy_outlet_group_registry_entries(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-) -> None:
-    async_prune_legacy_registry_entries(hass, entry)
 
 
 def _entity_entries_for_cleanup(ent_reg, entry: ConfigEntry) -> list:
@@ -209,7 +237,7 @@ def _device_entries_for_cleanup(dev_reg, entry: ConfigEntry) -> list:
         if key in seen:
             continue
         config_entries = getattr(device_entry, "config_entries", ())
-        if entry.entry_id not in config_entries:
+        if entry.entry_id not in config_entries and config_entries:
             continue
         if _device_needs_cleanup(device_entry):
             entries.append(device_entry)

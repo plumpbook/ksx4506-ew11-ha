@@ -25,9 +25,13 @@ class _FakeDeviceRegistry:
     def __init__(self, entries):
         self.entries = entries
         self.updated = []
+        self.removed = []
 
     def async_update_device(self, device_id, **kwargs):
         self.updated.append((device_id, kwargs))
+
+    def async_remove_device(self, device_id):
+        self.removed.append(device_id)
 
 
 def test_remove_entry_cleans_entities_and_devices_for_config_entry():
@@ -192,7 +196,9 @@ def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
         ),
     )
 
-    integration._async_prune_legacy_outlet_group_registry_entries(hass, entry)
+    asyncio.run(
+        integration._async_prune_legacy_outlet_group_registry_entries(hass, entry)
+    )
 
     assert hass.entity_registry.removed == [
         "switch.legacy_group",
@@ -227,22 +233,37 @@ def test_setup_prunes_legacy_entries_from_registry_fallback_scan():
             config_entry_id="entry-a",
             platform="ksx4506_ew11",
             unique_id="ksx4506_3611_climate_ch1",
-        )
+        ),
+        "sensor.orphaned_invalid_candidate": types.SimpleNamespace(
+            entity_id="sensor.orphaned_invalid_candidate",
+            config_entry_id=None,
+            platform="ksx4506_ew11",
+            unique_id="ksx4506_4014_common_entrance",
+        ),
     }
     hass.device_registry.devices = {
         "fallback-device": types.SimpleNamespace(
             id="fallback-device",
             config_entries={"entry-a"},
             identifiers={("ksx4506_ew11", "3611_climate_ch1")},
-        )
+        ),
+        "orphaned-invalid-device": types.SimpleNamespace(
+            id="orphaned-invalid-device",
+            config_entries=set(),
+            identifiers={("ksx4506_ew11", "4014_common_entrance")},
+        ),
     }
 
-    integration._async_prune_legacy_registry_entries(hass, entry)
+    asyncio.run(integration._async_prune_legacy_registry_entries(hass, entry))
 
-    assert hass.entity_registry.removed == ["climate.fallback_legacy"]
+    assert hass.entity_registry.removed == [
+        "climate.fallback_legacy",
+        "sensor.orphaned_invalid_candidate",
+    ]
     assert hass.device_registry.updated == [
         ("fallback-device", {"remove_config_entry_id": "entry-a"}),
     ]
+    assert hass.device_registry.removed == ["orphaned-invalid-device"]
 
 
 def test_setup_prunes_invalid_candidate_registry_entries():
@@ -325,7 +346,7 @@ def test_setup_prunes_invalid_candidate_registry_entries():
         ),
     )
 
-    integration._async_prune_legacy_registry_entries(hass, entry)
+    asyncio.run(integration._async_prune_legacy_registry_entries(hass, entry))
 
     assert hass.entity_registry.removed == [
         "light.invalid_f1",
