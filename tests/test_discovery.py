@@ -305,6 +305,34 @@ def test_supported_command_with_invalid_payload_is_candidate():
     assert report["latest_packet"]["reason"] == "candidate_light_packet"
 
 
+def test_registry_tracks_last_packet_classification():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("AA BB"), "f7...")
+    assert reg.last_packet_classification == {
+        "classification": "unsupported",
+        "reason": "unsupported_device_id",
+    }
+
+    reg.upsert_from_frame(0x0E, 0xF1, 0x81, bytes.fromhex("00 01"), "f7...")
+    assert reg.last_packet_classification == {
+        "classification": "candidate",
+        "reason": "unregistered_sub_id",
+    }
+
+    reg.upsert_from_frame(0x39, 0x1F, 0x01, b"", "f7...")
+    assert reg.last_packet_classification == {
+        "classification": "ignored_request",
+        "reason": "request_command",
+    }
+
+    reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 01"), "f7...")
+    assert reg.last_packet_classification == {
+        "classification": "supported",
+        "reason": None,
+    }
+
+
 def test_repeated_unsupported_packets_are_counted_by_signature():
     reg = DeviceRegistry()
 

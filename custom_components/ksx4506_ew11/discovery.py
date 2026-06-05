@@ -194,9 +194,14 @@ class DeviceRegistry:
         self.devices: dict[str, DeviceState] = {}
         self.unsupported_packets: dict[str, UnsupportedPacketRecord] = {}
         self.candidate_packets: dict[str, UnsupportedPacketRecord] = {}
+        self.last_packet_classification: dict[str, str | None] = {
+            "classification": "supported",
+            "reason": None,
+        }
         self._unsupported_seen_seq = 0
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
+        self._set_packet_classification("supported")
         if addr not in DEVICE_ID_MAP:
             self.record_unsupported_packet(
                 "unsupported_device_id",
@@ -211,6 +216,7 @@ class DeviceRegistry:
         kind, caps = DEVICE_ID_MAP[addr]
 
         if _is_ignored_request(addr, cmd):
+            self._set_packet_classification("ignored_request", "request_command")
             return []
 
         if not _is_supported_command(addr, cmd):
@@ -447,6 +453,7 @@ class DeviceRegistry:
         payload: bytes,
         raw_hex: str,
     ) -> None:
+        self._set_packet_classification("unsupported", reason)
         self._unsupported_seen_seq += 1
         payload_hex = payload.hex()
         self._record_packet(
@@ -470,6 +477,7 @@ class DeviceRegistry:
         payload: bytes,
         raw_hex: str,
     ) -> None:
+        self._set_packet_classification("candidate", reason)
         self._unsupported_seen_seq += 1
         self._record_packet(
             self.candidate_packets,
@@ -529,6 +537,16 @@ class DeviceRegistry:
                 key=lambda item: records[item].last_seen_seq,
             )
             del records[oldest_key]
+
+    def _set_packet_classification(
+        self,
+        classification: str,
+        reason: str | None = None,
+    ) -> None:
+        self.last_packet_classification = {
+            "classification": classification,
+            "reason": reason,
+        }
 
     def unsupported_packet_report(
         self,

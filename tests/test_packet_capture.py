@@ -61,6 +61,77 @@ def test_packet_capture_records_filtered_frames_with_limit():
     assert report["packets"][0]["raw_hex"] == "F7330143018007F6"
 
 
+def test_packet_capture_report_splits_candidate_and_unsupported_packets():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    protocol_module = load_integration_module("protocol")
+
+    fake = types.SimpleNamespace(
+        packet_capture_enabled=True,
+        packet_capture_filter_text="",
+        packet_capture_filter=None,
+        packet_capture_limit=10,
+        packet_capture=deque(maxlen=10),
+    )
+
+    supported = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0x11,
+        cmd=0x81,
+        payload=bytes.fromhex("00 01"),
+        checksum=0,
+        raw=bytes.fromhex("F7 0E 11 81 02 00 01 6D A0"),
+    )
+    unsupported = protocol_module.KsFrame(
+        addr=0x39,
+        sub_id=0x9F,
+        cmd=0x52,
+        payload=b"",
+        checksum=0,
+        raw=bytes.fromhex("F7 39 9F 52 00 C3 9A"),
+    )
+    candidate = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0xF1,
+        cmd=0x81,
+        payload=bytes.fromhex("00 01"),
+        checksum=0,
+        raw=bytes.fromhex("F7 0E F1 81 02 00 01 8D 80"),
+    )
+
+    coordinator_module.Ksx4506Coordinator._capture_packet(
+        fake,
+        supported,
+        classification={"classification": "supported", "reason": None},
+    )
+    coordinator_module.Ksx4506Coordinator._capture_packet(
+        fake,
+        unsupported,
+        classification={"classification": "unsupported", "reason": "unsupported_command"},
+    )
+    coordinator_module.Ksx4506Coordinator._capture_packet(
+        fake,
+        candidate,
+        classification={"classification": "candidate", "reason": "unregistered_sub_id"},
+    )
+
+    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(fake)
+
+    assert report["classification_counts"] == {
+        "candidate": 1,
+        "ignored_request": 0,
+        "supported": 1,
+        "unsupported": 1,
+    }
+    assert [packet["command_type"] for packet in report["unsupported_packets"]] == ["0x52"]
+    assert report["unsupported_packets"][0]["reason"] == "unsupported_command"
+    assert [packet["sub_id"] for packet in report["candidate_packets"]] == ["0xF1"]
+    assert report["candidate_packets"][0]["reason"] == "unregistered_sub_id"
+    assert report["packets"][0]["classification"] == "candidate"
+    assert report["packets"][1]["classification"] == "unsupported"
+    assert report["packets"][2]["classification"] == "supported"
+
+
 def test_packet_capture_sensor_reports_coordinator_capture():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")

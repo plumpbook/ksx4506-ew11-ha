@@ -117,8 +117,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         await self._client.stop()
 
     async def _on_frame(self, frame: KsFrame) -> None:
-        if getattr(self, "packet_capture_enabled", False):
-            self._capture_packet(frame)
         _LOGGER.debug(
             "RX frame dev=0x%02X sub=0x%02X cmd=0x%02X len=%d raw=%s",
             frame.addr,
@@ -155,6 +153,15 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             frame.payload,
             frame.raw.hex(),
         )
+        if getattr(self, "packet_capture_enabled", False):
+            self._capture_packet(
+                frame,
+                classification=getattr(
+                    self.registry,
+                    "last_packet_classification",
+                    None,
+                ),
+            )
         for dev, is_new in changes:
             if is_new:
                 async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
@@ -162,7 +169,11 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         self.async_set_updated_data({k: v.state for k, v in self.registry.devices.items()})
         self._notify_frame_waiters(frame)
 
-    def _capture_packet(self, frame: KsFrame) -> None:
+    def _capture_packet(
+        self,
+        frame: KsFrame,
+        classification: dict[str, str | None] | None = None,
+    ) -> None:
         if not self.packet_capture_enabled:
             return
         if (
@@ -171,6 +182,10 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         ):
             return
 
+        classification = classification or {
+            "classification": "supported",
+            "reason": None,
+        }
         self.packet_capture.append(
             {
                 "time": datetime.now(timezone.utc).isoformat(),
@@ -178,6 +193,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 "device_id": f"0x{frame.addr:02X}",
                 "sub_id": f"0x{frame.sub_id:02X}",
                 "command_type": f"0x{frame.cmd:02X}",
+                "classification": classification.get("classification", "supported"),
+                "reason": classification.get("reason"),
                 "payload_len": len(frame.payload),
                 "payload_hex": frame.payload.hex().upper(),
                 "raw_hex": frame.raw.hex().upper(),
@@ -186,11 +203,33 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
 
     def packet_capture_report(self) -> dict[str, Any]:
         packets = list(reversed(self.packet_capture))
+        classification_counts = {
+            "candidate": 0,
+            "ignored_request": 0,
+            "supported": 0,
+            "unsupported": 0,
+        }
+        for packet in packets:
+            classification = packet.get("classification", "supported")
+            classification_counts[classification] = (
+                classification_counts.get(classification, 0) + 1
+            )
         return {
             "enabled": self.packet_capture_enabled,
             "filter": self.packet_capture_filter_text,
             "limit": self.packet_capture_limit,
             "count": len(packets),
+            "classification_counts": classification_counts,
+            "unsupported_packets": [
+                packet
+                for packet in packets
+                if packet.get("classification") == "unsupported"
+            ],
+            "candidate_packets": [
+                packet
+                for packet in packets
+                if packet.get("classification") == "candidate"
+            ],
             "packets": packets,
         }
 
