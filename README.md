@@ -86,12 +86,12 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 기본 제보에는 raw 패킷 샘플이 포함되지 않습니다. 먼저 안전한 기본 diagnostics로 제보하고, 장치 분석에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 잠시 켜세요.
 
 1. Home Assistant에서 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11`로 이동합니다.
-2. 해당 EW11 허브의 `Unsupported Packets` 센서 값이 증가하는지 확인합니다.
+2. 해당 EW11 허브의 `Unsupported Packets` 센서 값 또는 속성의 `packets` 내용을 확인합니다.
 3. 벽패드 또는 기존 앱에서 문제의 동작을 한 번 실행합니다.
 4. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
 5. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
 
-또는 `Unsupported Packets` 진단 센서의 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
+`Unsupported Packets` 센서의 상태값은 반복 횟수가 아니라 미지원 패킷 signature 수입니다. 총 관측 횟수는 센서 속성의 `total_seen`에서 확인할 수 있습니다. 또는 센서 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
 
 raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 아래 순서로 공유하세요.
 

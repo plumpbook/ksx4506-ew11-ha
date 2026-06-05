@@ -210,6 +210,7 @@ def test_common_entrance_polling_requests_do_not_change_sensor_state():
     assert reg.upsert_from_frame(0x40, 0x02, 0x02, b"", "f740020200b7f2") == []
     assert reg.upsert_from_frame(0x40, 0x03, 0x01, b"", "f740030100b5f0") == []
     assert reg.devices == {}
+    assert reg.unsupported_packet_report()["total_seen"] == 0
 
     reg.upsert_from_frame(0x40, 0x02, 0x82, bytes.fromhex("00 00"), "f7...")
 
@@ -225,6 +226,23 @@ def test_generic_sensor_polling_request_does_not_change_sensor_state():
 
     d = reg.devices["6001_sensor"]
     assert d.state["value_hex"] == "00"
+
+
+def test_periodic_bus_requests_are_ignored_not_reported():
+    reg = DeviceRegistry()
+
+    assert reg.upsert_from_frame(
+        0x33,
+        0x01,
+        0x01,
+        bytes.fromhex("01"),
+        "f73301010101c4f2",
+    ) == []
+    assert reg.upsert_from_frame(0x40, 0x03, 0x01, b"", "f740030100b5f0") == []
+    assert reg.upsert_from_frame(0x12, 0x01, 0x0F, b"", "f712010f00eb04") == []
+
+    assert reg.devices == {}
+    assert reg.unsupported_packet_report()["total_seen"] == 0
 
 
 def test_unknown_packet_is_reported_without_creating_device():

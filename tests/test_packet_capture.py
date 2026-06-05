@@ -81,3 +81,36 @@ def test_packet_capture_sensor_reports_coordinator_capture():
     assert entity.native_value == 1
     assert entity.extra_state_attributes["packets"] == [{"device_id": "0x33"}]
     assert entity._attr_unique_id == "ksx4506_entry-1_packet_capture"
+
+
+def test_unsupported_packets_sensor_reports_unique_signatures_as_state():
+    install_homeassistant_stubs()
+    sensor_module = load_integration_module("sensor")
+
+    report = {
+        "total_seen": 42,
+        "unsupported_seen": 42,
+        "candidate_seen": 0,
+        "unique_signatures": 2,
+        "latest_packet": None,
+        "packet_samples_redacted": True,
+        "packets": [],
+        "unsupported_packets": [],
+        "candidate_packets": [],
+    }
+    coordinator = types.SimpleNamespace(
+        registry=types.SimpleNamespace(
+            unsupported_packet_report=lambda **_: report,
+        )
+    )
+    entry = types.SimpleNamespace(
+        entry_id="entry-1",
+        title="EW11 example",
+        data={},
+        options={},
+    )
+
+    entity = sensor_module.KsxUnsupportedPacketsSensor(coordinator, entry)
+
+    assert entity.native_value == 2
+    assert entity.extra_state_attributes["total_seen"] == 42

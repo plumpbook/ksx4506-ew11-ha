@@ -2,6 +2,7 @@
 
 ## 1) 엔티티가 안 생김
 - `Unsupported Packets` 진단 센서에서 device/sub/cmd 요약 확인
+- 센서 상태값은 signature 수이며, 반복 횟수는 속성의 `total_seen` 확인
 - checksum mode(sum8/xor8) 변경
 - STX/ETX(02/03) 값 확인
 

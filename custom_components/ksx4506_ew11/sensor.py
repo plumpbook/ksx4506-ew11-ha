@@ -371,7 +371,7 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.registry.unsupported_packet_report(
             limit=0,
             include_packet_samples=self._include_packet_samples,
-        )["total_seen"]
+        )["unique_signatures"]
 
     @property
     def extra_state_attributes(self):
