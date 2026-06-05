@@ -32,7 +32,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             out.extend(_sensor_entities_for_device(coordinator, d))
         return out
 
-    init_ents = [KsxUnsupportedPacketsSensor(coordinator, entry), *build_all()]
+    init_ents = [
+        KsxUnsupportedPacketsSensor(coordinator, entry),
+        KsxPacketCaptureSensor(coordinator, entry),
+        *build_all(),
+    ]
     if init_ents:
         async_add_entities(init_ents)
         added_keys.update(e._attr_unique_id for e in init_ents)
@@ -375,6 +379,30 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
             limit=20,
             include_packet_samples=self._include_packet_samples,
         )
+
+
+class KsxPacketCaptureSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_name = "Packet Capture"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"ksx4506_{entry.entry_id}_packet_capture"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": DEVICE_MODEL,
+        }
+
+    @property
+    def native_value(self):
+        return self.coordinator.packet_capture_report()["count"]
+
+    @property
+    def extra_state_attributes(self):
+        return self.coordinator.packet_capture_report()
 
 
 def _meter_attributes(state):

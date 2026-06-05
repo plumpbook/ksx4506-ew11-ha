@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from collections.abc import Callable
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -12,7 +14,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_MAX_ATTEMPTS,
+    CONF_PACKET_CAPTURE_ENABLED,
+    CONF_PACKET_CAPTURE_FILTER,
+    CONF_PACKET_CAPTURE_LIMIT,
     DEFAULT_MAX_ATTEMPTS,
+    DEFAULT_PACKET_CAPTURE_ENABLED,
+    DEFAULT_PACKET_CAPTURE_FILTER,
+    DEFAULT_PACKET_CAPTURE_LIMIT,
     DOMAIN,
     SIGNAL_DEVICE_ADDED,
     SIGNAL_DEVICE_UPDATE,
@@ -59,6 +67,36 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             1,
             min(20, int(config.get(CONF_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS))),
         )
+        self.packet_capture_enabled = bool(
+            config.get(
+                CONF_PACKET_CAPTURE_ENABLED,
+                DEFAULT_PACKET_CAPTURE_ENABLED,
+            )
+        )
+        self.packet_capture_filter_text = str(
+            config.get(
+                CONF_PACKET_CAPTURE_FILTER,
+                DEFAULT_PACKET_CAPTURE_FILTER,
+            )
+        )
+        self.packet_capture_filter = _parse_packet_capture_filter(
+            self.packet_capture_filter_text
+        )
+        self.packet_capture_limit = max(
+            1,
+            min(
+                100,
+                int(
+                    config.get(
+                        CONF_PACKET_CAPTURE_LIMIT,
+                        DEFAULT_PACKET_CAPTURE_LIMIT,
+                    )
+                ),
+            ),
+        )
+        self.packet_capture: deque[dict[str, Any]] = deque(
+            maxlen=self.packet_capture_limit
+        )
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
         self._meter_probe_task: asyncio.Task | None = None
 
@@ -79,6 +117,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         await self._client.stop()
 
     async def _on_frame(self, frame: KsFrame) -> None:
+        if getattr(self, "packet_capture_enabled", False):
+            self._capture_packet(frame)
         _LOGGER.debug(
             "RX frame dev=0x%02X sub=0x%02X cmd=0x%02X len=%d raw=%s",
             frame.addr,
@@ -121,6 +161,38 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
         self.async_set_updated_data({k: v.state for k, v in self.registry.devices.items()})
         self._notify_frame_waiters(frame)
+
+    def _capture_packet(self, frame: KsFrame) -> None:
+        if not self.packet_capture_enabled:
+            return
+        if (
+            self.packet_capture_filter is not None
+            and frame.addr not in self.packet_capture_filter
+        ):
+            return
+
+        self.packet_capture.append(
+            {
+                "time": datetime.now(timezone.utc).isoformat(),
+                "direction": "rx",
+                "device_id": f"0x{frame.addr:02X}",
+                "sub_id": f"0x{frame.sub_id:02X}",
+                "command_type": f"0x{frame.cmd:02X}",
+                "payload_len": len(frame.payload),
+                "payload_hex": frame.payload.hex().upper(),
+                "raw_hex": frame.raw.hex().upper(),
+            }
+        )
+
+    def packet_capture_report(self) -> dict[str, Any]:
+        packets = list(reversed(self.packet_capture))
+        return {
+            "enabled": self.packet_capture_enabled,
+            "filter": self.packet_capture_filter_text,
+            "limit": self.packet_capture_limit,
+            "count": len(packets),
+            "packets": packets,
+        }
 
     def _notify_frame_waiters(self, frame: KsFrame) -> None:
         for matcher, fut in tuple(self._frame_waiters):
@@ -308,3 +380,23 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             raise
         except Exception:
             _LOGGER.exception("Meter startup probe failed")
+
+
+def _parse_packet_capture_filter(value: str) -> set[int] | None:
+    cleaned = str(value or "").strip()
+    if not cleaned or cleaned.lower() in {"*", "all"}:
+        return None
+
+    out: set[int] = set()
+    for token in cleaned.replace(";", ",").replace(" ", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        token = token.removeprefix("0x").removeprefix("0X")
+        try:
+            device_id = int(token, 16)
+        except ValueError:
+            continue
+        if 0 <= device_id <= 0xFF:
+            out.add(device_id)
+    return out

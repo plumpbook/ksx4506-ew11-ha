@@ -22,6 +22,9 @@ def test_options_flow_stores_user_editable_options():
             const.CONF_MAX_ATTEMPTS: 10,
             const.CONF_GAS_UNLOCK: False,
             const.CONF_EXPOSE_PACKET_SAMPLES: False,
+            const.CONF_PACKET_CAPTURE_ENABLED: False,
+            const.CONF_PACKET_CAPTURE_FILTER: "33,40",
+            const.CONF_PACKET_CAPTURE_LIMIT: 20,
         },
         options={},
     )
@@ -31,6 +34,9 @@ def test_options_flow_stores_user_editable_options():
         const.CONF_MAX_ATTEMPTS: 12,
         const.CONF_GAS_UNLOCK: False,
         const.CONF_EXPOSE_PACKET_SAMPLES: True,
+        const.CONF_PACKET_CAPTURE_ENABLED: True,
+        const.CONF_PACKET_CAPTURE_FILTER: "33",
+        const.CONF_PACKET_CAPTURE_LIMIT: 10,
     }
 
     flow = config_flow.Ksx4506OptionsFlow(entry)

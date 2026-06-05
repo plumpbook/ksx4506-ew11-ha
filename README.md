@@ -45,8 +45,11 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 | `etx` | `03` | ETX 프레임 종료 바이트 |
 | `gas_unlock` | `false` | 가스밸브 위험 동작 안전가드 해제 여부 |
 | `expose_packet_samples` | `false` | 미지원 패킷 진단에 raw/payload hex 샘플을 포함할지 여부 |
+| `packet_capture_enabled` | `false` | 최근 수신 패킷을 `Packet Capture` 센서 속성에 보관할지 여부 |
+| `packet_capture_filter` | `33,40` | 캡처할 device id 목록. 예: `33`, `33,40`, `0x33,0x40`, `*` |
+| `packet_capture_limit` | `20` | 최근 패킷 보관 개수 |
 
-등록 후 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`는 통합의 `구성` 또는 `Options` 화면에서 변경할 수 있습니다. 기존 EW11 설정을 바꾸기 위해 `통합 추가`를 다시 누르면 같은 EW11 host/port와 충돌할 수 있습니다.
+등록 후 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`, `packet_capture_*` 옵션은 통합의 `구성` 또는 `Options` 화면에서 변경할 수 있습니다. 기존 EW11 설정을 바꾸기 위해 `통합 추가`를 다시 누르면 같은 EW11 host/port와 충돌할 수 있습니다.
 
 `host`, `port`, `checksum`, `stx`, `etx`는 연결/프레임 기준값이라 등록 후 옵션 화면에서는 변경하지 않습니다. 이 값이 바뀌면 기존 항목을 삭제한 뒤 다시 추가하세요.
 
@@ -98,6 +101,8 @@ raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, �
 4. diagnostics를 다시 내려받습니다.
 5. `expose_packet_samples`를 다시 끕니다.
 6. 진단 JSON에서 위치, 이름, 실제 네트워크 주소, 계정명 등 공개하면 안 되는 정보를 제거한 뒤 공유합니다.
+
+특정 동작의 패킷을 짧게 관찰하려면 HA 전체 debug 로그 대신 `packet_capture_enabled`를 잠시 켜세요. `packet_capture_filter`를 `33`처럼 좁히고 동작을 한 번 실행한 뒤, `Packet Capture` 센서의 `packets` 속성을 확인합니다. 관찰이 끝나면 `packet_capture_enabled`를 다시 끄세요.
 
 제보에는 실제 집 주소, 동/호수, 개인 네트워크 주소, 외부 접속 주소, 계정명, 가족 이름을 넣지 마세요. 예시가 필요하면 `ew11.example.invalid` 같은 reserved hostname이나 `192.0.2.10` 같은 문서용 IP를 사용하세요.
 

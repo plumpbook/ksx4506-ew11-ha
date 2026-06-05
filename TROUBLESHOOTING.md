@@ -21,5 +21,7 @@
 
 ## 5) raw 패킷 샘플이 필요함
 - 기본 진단은 보안을 위해 raw/payload hex를 숨깁니다.
-- 장치 지원 추가에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 켭니다.
+- 특정 device id만 짧게 볼 때는 `packet_capture_enabled`를 켜고 `packet_capture_filter`를 `33`처럼 좁힌 뒤 `Packet Capture` 센서 속성을 확인합니다.
+- 장치 지원 추가에 미지원 패킷 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 켭니다.
+- 캡처가 끝나면 `packet_capture_enabled`와 `expose_packet_samples`를 다시 끕니다.
 - 공개 이슈에 올리기 전 집 주소, 동/호수, 개인 식별 정보와 함께 캡처된 맥락을 제거하세요.

@@ -13,6 +13,9 @@ from .const import (
     CONF_GAS_UNLOCK,
     CONF_HOST,
     CONF_MAX_ATTEMPTS,
+    CONF_PACKET_CAPTURE_ENABLED,
+    CONF_PACKET_CAPTURE_FILTER,
+    CONF_PACKET_CAPTURE_LIMIT,
     CONF_PORT,
     CONF_RETRY,
     CONF_STX,
@@ -21,6 +24,9 @@ from .const import (
     DEFAULT_ETX,
     DEFAULT_EXPOSE_PACKET_SAMPLES,
     DEFAULT_MAX_ATTEMPTS,
+    DEFAULT_PACKET_CAPTURE_ENABLED,
+    DEFAULT_PACKET_CAPTURE_FILTER,
+    DEFAULT_PACKET_CAPTURE_LIMIT,
     DEFAULT_PORT,
     DEFAULT_RETRY,
     DEFAULT_STX,
@@ -51,6 +57,31 @@ def _validate_host(value: str) -> str:
     cleaned = value.strip()
     if not cleaned:
         raise vol.Invalid("host is required")
+    return cleaned
+
+
+def _validate_packet_capture_filter(value: str) -> str:
+    if not isinstance(value, str):
+        raise vol.Invalid("packet capture filter must be a string")
+
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() in {"*", "all"}:
+        return cleaned
+
+    for token in cleaned.replace(";", ",").replace(" ", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        token = token.removeprefix("0x").removeprefix("0X")
+        try:
+            device_id = int(token, 16)
+        except ValueError as exc:
+            raise vol.Invalid(
+                "packet capture filter must contain hex device ids"
+            ) from exc
+        if device_id < 0 or device_id > 0xFF:
+            raise vol.Invalid("packet capture device ids must fit in one byte")
+
     return cleaned
 
 
@@ -95,6 +126,21 @@ class Ksx4506ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_EXPOSE_PACKET_SAMPLES,
                     default=DEFAULT_EXPOSE_PACKET_SAMPLES,
                 ): bool,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_ENABLED,
+                    default=DEFAULT_PACKET_CAPTURE_ENABLED,
+                ): bool,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_FILTER,
+                    default=DEFAULT_PACKET_CAPTURE_FILTER,
+                ): _validate_packet_capture_filter,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_LIMIT,
+                    default=DEFAULT_PACKET_CAPTURE_LIMIT,
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=1, max=100),
+                ),
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema)
@@ -143,6 +189,30 @@ class Ksx4506OptionsFlow(config_entries.OptionsFlow):
                         DEFAULT_EXPOSE_PACKET_SAMPLES,
                     ),
                 ): bool,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_ENABLED,
+                    default=config.get(
+                        CONF_PACKET_CAPTURE_ENABLED,
+                        DEFAULT_PACKET_CAPTURE_ENABLED,
+                    ),
+                ): bool,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_FILTER,
+                    default=config.get(
+                        CONF_PACKET_CAPTURE_FILTER,
+                        DEFAULT_PACKET_CAPTURE_FILTER,
+                    ),
+                ): _validate_packet_capture_filter,
+                vol.Required(
+                    CONF_PACKET_CAPTURE_LIMIT,
+                    default=config.get(
+                        CONF_PACKET_CAPTURE_LIMIT,
+                        DEFAULT_PACKET_CAPTURE_LIMIT,
+                    ),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=1, max=100),
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
