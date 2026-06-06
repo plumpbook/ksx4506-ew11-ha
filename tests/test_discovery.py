@@ -327,6 +327,35 @@ def test_known_device_invalid_sub_id_is_candidate_without_device():
     assert {packet["reason"] for packet in report["packets"]} == {"unregistered_sub_id"}
 
 
+def test_unsupported_report_includes_readable_summary_fields():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("AA BB"), "f7...")
+    reg.upsert_from_frame(0x99, 0x01, 0x81, bytes.fromhex("CC DD"), "f7...")
+    reg.upsert_from_frame(0x0E, 0xF1, 0x81, bytes.fromhex("00 01"), "f7...")
+
+    report = reg.unsupported_packet_report()
+
+    assert report["summary"] == "unsupported=2, candidate=1, unique=2"
+    assert report["latest_packet_signature"] == (
+        "candidate unregistered_sub_id 0x0E/0xF1/0x81 len=2 count=1"
+    )
+    assert report["latest_unsupported"]["device_id"] == "0x99"
+    assert report["latest_unsupported_signature"] == (
+        "unsupported unsupported_device_id 0x99/0x01/0x81 len=2 count=2"
+    )
+    assert report["latest_candidate"]["sub_id"] == "0xF1"
+    assert report["latest_candidate_signature"] == (
+        "candidate unregistered_sub_id 0x0E/0xF1/0x81 len=2 count=1"
+    )
+    assert report["top_unsupported_signatures"] == [
+        "unsupported unsupported_device_id 0x99/0x01/0x81 len=2 count=2"
+    ]
+    assert report["top_candidate_signatures"] == [
+        "candidate unregistered_sub_id 0x0E/0xF1/0x81 len=2 count=1"
+    ]
+
+
 def test_supported_command_with_invalid_payload_is_candidate():
     reg = DeviceRegistry()
 

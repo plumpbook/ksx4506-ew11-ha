@@ -132,6 +132,65 @@ def test_packet_capture_report_splits_candidate_and_unsupported_packets():
     assert report["packets"][2]["classification"] == "supported"
 
 
+def test_packet_capture_report_includes_readable_summary_fields():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    protocol_module = load_integration_module("protocol")
+
+    fake = types.SimpleNamespace(
+        packet_capture_enabled=True,
+        packet_capture_filter_text="",
+        packet_capture_filter=None,
+        packet_capture_limit=10,
+        packet_capture=deque(maxlen=10),
+    )
+
+    unsupported = protocol_module.KsFrame(
+        addr=0x99,
+        sub_id=0x01,
+        cmd=0x81,
+        payload=bytes.fromhex("AA BB"),
+        checksum=0,
+        raw=bytes.fromhex("F7 99 01 81 02 AA BB 12 34"),
+    )
+    candidate = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0xF1,
+        cmd=0x81,
+        payload=bytes.fromhex("00 01"),
+        checksum=0,
+        raw=bytes.fromhex("F7 0E F1 81 02 00 01 8D 80"),
+    )
+
+    coordinator_module.Ksx4506Coordinator._capture_packet(
+        fake,
+        unsupported,
+        classification={"classification": "unsupported", "reason": "unsupported_device_id"},
+    )
+    coordinator_module.Ksx4506Coordinator._capture_packet(
+        fake,
+        candidate,
+        classification={"classification": "candidate", "reason": "unregistered_sub_id"},
+    )
+
+    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(fake)
+
+    assert report["summary"] == (
+        "supported=0, ignored_request=0, candidate=1, unsupported=1"
+    )
+    assert report["latest_packet_signature"] == (
+        "candidate unregistered_sub_id 0x0E/0xF1/0x81 len=2"
+    )
+    assert report["latest_unsupported_signature"] == (
+        "unsupported unsupported_device_id 0x99/0x01/0x81 len=2"
+    )
+    assert report["latest_candidate_signature"] == (
+        "candidate unregistered_sub_id 0x0E/0xF1/0x81 len=2"
+    )
+    assert report["latest_unsupported"]["raw_hex"] == "F799018102AABB1234"
+    assert report["latest_candidate"]["payload_hex"] == "0001"
+
+
 def test_packet_capture_sensor_reports_coordinator_capture():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")

@@ -195,6 +195,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 "command_type": f"0x{frame.cmd:02X}",
                 "classification": classification.get("classification", "supported"),
                 "reason": classification.get("reason"),
+                "signature": _packet_capture_signature(frame, classification),
                 "payload_len": len(frame.payload),
                 "payload_hex": frame.payload.hex().upper(),
                 "raw_hex": frame.raw.hex().upper(),
@@ -214,12 +215,47 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             classification_counts[classification] = (
                 classification_counts.get(classification, 0) + 1
             )
+        latest_packet = packets[0] if packets else None
+        latest_unsupported = next(
+            (
+                packet
+                for packet in packets
+                if packet.get("classification") == "unsupported"
+            ),
+            None,
+        )
+        latest_candidate = next(
+            (
+                packet
+                for packet in packets
+                if packet.get("classification") == "candidate"
+            ),
+            None,
+        )
         return {
             "enabled": self.packet_capture_enabled,
             "filter": self.packet_capture_filter_text,
             "limit": self.packet_capture_limit,
             "count": len(packets),
+            "summary": (
+                f"supported={classification_counts.get('supported', 0)}, "
+                f"ignored_request={classification_counts.get('ignored_request', 0)}, "
+                f"candidate={classification_counts.get('candidate', 0)}, "
+                f"unsupported={classification_counts.get('unsupported', 0)}"
+            ),
             "classification_counts": classification_counts,
+            "latest_packet": latest_packet,
+            "latest_packet_signature": (
+                latest_packet.get("signature") if latest_packet else None
+            ),
+            "latest_unsupported": latest_unsupported,
+            "latest_unsupported_signature": (
+                latest_unsupported.get("signature") if latest_unsupported else None
+            ),
+            "latest_candidate": latest_candidate,
+            "latest_candidate_signature": (
+                latest_candidate.get("signature") if latest_candidate else None
+            ),
             "unsupported_packets": [
                 packet
                 for packet in packets
@@ -439,3 +475,15 @@ def _parse_packet_capture_filter(value: str) -> set[int] | None:
         if 0 <= device_id <= 0xFF:
             out.add(device_id)
     return out
+
+
+def _packet_capture_signature(
+    frame: KsFrame,
+    classification: dict[str, str | None],
+) -> str:
+    reason = classification.get("reason") or "-"
+    return (
+        f"{classification.get('classification', 'supported')} {reason} "
+        f"0x{frame.addr:02X}/0x{frame.sub_id:02X}/0x{frame.cmd:02X} "
+        f"len={len(frame.payload)}"
+    )

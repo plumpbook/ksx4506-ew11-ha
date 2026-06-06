@@ -168,6 +168,7 @@ class UnsupportedPacketRecord:
         data = {
             "category": self.category,
             "reason": self.reason,
+            "signature": self.signature,
             "device_id": f"0x{self.addr:02X}",
             "sub_id": f"0x{self.sub_id:02X}",
             "command_type": f"0x{self.cmd:02X}",
@@ -189,6 +190,14 @@ class UnsupportedPacketRecord:
                 }
             )
         return data
+
+    @property
+    def signature(self) -> str:
+        return (
+            f"{self.category} {self.reason} "
+            f"0x{self.addr:02X}/0x{self.sub_id:02X}/0x{self.cmd:02X} "
+            f"len={self.payload_len} count={self.count}"
+        )
 
 
 MAX_UNSUPPORTED_PACKET_RECORDS = 50
@@ -578,17 +587,62 @@ class DeviceRegistry:
             reverse=True,
         )
         limited = packets[: max(0, limit)]
+        unsupported_seen = sum(packet.count for packet in unsupported_packets)
+        candidate_seen = sum(packet.count for packet in candidate_packets)
         latest_packet = (
             packets[0].as_dict(include_packet_samples=include_packet_samples)
             if packets
             else None
         )
+        latest_unsupported = (
+            unsupported_packets[0].as_dict(
+                include_packet_samples=include_packet_samples
+            )
+            if unsupported_packets
+            else None
+        )
+        latest_candidate = (
+            candidate_packets[0].as_dict(include_packet_samples=include_packet_samples)
+            if candidate_packets
+            else None
+        )
+        top_unsupported = sorted(
+            unsupported_packets,
+            key=lambda item: (item.count, item.last_seen_seq),
+            reverse=True,
+        )
+        top_candidate = sorted(
+            candidate_packets,
+            key=lambda item: (item.count, item.last_seen_seq),
+            reverse=True,
+        )
         return {
-            "total_seen": sum(packet.count for packet in packets),
-            "unsupported_seen": sum(packet.count for packet in unsupported_packets),
-            "candidate_seen": sum(packet.count for packet in candidate_packets),
+            "summary": (
+                f"unsupported={unsupported_seen}, "
+                f"candidate={candidate_seen}, unique={len(packets)}"
+            ),
+            "total_seen": unsupported_seen + candidate_seen,
+            "unsupported_seen": unsupported_seen,
+            "candidate_seen": candidate_seen,
             "unique_signatures": len(packets),
             "latest_packet": latest_packet,
+            "latest_packet_signature": (
+                latest_packet.get("signature") if latest_packet else None
+            ),
+            "latest_unsupported": latest_unsupported,
+            "latest_unsupported_signature": (
+                latest_unsupported.get("signature") if latest_unsupported else None
+            ),
+            "latest_candidate": latest_candidate,
+            "latest_candidate_signature": (
+                latest_candidate.get("signature") if latest_candidate else None
+            ),
+            "top_unsupported_signatures": [
+                packet.signature for packet in top_unsupported[:5]
+            ],
+            "top_candidate_signatures": [
+                packet.signature for packet in top_candidate[:5]
+            ],
             "packet_samples_redacted": not include_packet_samples,
             "packets": [
                 packet.as_dict(include_packet_samples=include_packet_samples)

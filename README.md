@@ -91,7 +91,17 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 4. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
 5. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
 
-`Unsupported Packets` 센서의 상태값은 반복 횟수가 아니라 미지원 패킷 signature 수입니다. 총 관측 횟수는 센서 속성의 `total_seen`에서 확인할 수 있습니다. 또는 센서 속성에서 `unsupported_packets` 내용을 복사해도 됩니다.
+`Unsupported Packets` 센서의 상태값은 반복 횟수가 아니라 미지원 패킷 signature 수입니다. 총 관측 횟수는 센서 속성의 `total_seen`에서 확인할 수 있습니다.
+
+센서 속성에서 먼저 아래 값을 확인하세요.
+
+- `summary`: unsupported/candidate/unique 개수 요약
+- `latest_unsupported_signature`: 최근 실제 미지원 패킷 요약
+- `latest_candidate_signature`: 알려진 장치 ID지만 아직 등록하지 않은 후보 패킷 요약
+- `top_unsupported_signatures`: 반복 횟수가 많은 미지원 패킷 요약
+- `top_candidate_signatures`: 반복 횟수가 많은 후보 패킷 요약
+
+자세한 내용이 필요하면 센서 속성의 `unsupported_packets`, `candidate_packets`, `packets` 내용을 복사하면 됩니다.
 
 raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 아래 순서로 공유하세요.
 
@@ -102,7 +112,7 @@ raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, �
 5. `expose_packet_samples`를 다시 끕니다.
 6. 진단 JSON에서 위치, 이름, 실제 네트워크 주소, 계정명 등 공개하면 안 되는 정보를 제거한 뒤 공유합니다.
 
-특정 동작의 패킷을 짧게 관찰하려면 HA 전체 debug 로그 대신 `packet_capture_enabled`를 잠시 켜세요. `packet_capture_filter`를 `33`처럼 좁히고 동작을 한 번 실행한 뒤, `Packet Capture` 센서의 `packets` 속성을 확인합니다. 관찰이 끝나면 `packet_capture_enabled`를 다시 끄세요.
+특정 동작의 패킷을 짧게 관찰하려면 HA 전체 debug 로그 대신 `packet_capture_enabled`를 잠시 켜세요. `packet_capture_filter`를 `33`처럼 좁히고 동작을 한 번 실행한 뒤, `Packet Capture` 센서의 `summary`, `latest_packet_signature`, `latest_unsupported_signature`, `latest_candidate_signature`, `packets` 속성을 확인합니다. 관찰이 끝나면 `packet_capture_enabled`를 다시 끄세요.
 
 제보에는 실제 집 주소, 동/호수, 개인 네트워크 주소, 외부 접속 주소, 계정명, 가족 이름을 넣지 마세요. 예시가 필요하면 `ew11.example.invalid` 같은 reserved hostname이나 `192.0.2.10` 같은 문서용 IP를 사용하세요.
 
