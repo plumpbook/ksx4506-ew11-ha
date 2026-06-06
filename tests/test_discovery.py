@@ -246,6 +246,23 @@ def test_generic_sensor_polling_request_does_not_change_sensor_state():
     assert d.state["value_hex"] == "00"
 
 
+def test_known_generic_sensor_auxiliary_commands_are_ignored():
+    reg = DeviceRegistry()
+
+    for sub_id, cmd, payload in [
+        (0x01, 0x41, bytes.fromhex("00 00 00 00 00 00 00 00 00")),
+        (0x14, 0xC1, bytes.fromhex("00 01")),
+    ]:
+        assert reg.upsert_from_frame(0x60, sub_id, cmd, payload, "f7...") == []
+        assert reg.last_packet_classification == {
+            "classification": "ignored_request",
+            "reason": "auxiliary_command",
+        }
+
+    assert reg.devices == {}
+    assert reg.unsupported_packet_report()["total_seen"] == 0
+
+
 def test_periodic_bus_requests_are_ignored_not_reported():
     reg = DeviceRegistry()
 
