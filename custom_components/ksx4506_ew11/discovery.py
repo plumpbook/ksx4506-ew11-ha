@@ -79,6 +79,7 @@ ENTRANCE_PANEL_STATUS_REQUEST = 0x01
 GAS_PERIODIC_SCAN_REQUEST = 0x0F
 GENERIC_SENSOR_DEVICE_ID = 0x60
 GENERIC_STATUS_REQUEST = 0x01
+OUTLET_AUXILIARY_COMMANDS = {0x51, 0x52, 0xD2}
 
 REQUEST_COMMANDS_BY_DEVICE = {
     LIGHT_DEVICE_ID: {LIGHT_STATUS_REQUEST, LIGHT_CONTROL_REQUEST},
@@ -127,6 +128,10 @@ STATE_COMMANDS_BY_DEVICE = {
 
 EVENT_COMMANDS_BY_DEVICE = {
     COMMON_ENTRANCE_DEVICE_ID: {COMMON_ENTRANCE_CALL_EVENT},
+}
+
+AUXILIARY_COMMANDS_BY_DEVICE = {
+    OUTLET_DEVICE_ID: OUTLET_AUXILIARY_COMMANDS,
 }
 
 
@@ -215,8 +220,9 @@ class DeviceRegistry:
 
         kind, caps = DEVICE_ID_MAP[addr]
 
-        if _is_ignored_request(addr, cmd):
-            self._set_packet_classification("ignored_request", "request_command")
+        ignored_reason = _ignored_command_reason(addr, cmd)
+        if ignored_reason is not None:
+            self._set_packet_classification("ignored_request", ignored_reason)
             return []
 
         if not _is_supported_command(addr, cmd):
@@ -832,8 +838,12 @@ class DeviceRegistry:
         return changes
 
 
-def _is_ignored_request(addr: int, cmd: int) -> bool:
-    return cmd in REQUEST_COMMANDS_BY_DEVICE.get(addr, set())
+def _ignored_command_reason(addr: int, cmd: int) -> str | None:
+    if cmd in REQUEST_COMMANDS_BY_DEVICE.get(addr, set()):
+        return "request_command"
+    if cmd in AUXILIARY_COMMANDS_BY_DEVICE.get(addr, set()):
+        return "auxiliary_command"
+    return None
 
 
 def _is_supported_command(addr: int, cmd: int) -> bool:

@@ -156,6 +156,24 @@ def test_unsupported_outlet_command_does_not_create_legacy_entity():
     assert report["packets"][0]["command_type"] == "0x99"
 
 
+def test_known_outlet_auxiliary_commands_are_ignored():
+    reg = DeviceRegistry()
+
+    for sub_id, cmd, payload in [
+        (0x1F, 0x52, b""),
+        (0x1F, 0xD2, bytes.fromhex("00 10 00")),
+        (0xFF, 0x51, bytes.fromhex("00 00 00 00 00 00 00 00")),
+    ]:
+        assert reg.upsert_from_frame(0x39, sub_id, cmd, payload, "f7...") == []
+        assert reg.last_packet_classification == {
+            "classification": "ignored_request",
+            "reason": "auxiliary_command",
+        }
+
+    assert reg.devices == {}
+    assert reg.unsupported_packet_report()["total_seen"] == 0
+
+
 def test_polling_requests_for_stateful_devices_are_ignored():
     reg = DeviceRegistry()
 
