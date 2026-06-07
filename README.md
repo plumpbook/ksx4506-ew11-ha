@@ -2,7 +2,7 @@
 
 EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant에서 제어하는 커스텀 통합입니다.
 
-현재 조명, 콘센트, 난방, 가스밸브 닫기, 계량 센서 일부를 지원합니다. 실제 아파트 월패드 패킷을 기반으로 개발 중인 프로젝트이므로, 설치 후 장치별 실측 확인이 필요합니다.
+현재 조명, 콘센트, 난방, 가스밸브 닫기, 계량 센서, 현관 패널, 공동현관 이벤트 일부를 지원합니다. 실제 아파트 월패드 패킷을 기반으로 개발 중인 프로젝트이므로, 설치 후 장치별 실측 확인이 필요합니다.
 
 ## 설치 전 확인
 
@@ -81,7 +81,7 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 
 ## 미지원 패킷 제보
 
-아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다.
+아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다. 진단 분류와 센서 속성의 의미는 [Packet Diagnostics](docs/packet-diagnostics.md)를 참고하세요.
 
 기본 제보에는 raw 패킷 샘플이 포함되지 않습니다. 먼저 안전한 기본 diagnostics로 제보하고, 장치 분석에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 잠시 켜세요.
 
@@ -91,7 +91,7 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 4. `Download diagnostics`를 눌러 진단 JSON을 내려받습니다.
 5. GitHub에서 `Unsupported packet report` 이슈를 생성하고 진단 JSON을 붙여 넣습니다.
 
-`Unsupported Packets` 센서의 상태값은 반복 횟수가 아니라 미지원 패킷 signature 수입니다. 총 관측 횟수는 센서 속성의 `total_seen`에서 확인할 수 있습니다.
+`Unsupported Packets` 센서의 상태값은 반복 횟수가 아니라 미지원/후보 패킷 signature 수입니다. 총 관측 횟수는 센서 속성의 `total_seen`에서 확인할 수 있습니다.
 
 센서 속성에서 먼저 아래 값을 확인하세요.
 
@@ -101,7 +101,7 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 - `top_unsupported_signatures`: 반복 횟수가 많은 미지원 패킷 요약
 - `top_candidate_signatures`: 반복 횟수가 많은 후보 패킷 요약
 
-자세한 내용이 필요하면 센서 속성의 `unsupported_packets`, `candidate_packets`, `packets` 내용을 복사하면 됩니다.
+`unsupported`는 아직 지원하지 않는 device id 또는 command입니다. `candidate`는 device id는 알려져 있지만 sub id나 payload가 아직 안전하게 장치로 등록될 만큼 확인되지 않은 패킷입니다. 자세한 내용이 필요하면 센서 속성의 `unsupported_packets`, `candidate_packets`, `packets` 내용을 복사하면 됩니다.
 
 raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, 집의 장치 구성과 동작 패턴을 드러낼 수 있습니다. 공개 GitHub 이슈에는 기본 진단 요약을 먼저 올리고, raw 샘플이 꼭 필요한 경우에만 아래 순서로 공유하세요.
 
@@ -112,7 +112,7 @@ raw/payload hex 샘플은 장치 지원을 추가할 때 도움이 되지만, �
 5. `expose_packet_samples`를 다시 끕니다.
 6. 진단 JSON에서 위치, 이름, 실제 네트워크 주소, 계정명 등 공개하면 안 되는 정보를 제거한 뒤 공유합니다.
 
-특정 동작의 패킷을 짧게 관찰하려면 HA 전체 debug 로그 대신 `packet_capture_enabled`를 잠시 켜세요. `packet_capture_filter`를 `33`처럼 좁히고 동작을 한 번 실행한 뒤, `Packet Capture` 센서의 `summary`, `latest_packet_signature`, `latest_unsupported_signature`, `latest_candidate_signature`, `packets` 속성을 확인합니다. 관찰이 끝나면 `packet_capture_enabled`를 다시 끄세요.
+특정 동작의 패킷을 짧게 관찰하려면 HA 전체 debug 로그 대신 `packet_capture_enabled`를 잠시 켜세요. `packet_capture_filter`를 `33`처럼 좁히고 동작을 한 번 실행한 뒤, `Packet Capture` 센서의 `summary`, `latest_packet_signature`, `latest_unsupported_signature`, `latest_candidate_signature`, `unsupported_packets`, `candidate_packets`, `packets` 속성을 확인합니다. 관찰이 끝나면 `packet_capture_enabled`를 다시 끄세요.
 
 제보에는 실제 집 주소, 동/호수, 개인 네트워크 주소, 외부 접속 주소, 계정명, 가족 이름을 넣지 마세요. 예시가 필요하면 `ew11.example.invalid` 같은 reserved hostname이나 `192.0.2.10` 같은 문서용 IP를 사용하세요.
 
@@ -167,13 +167,21 @@ HACS를 사용하지 않는 경우:
 | `0x0E` | 조명 | `light` | 지원 | 그룹 상태 패킷을 채널별 조명으로 분해하고, 개별 sub ID로 제어합니다. |
 | `0x12` | 가스 밸브 | `valve`, `binary_sensor` | 닫기만 지원 | 안전상 열기/토글은 기본 제공하지 않습니다. |
 | `0x30` | 통합 계량 | `sensor` | 읽기 전용 | 전기, 수도, 가스, 온수, 난방 계량을 센서로 제공합니다. |
-| `0x33` | 현관 패널 | `sensor`, `binary_sensor` | 읽기 전용 | 일괄소등/보조입력 상태 bit와 엘리베이터 호출/도착 이벤트를 노출합니다. 제어 버튼은 실측 전까지 만들지 않습니다. |
+| `0x33` | 현관 패널 | `sensor`, `binary_sensor` | 읽기 전용 | 일괄소등/보조입력 상태 bit와 `Elevator Status` 센서의 `idle`/`calling`/`arrived` 상태를 노출합니다. 제어 버튼은 실측 전까지 만들지 않습니다. |
 | `0x36` | 난방/온도조절 | `climate`, `switch` | 일부 지원 | 난방 on/off와 정수 단위 설정온도를 제공합니다. |
 | `0x39` | 콘센트/대기전력 차단 | `switch`, `sensor`, `binary_sensor` | 지원 | 콘센트 on/off, 전력, auto cut, threshold, overload 상태를 노출합니다. |
 | `0x40` | 공동현관 | `sensor` | 읽기 전용 | 공동현관 이벤트로 분류합니다. 공유 출입 제어라 열기 버튼은 기본 제공하지 않습니다. |
 | `0x60` | 미확인 센서 | `sensor` | 읽기 전용 | 1바이트 응답을 raw 값으로 노출합니다. 의미는 추가 실측 필요입니다. |
 
-세부 관측 패킷과 미확정 항목은 [Observed Device Inventory](docs/observed-device-inventory.md)를 참고하세요.
+장치별 상세 지원 범위는 [Device Support](docs/device-support.md), 세부 관측 패킷과 미확정 항목은 [Observed Device Inventory](docs/observed-device-inventory.md)를 참고하세요.
+
+`0x33`의 `arrived`는 순간 이벤트입니다. 이후 `0x81` 대기 상태 패킷이 들어오면 `Elevator Status`가 다시 `idle`로 바뀔 수 있습니다. 자동화에서 반복 이벤트를 감지하려면 센서 속성의 `last_panel_event_seq`를 함께 확인하세요.
+
+## 엔티티 정리 정책
+
+이 통합은 업데이트 또는 항목 제거 시 오래된 registry 항목을 정리합니다. 이전 버전에서 생성되던 unknown 장치, 후보 패킷 장치, 콘센트 그룹 pseudo 장치, 난방 target-temperature number, 개별 thermostat ACK 장치, 이전 meter 이름은 현재 모델에 맞게 제거되거나 이름이 보정됩니다.
+
+EW11 항목을 삭제하면 해당 config entry가 소유한 entity/device registry 항목도 제거됩니다. 같은 EW11을 다시 추가하면 현재 discovery 규칙으로 장치가 다시 생성됩니다.
 
 ## 개발 상태
 

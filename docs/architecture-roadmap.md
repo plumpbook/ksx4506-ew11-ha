@@ -63,6 +63,35 @@ Recommended integration characteristics:
 
 The protocol library can start inside the custom integration for speed. If it becomes useful beyond Home Assistant, split it later into a standalone Python package such as `suroup-ksx4506`.
 
+## Current Implementation Snapshot
+
+The public custom integration currently lives under:
+
+```text
+custom_components/ksx4506_ew11/
+```
+
+Current Home Assistant platforms are:
+
+```text
+light, switch, climate, fan, sensor, valve, binary_sensor
+```
+
+The repository also contains helper modules that are not necessarily exposed as
+platforms yet. For example, `number.py` remains in the tree from an earlier
+thermostat target-temperature model, but target temperature is now owned by the
+`climate` entity.
+
+Implemented public behavior:
+
+- UI config flow and options flow for EW11 host/port, timeout, retry, max attempts, safety and diagnostics options
+- EW11 TCP client with reconnect and serialized send queue
+- KS X 4506 `0xF7` frame parser/builder and checksum validation
+- Automatic discovery for supported packet families
+- Strict unsupported/candidate packet reporting instead of creating unknown devices
+- Registry cleanup for obsolete unknown/candidate/group pseudo devices
+- HACS metadata and GitHub Actions validation
+
 ## Device Support Order
 
 Phase 1 should focus on low-risk protocol plumbing and compact device models:
@@ -78,11 +107,11 @@ Phase 1 should focus on low-risk protocol plumbing and compact device models:
 Phase 2 can add devices with richer state models:
 
 - Boiler: `climate`, switches, and water/heating modes
-- Thermostat: `climate`
+- Thermostat: `climate` refinements
 - Indoor ventilation: `fan`
 - System air conditioner: `climate`
 - Integrated metering: `sensor`
-- Entrance panel: read-only status first, then explicit buttons after capture validation
+- Entrance panel: read-only status and elevator event tracking first, then explicit buttons after capture validation
 - Common entrance: read-only event sensor first; guarded open button only after
   capture validation and explicit opt-in
 
@@ -111,9 +140,13 @@ custom_components/ksx4506_ew11/
   frame.py
   devices/
     __init__.py
-    lighting.py
+    common_entrance.py
+    entrance.py
     gas.py
-    door_lock.py
+    lighting.py
+    meter.py
+    outlet.py
+    thermostat.py
   translations/
     en.json
     ko.json
@@ -126,14 +159,19 @@ docs/
   observed-device-inventory.md
 ```
 
+The `translations/` directory is recommended for a polished public integration,
+but it is not present in the current repository snapshot.
+
 ## Next Implementation Slice
 
-The next coding step should keep device-specific protocol logic out of Home Assistant entity classes:
+The next coding step should keep device-specific protocol logic out of Home
+Assistant entity classes:
 
-1. Decode the observed `0x40` device family after collecting state-change captures.
-2. Identify the observed `0x60` one-byte sensor response.
+1. Capture `0x33` physical entrance panel controls one at a time and decide whether any control entity is safe to expose.
+2. Capture `0x40` common entrance open/status flows enough to model read-only state confidently. Any open control must stay disabled by default and explicitly opted in.
 3. Capture a real `0x12` gas status response so the close-only valve can show a confident open/closed state.
-4. Keep diagnostics visible for unknown frames and vendor-specific variants.
+4. Identify the observed `0x60` one-byte sensor response.
+5. Keep diagnostics visible for unknown frames and vendor-specific variants through `Unsupported Packets` and `Packet Capture`.
 
 ## Open Questions For Real Hardware
 

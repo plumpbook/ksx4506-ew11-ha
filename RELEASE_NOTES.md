@@ -1,5 +1,39 @@
 # Release Notes
 
+## v0.2.9
+- `0x33` 현관 패널에 `Elevator Status` 센서를 추가했습니다.
+- `0x33/0x43` 이벤트 응답을 해석해 엘리베이터 호출 승인(`calling`)과 도착(`arrived`) 이벤트를 노출합니다.
+- 반복 이벤트 자동화를 위해 `last_panel_event_seq` 속성을 추가했습니다.
+- README와 관측 인벤토리에 현관 패널 엘리베이터 이벤트 설명을 보강했습니다.
+
+## v0.2.8
+- `Unsupported Packets`와 `Packet Capture` 센서 속성에 사람이 읽기 쉬운 summary/signature 필드를 추가했습니다.
+- 최근 unsupported/candidate 패킷과 반복 횟수가 많은 signature를 별도 속성으로 볼 수 있게 했습니다.
+- raw/payload 샘플은 계속 기본 redacted 상태를 유지하고, 옵션을 켠 경우에만 포함합니다.
+
+## v0.2.7
+- 일반 센서 계열의 auxiliary/주기성 패킷이 unsupported 카운터를 불필요하게 증가시키지 않도록 필터링했습니다.
+- 지원 가능성이 있는 패킷은 자동 장치 생성 대신 candidate 진단으로 유지하도록 discovery 정책을 정리했습니다.
+
+## v0.2.6
+- 콘센트 계열 auxiliary 패킷이 unsupported 카운터를 불필요하게 증가시키지 않도록 필터링했습니다.
+- `0x39` 콘센트 패킷 분류가 supported/candidate/unsupported로 더 명확히 나뉘도록 보정했습니다.
+
+## v0.2.5
+- `Packet Capture` 센서에 수신 패킷 분류를 추가했습니다.
+- 캡처 결과에서 `supported`, `ignored_request`, `candidate`, `unsupported`를 구분해서 볼 수 있게 했습니다.
+- `latest_unsupported_signature`와 `latest_candidate_signature` 기반으로 짧은 실측 캡처를 확인할 수 있게 했습니다.
+
+## v0.2.4
+- Home Assistant config/options flow schema 직렬화 오류를 수정했습니다.
+- packet capture filter 옵션이 HA 프론트엔드에서 안정적으로 표시되고 저장되도록 보정했습니다.
+
+## v0.2.3
+- HA 전체 debug 로그 대신 짧은 실측에 사용할 수 있는 `packet_capture_enabled`, `packet_capture_filter`, `packet_capture_limit` 옵션을 추가했습니다.
+- 주기적인 bus polling request가 unsupported report를 오염시키지 않도록 ignored request로 분류했습니다.
+- 공개 배포 아티팩트에 로컬 IP, 개인 호스트명, NAS 경로 같은 환경 정보가 들어가지 않도록 테스트를 추가했습니다.
+- 미지원 패킷 제보 흐름과 개인정보 제거 안내를 문서화했습니다.
+
 ## v0.2.2
 - 등록된 EW11 항목의 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`를 `구성`/`Options` 화면에서 변경할 수 있게 했습니다.
 - Options 값이 기존 등록값보다 우선 적용되도록 coordinator, diagnostics, `Unsupported Packets` 센서를 정리했습니다.

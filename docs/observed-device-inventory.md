@@ -18,8 +18,8 @@ Capture window:
 | `0x0E` | Lighting | `0x11`..`0x15` | `0x01`, `0x81` | `light` | Supported as channel lights. Group-style payload lengths vary by sub ID. |
 | `0x12` | Gas valve | `0x01` | `0x0F` | close-only `valve` plus binary sensors | Current capture did not include a gas status response, so open/closed state still needs field validation. |
 | `0x30` | Integrated metering | `0x01`..`0x05`, `0x0F` | `0x01`, `0x81`, `0x0F`, `0x8F` | `sensor` | Water, gas, electricity, hot-water, and heat meter payloads decode to instant/total values when observed. |
-| `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81` | read-only `sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status only and does not expose generic switch writes. |
-| `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate` | Group status payload includes multiple zone temperature pairs. |
+| `0x33` | Entrance panel / batch bridge | `0x01` | `0x01`, `0x81`, `0x43` | read-only `sensor`, `binary_sensor` | Physical entrance panel has all-lights-off, elevator-call, and living-room-light-3 controls. Current code decodes status bits and elevator call/arrival events, but does not expose generic switch writes. |
+| `0x36` | Thermostat | `0x1F` | `0x01`, `0x81` | `climate`, `switch` | Group status payload includes multiple zone temperature pairs. HA target temperature control currently uses whole-degree steps. |
 | `0x39` | Outlet / standby-power cutoff | `0x1F`, `0x2F`, `0x3F`, `0x4F`, `0x5F`, `0x9F` | `0x01`, `0x81` | `switch`, `sensor`, `binary_sensor` | Group status packets are expanded into physical outlets such as `39-11` and `39-12`; control uses the individual sub ID. |
 | `0x40` | Common entrance door | `0x02`, `0x03` | `0x01`, `0x02`, `0x10`, `0x82` | read-only `sensor` | Community examples identify `0x40/0x02` as common entrance. Current code decodes events only; it does not expose an open button. |
 | `0x60` | Unknown sensor-like device | `0x01` | `0x01`, `0x81` | `sensor` raw value | Request carries 3 data bytes; response carries 1 data byte. Semantics unknown. |
@@ -54,7 +54,7 @@ Capture window:
 
 ## Implementation Implications
 
-1. Lighting, outlet, thermostat, and electricity meter are the most mature
+1. Lighting, outlet, thermostat, and meter decoding are the most mature
    decoders in the current integration.
 2. Gas valve control should remain close-only. The integration needs a real
    `0x12` status response sample before showing a confident open/closed state.
@@ -125,10 +125,15 @@ Whole meter status packets are expanded into individual meter devices such as
 
 ## `0x36` Thermostat Notes
 
-Thermostat temperatures use the low 7 bits for whole degrees and bit `0x80`
-for the half-degree marker. For example, `0x19` means `25.0` and `0x99` means
-`25.5`. Home Assistant climate target temperature controls therefore use
-`0.5` degree steps.
+Thermostat temperatures currently use whole-degree values in the Home Assistant
+entity. The decoder masks the high bit and exposes values such as `0x19` as
+`25.0`; `encode_thermostat_temperature()` rejects fractional targets, and the
+climate entity uses a `1.0` degree target step.
+
+Some KS X 4506 references and earlier experiments suggest the high bit may be a
+half-degree marker in certain implementations. This integration does not expose
+0.5 degree control at the moment because the live Home Assistant behavior was
+validated against whole-degree target changes.
 
 ## `0x40` Common Entrance Notes
 
