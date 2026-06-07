@@ -69,6 +69,7 @@ def _sensor_entities_for_device(coordinator, dev):
             out.append(KsxSensor(coordinator, dev))
     if dev.kind == "entrance_panel":
         out.append(KsxEntrancePanelSensor(coordinator, dev))
+        out.append(KsxEntrancePanelElevatorStatusSensor(coordinator, dev))
     if dev.kind == "common_entrance":
         out.append(KsxCommonEntranceSensor(coordinator, dev))
     if dev.kind == "unknown":
@@ -124,6 +125,37 @@ class KsxEntrancePanelSensor(KsxEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         return dict(self.dev.state)
+
+
+class KsxEntrancePanelElevatorStatusSensor(KsxEntity, SensorEntity):
+    _attr_name = "Elevator Status"
+
+    def __init__(self, coordinator, dev) -> None:
+        super().__init__(coordinator, dev)
+        self._attr_unique_id = f"ksx4506_{self.dev_key}_elevator_status"
+
+    @property
+    def native_value(self):
+        return self.dev.state.get("elevator_status", "unknown")
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            key: value
+            for key, value in self.dev.state.items()
+            if key
+            in {
+                "elevator_call_active",
+                "elevator_down_active",
+                "elevator_up_active",
+                "last_elevator_event",
+                "last_panel_event",
+                "last_panel_event_code",
+                "last_panel_event_command",
+                "last_panel_event_payload",
+                "last_panel_event_seq",
+            }
+        }
 
 
 class KsxCommonEntranceSensor(KsxEntity, SensorEntity):

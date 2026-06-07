@@ -191,7 +191,35 @@ def test_entrance_panel_status_decodes_without_switch_entity():
     d = reg.devices["3301_entrance_panel"]
     assert d.kind == "entrance_panel"
     assert d.state["elevator_call_active"] is True
+    assert d.state["elevator_status"] == "calling"
     assert d.state["all_lights_off_active"] is False
+
+
+def test_entrance_panel_elevator_event_updates_existing_device():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(0x33, 0x01, 0x81, bytes.fromhex("00 24 00"), "f7...")
+    changes = reg.upsert_from_frame(
+        0x33,
+        0x01,
+        0x43,
+        bytes.fromhex("80"),
+        "f7330143018007f6",
+    )
+
+    assert len(changes) == 1
+    assert reg.unsupported_packet_report()["total_seen"] == 0
+
+    d = reg.devices["3301_entrance_panel"]
+    assert d.state["last_panel_event"] == "elevator_arrived"
+    assert d.state["last_elevator_event"] == "elevator_arrived"
+    assert d.state["last_panel_event_command"] == "0x43"
+    assert d.state["last_panel_event_payload"] == "80"
+    assert d.state["last_panel_event_seq"] == 1
+    assert d.state["elevator_status"] == "arrived"
+
+    reg.upsert_from_frame(0x33, 0x01, 0x43, bytes.fromhex("80"), "f7330143018007f6")
+    assert reg.devices["3301_entrance_panel"].state["last_panel_event_seq"] == 2
 
 
 def test_common_entrance_call_packet_is_not_misclassified_as_light():

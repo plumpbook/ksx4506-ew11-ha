@@ -105,6 +105,34 @@ def test_entrance_panel_decodes_observed_status_bits():
     assert auxiliary["auxiliary_input_active"] is True
 
 
+def test_entrance_panel_decodes_elevator_event_packets():
+    call_ack = entrance.decode_entrance_panel_state(
+        bytes.fromhex("10"),
+        command_type=0x43,
+    )
+    arrived = entrance.decode_entrance_panel_state(
+        bytes.fromhex("80"),
+        command_type=0x43,
+    )
+    unknown = entrance.decode_entrance_panel_state(
+        bytes.fromhex("55"),
+        command_type=0x43,
+    )
+
+    assert call_ack["last_panel_event"] == "elevator_call_ack"
+    assert call_ack["last_elevator_event"] == "elevator_call_ack"
+    assert call_ack["elevator_status"] == "calling"
+    assert call_ack["last_panel_event_payload"] == "10"
+
+    assert arrived["last_panel_event"] == "elevator_arrived"
+    assert arrived["last_elevator_event"] == "elevator_arrived"
+    assert arrived["elevator_status"] == "arrived"
+    assert arrived["last_panel_event_payload"] == "80"
+
+    assert unknown["last_panel_event"] == "unknown_event"
+    assert unknown["last_panel_event_payload"] == "55"
+
+
 def test_outlet_helpers_build_standard_frames_and_decode_status():
     assert outlet.build_outlet_control_request(0x01, turn_on=True).to_bytes() == bytes.fromhex(
         "F7 39 01 41 01 11 9E 22"

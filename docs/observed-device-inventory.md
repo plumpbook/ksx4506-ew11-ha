@@ -87,6 +87,25 @@ exposes these conservative fields:
 | `0x04` | `batch_idle_marker` | medium | `0x04` appears in idle examples; all-lights-off examples clear this bit. |
 | `0x02` | `auxiliary_input_active` | low | Reference labels this as outing; this installation may use the same slot for another entrance-side function such as living-room-light-3. Needs capture. |
 
+Observed elevator event responses:
+
+```text
+F7 33 01 43 01 10 97 16
+F7 33 01 43 01 80 07 F6
+```
+
+The current decoder treats `cmd=0x43` as a momentary entrance-panel event:
+
+| Event payload | Field value | Derived elevator status | Notes |
+| --- | --- | --- | --- |
+| `0x10` | `last_elevator_event=elevator_call_ack` | `calling` | Elevator call was accepted/acknowledged. |
+| `0x80` | `last_elevator_event=elevator_arrived` | `arrived` | Elevator arrival event. |
+
+The separate `Elevator Status` sensor derives a user-facing state from both
+`0x81` status bits and `0x43` events. Repeated events increment
+`last_panel_event_seq` so automations can detect the same event type more than
+once.
+
 ## `0x30` Meter Notes
 
 The meter decoder supports the standard meter sub IDs below. Public entities are

@@ -11,7 +11,11 @@ from .devices.common_entrance import (
     STATUS_RESPONSE as COMMON_ENTRANCE_STATUS_RESPONSE,
     decode_common_entrance_state,
 )
-from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID, decode_entrance_panel_state
+from .devices.entrance import (
+    ENTRANCE_PANEL_DEVICE_ID,
+    EVENT_RESPONSE as ENTRANCE_PANEL_EVENT_RESPONSE,
+    decode_entrance_panel_state,
+)
 from .devices.gas import (
     CONTROL_REQUEST as GAS_CONTROL_REQUEST,
     CONTROL_RESPONSE as GAS_CONTROL_RESPONSE,
@@ -74,7 +78,6 @@ DEVICE_ID_MAP = {
 }
 
 ENTRANCE_PANEL_STATUS_RESPONSE = 0x81
-ENTRANCE_PANEL_EVENT_RESPONSE = 0x33
 ENTRANCE_PANEL_STATUS_REQUEST = 0x01
 GAS_PERIODIC_SCAN_REQUEST = 0x0F
 GENERIC_SENSOR_DEVICE_ID = 0x60
@@ -702,7 +705,12 @@ class DeviceRegistry:
             )
 
         elif dev.kind == "entrance_panel":
-            dev.state.update(decode_entrance_panel_state(payload))
+            state = decode_entrance_panel_state(payload, command_type=cmd)
+            if cmd == ENTRANCE_PANEL_EVENT_RESPONSE:
+                state["last_panel_event_seq"] = (
+                    int(dev.state.get("last_panel_event_seq", 0)) + 1
+                )
+            dev.state.update(state)
 
         elif dev.kind == "common_entrance":
             dev.state.update(

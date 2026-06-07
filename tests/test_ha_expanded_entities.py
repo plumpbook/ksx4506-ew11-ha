@@ -546,3 +546,35 @@ def test_outlet_and_entrance_binary_sensors_are_expanded():
     )
     assert channel_entity._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
     assert channel_entity._attr_name == "Under Threshold"
+
+
+def test_entrance_panel_elevator_status_sensor_is_expanded():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    sensor = load_integration_module("sensor")
+
+    entrance = discovery.DeviceState(
+        key="3301_entrance_panel",
+        addr=0x33,
+        sub_id=0x01,
+        kind="entrance_panel",
+        state={
+            "elevator_status": "arrived",
+            "last_elevator_event": "elevator_arrived",
+            "last_panel_event_payload": "80",
+            "last_panel_event_seq": 3,
+        },
+    )
+    entities = sensor._sensor_entities_for_device(_FakeCoordinator(entrance), entrance)
+    ids = [ent._attr_unique_id for ent in entities]
+
+    assert ids == [
+        "ksx4506_3301_entrance_panel",
+        "ksx4506_3301_entrance_panel_elevator_status",
+    ]
+    assert entities[1].native_value == "arrived"
+    assert entities[1].extra_state_attributes == {
+        "last_elevator_event": "elevator_arrived",
+        "last_panel_event_payload": "80",
+        "last_panel_event_seq": 3,
+    }
