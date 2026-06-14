@@ -213,6 +213,29 @@ def test_packet_capture_sensor_reports_coordinator_capture():
     assert entity._attr_unique_id == "ksx4506_entry-1_packet_capture"
 
 
+def test_ew11_link_sensor_reports_connection_health():
+    install_homeassistant_stubs()
+    sensor_module = load_integration_module("sensor")
+
+    report = {
+        "state": "stale",
+        "connected": True,
+        "last_rx_at": "2026-06-14T10:00:00+00:00",
+        "seconds_since_last_rx": 180.0,
+        "rx_stale_after": 120.0,
+        "last_error": None,
+    }
+    coordinator = types.SimpleNamespace(ew11_health_report=lambda: report)
+    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+
+    entity = sensor_module.KsxEw11LinkSensor(coordinator, entry)
+
+    assert entity.native_value == "stale"
+    assert entity.extra_state_attributes["connected"] is True
+    assert entity.extra_state_attributes["seconds_since_last_rx"] == 180.0
+    assert entity._attr_unique_id == "ksx4506_entry-1_ew11_link"
+
+
 def test_unsupported_packets_sensor_reports_unique_signatures_as_state():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")

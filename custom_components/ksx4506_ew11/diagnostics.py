@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from .config import effective_config
 from .const import CONF_EXPOSE_PACKET_SAMPLES, CONF_HOST, DOMAIN
 from .coordinator import Ksx4506Coordinator
+from .ew11_health import ew11_health_report_from_coordinator
 
 TO_REDACT = {CONF_HOST}
 
@@ -41,6 +42,7 @@ async def async_get_config_entry_diagnostics(
             "data": async_redact_data(config, TO_REDACT),
         },
         "known_devices": _known_device_summary(coordinator),
+        "ew11_connection": ew11_health_report_from_coordinator(coordinator),
         "unsupported_packets": unsupported,
         "report_url": "https://github.com/plumpbook/ksx4506-ew11-ha/issues/new?template=unsupported_packet.yml",
     }

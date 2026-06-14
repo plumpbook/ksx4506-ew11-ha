@@ -417,7 +417,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                     matched.cmd,
                 )
                 return matched
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X attempts=%d",
                 dev_id,
                 sub_id,

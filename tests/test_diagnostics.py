@@ -17,6 +17,16 @@ class _FakeCoordinator:
     def __init__(self):
         self.registry = discovery.DeviceRegistry()
 
+    def ew11_health_report(self):
+        return {
+            "state": "stale",
+            "connected": True,
+            "last_rx_at": "2026-06-14T10:00:00+00:00",
+            "seconds_since_last_rx": 180.0,
+            "rx_stale_after": 120.0,
+            "last_error": None,
+        }
+
 
 def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     coordinator = _FakeCoordinator()
@@ -60,6 +70,8 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     assert data["unsupported_packets"]["unsupported_packets"][0]["device_id"] == "0x99"
     assert data["unsupported_packets"]["candidate_packets"][0]["device_id"] == "0x0E"
     assert data["unsupported_packets"]["candidate_packets"][0]["sub_id"] == "0xF1"
+    assert data["ew11_connection"]["state"] == "stale"
+    assert data["ew11_connection"]["seconds_since_last_rx"] == 180.0
     assert "unsupported_packet.yml" in data["report_url"]
 
 

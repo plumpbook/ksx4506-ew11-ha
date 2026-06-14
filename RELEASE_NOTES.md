@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+- EW11 TCP 연결 상태를 확인할 수 있는 `EW11 Link` 진단 센서를 추가했습니다.
+- 마지막 RX 시각, RX 정지 시간, stale 기준, 마지막 연결 오류를 diagnostics에 포함했습니다.
+- EW11 수신이 일정 시간 멈춘 경우 stale 상태로 보고 재연결을 시도하도록 보강했습니다.
+- 제어 명령이 최종 실패한 경우 debug가 아닌 warning 로그로 남기도록 변경했습니다.
+
 ## v0.2.9
 - `0x33` 현관 패널에 `Elevator Status` 센서를 추가했습니다.
 - `0x33/0x43` 이벤트 응답을 해석해 엘리베이터 호출 승인(`calling`)과 도착(`arrived`) 이벤트를 노출합니다.
