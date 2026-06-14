@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v0.2.10
 - EW11 TCP 연결 상태를 확인할 수 있는 `EW11 Link` 진단 센서를 추가했습니다.
 - 마지막 RX 시각, RX 정지 시간, stale 기준, 마지막 연결 오류를 diagnostics에 포함했습니다.
 - EW11 수신이 일정 시간 멈춘 경우 stale 상태로 보고 재연결을 시도하도록 보강했습니다.
