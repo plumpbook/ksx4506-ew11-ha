@@ -14,7 +14,15 @@ class _FakeRegistry:
 
 
 class _FakeCoordinator:
-    def __init__(self, dev, *, matched_frame=None, matched_frames=None, max_attempts=10):
+    def __init__(
+        self,
+        dev,
+        *,
+        matched_frame=None,
+        matched_frames=None,
+        max_attempts=10,
+        ew11_state="receiving",
+    ):
         self.registry = _FakeRegistry(dev)
         self.sent = []
         self.sent_f7 = []
@@ -23,6 +31,15 @@ class _FakeCoordinator:
         if matched_frame is not None:
             self.matched_frames.append(matched_frame)
         self.max_attempts = max_attempts
+        self.ew11_state = ew11_state
+
+    def ew11_health_report(self):
+        return {
+            "state": self.ew11_state,
+            "connected": self.ew11_state == "receiving",
+            "running": True,
+            "last_error": None,
+        }
 
     async def async_send_command(self, addr, cmd, payload, *, guard=False):
         self.sent.append((addr, cmd, payload, guard))
@@ -368,6 +385,35 @@ def test_meter_and_outlet_sensor_entities_are_expanded():
     assert power._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
     assert power._attr_device_info["name"] == "Outlet 39-11"
     assert power._attr_name == "Power"
+
+
+def test_meter_sensors_are_unavailable_when_ew11_is_not_receiving():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    sensor = load_integration_module("sensor")
+
+    meter = discovery.DeviceState(
+        key="3003_sensor",
+        addr=0x30,
+        sub_id=0x03,
+        kind="sensor",
+        state={
+            "meter": "electricity",
+            "instant": 1829.0,
+            "instant_unit": "W",
+            "total": 3552.88,
+            "total_unit": "kWh",
+        },
+    )
+    coordinator = _FakeCoordinator(meter, ew11_state="disconnected")
+
+    meter_entities = sensor._sensor_entities_for_device(coordinator, meter)
+
+    assert [ent.available for ent in meter_entities] == [False, False]
+
+    coordinator.ew11_state = "receiving"
+
+    assert [ent.available for ent in meter_entities] == [True, True]
 
 
 def test_outlet_group_device_without_control_subid_is_not_exposed():

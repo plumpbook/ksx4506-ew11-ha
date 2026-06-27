@@ -9,6 +9,9 @@ from .device_metadata import (
     format_device_name,
 )
 from .discovery import DeviceState
+from .ew11_health import ew11_health_report_from_coordinator
+
+_MISSING_HEALTH_ERROR = "EW11 client health is unavailable"
 
 
 class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
@@ -40,6 +43,18 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
             "manufacturer": DEVICE_MANUFACTURER,
             "model": DEVICE_MODEL,
         }
+
+    @property
+    def available(self) -> bool:
+        if not getattr(super(), "available", True):
+            return False
+        report = ew11_health_report_from_coordinator(self.coordinator)
+        if (
+            report.get("state") == "unknown"
+            and report.get("last_error") == _MISSING_HEALTH_ERROR
+        ):
+            return True
+        return report.get("state") == "receiving"
 
     @property
     def dev(self):

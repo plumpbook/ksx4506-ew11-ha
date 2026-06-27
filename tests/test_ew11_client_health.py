@@ -31,7 +31,7 @@ async def _assert_disconnected_before_start():
 
     assert report["state"] == "disconnected"
     assert report["connected"] is False
-    assert report["rx_stale_after"] == 120.0
+    assert report["rx_stale_after"] == 20.0
     assert report["last_rx_at"] is None
     assert report["seconds_since_last_rx"] is None
 

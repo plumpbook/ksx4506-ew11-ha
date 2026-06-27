@@ -10,7 +10,7 @@ from typing import Any, Final
 from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_RX_STALE_AFTER: Final = 120.0
+DEFAULT_RX_STALE_AFTER: Final = 20.0
 
 
 class Ew11Client:
