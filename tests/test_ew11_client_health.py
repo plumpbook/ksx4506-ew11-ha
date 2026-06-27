@@ -62,3 +62,59 @@ async def _assert_no_rx_for_new_connection_after_previous_rx():
 
     assert report["state"] == "connected_no_rx"
     assert report["last_rx_at"] == "2026-06-14T10:00:00+00:00"
+
+
+def test_ew11_client_keeps_connection_open_when_rx_is_stale(monkeypatch):
+    asyncio.run(_assert_connection_stays_open_when_rx_is_stale(monkeypatch))
+
+
+async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class NeverReceivingReader:
+        async def read(self, _size):
+            await asyncio.sleep(60)
+            return b""
+
+    class FakeWriter:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+        async def wait_closed(self):
+            return None
+
+    reader = NeverReceivingReader()
+    writer = FakeWriter()
+
+    async def open_connection(_host, _port):
+        return reader, writer
+
+    async def on_frame(_frame):
+        return None
+
+    monkeypatch.setattr(ew11_client.asyncio, "open_connection", open_connection)
+    client = ew11_client.Ew11Client(
+        host="ew11.example.invalid",
+        port=8899,
+        timeout=0.01,
+        retry=0,
+        rx_stale_after=0.02,
+        codec=protocol.Ksx4506Codec(),
+        on_frame=on_frame,
+    )
+
+    await client.start()
+    try:
+        await asyncio.sleep(0.08)
+        report = client.health_report()
+
+        assert report["state"] == "stale"
+        assert report["connected"] is True
+        assert report["last_error"] is None
+        assert writer.closed is False
+    finally:
+        await client.stop()

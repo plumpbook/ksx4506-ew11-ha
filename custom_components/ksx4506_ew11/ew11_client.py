@@ -105,20 +105,25 @@ class Ew11Client:
         while self._running:
             try:
                 _LOGGER.info("Connecting EW11 %s:%s", self._host, self._port)
-                self._reader, self._writer = await asyncio.wait_for(
-                    asyncio.open_connection(self._host, self._port), timeout=self._timeout
-                )
+                try:
+                    self._reader, self._writer = await asyncio.wait_for(
+                        asyncio.open_connection(self._host, self._port),
+                        timeout=self._timeout,
+                    )
+                except (asyncio.TimeoutError, TimeoutError) as exc:
+                    raise TimeoutError(
+                        f"EW11 connect timed out after {self._timeout:.1f}s"
+                    ) from exc
                 backoff = 1
                 self._mark_connected()
                 _LOGGER.info("EW11 connected")
 
                 while self._running:
                     try:
-                        data = await asyncio.wait_for(self._reader.read(1024), timeout=self._timeout)
-                    except TimeoutError:
-                        if self._is_rx_stale():
-                            silence = self._rx_silence_seconds()
-                            raise ConnectionError(f"EW11 RX stale for {silence:.1f}s")
+                        data = await asyncio.wait_for(
+                            self._reader.read(1024), timeout=self._timeout
+                        )
+                    except (asyncio.TimeoutError, TimeoutError):
                         continue
 
                     if not data:
