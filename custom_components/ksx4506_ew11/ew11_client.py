@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import asyncio  # noqa: ANYIO_OK
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -11,6 +11,7 @@ from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_RX_STALE_AFTER: Final = 20.0
+DEFAULT_RX_RECONNECT_AFTER: Final = 120.0
 
 
 class Ew11Client:
@@ -31,6 +32,11 @@ class Ew11Client:
         self._codec = codec
         self._on_frame = on_frame
         self._rx_stale_after = max(float(rx_stale_after), timeout)
+        self._rx_reconnect_after = max(
+            float(DEFAULT_RX_RECONNECT_AFTER),
+            self._rx_stale_after,
+            timeout,
+        )
 
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -83,6 +89,7 @@ class Ew11Client:
             "timeout": self._timeout,
             "retry": self._retry,
             "rx_stale_after": self._rx_stale_after,
+            "rx_reconnect_after": self._rx_reconnect_after,
             "last_connect_at": _isoformat_or_none(self._connected_at),
             "last_rx_at": _isoformat_or_none(self._last_rx_at),
             "seconds_since_last_rx": seconds_since_last_rx,
@@ -124,6 +131,9 @@ class Ew11Client:
                             self._reader.read(1024), timeout=self._timeout
                         )
                     except (asyncio.TimeoutError, TimeoutError):
+                        if self._should_reconnect_for_rx_silence():
+                            silence = self._rx_silence_seconds()
+                            raise ConnectionError(f"EW11 RX stale for {silence:.1f}s")
                         continue
 
                     if not data:
@@ -134,7 +144,7 @@ class Ew11Client:
                     for frame in self._codec.feed(data):
                         await self._on_frame(frame)
 
-            except Exception as exc:
+            except Exception as exc:  # noqa: BROAD_EXCEPT_OK
                 self._last_error = repr(exc)
                 _LOGGER.warning("EW11 loop error (%s:%s): %r", self._host, self._port, exc)
                 await self._close()
@@ -148,8 +158,8 @@ class Ew11Client:
             self._writer.close()
             try:
                 await self._writer.wait_closed()
-            except Exception:
-                pass
+            except OSError as exc:
+                _LOGGER.debug("EW11 writer close wait failed: %r", exc)
         self._reader, self._writer = None, None
 
     async def _command_worker(self) -> None:
@@ -167,7 +177,7 @@ class Ew11Client:
                     _LOGGER.debug("TX sent (attempt=%d/%d) hex=%s", attempt + 1, self._retry + 1, payload.hex())
                     ok = True
                     break
-                except Exception as exc:
+                except OSError as exc:
                     _LOGGER.debug("TX failed (attempt=%d/%d): %r", attempt + 1, self._retry + 1, exc)
                     await asyncio.sleep(0.2)
             if not ok:
@@ -189,6 +199,10 @@ class Ew11Client:
     def _is_rx_stale(self) -> bool:
         silence = self._rx_silence_seconds()
         return silence is not None and silence >= self._rx_stale_after
+
+    def _should_reconnect_for_rx_silence(self) -> bool:
+        silence = self._rx_silence_seconds()
+        return silence is not None and silence >= self._rx_reconnect_after
 
     def _rx_silence_seconds(self) -> float | None:
         if self._last_rx_monotonic is not None:
