@@ -49,13 +49,19 @@ class Ew11Client:
         self._last_rx_at: datetime | None = None
         self._last_rx_monotonic: float | None = None
         self._last_error: str | None = None
+        self._health_listener: Callable[[], None] | None = None
+        self._last_health_signature: tuple[str, bool, bool, str | None] | None = None
 
         self._cmd_queue: asyncio.Queue[tuple[bytes, asyncio.Future[bool]]] = asyncio.Queue()
+
+    def set_health_listener(self, listener: Callable[[], None] | None) -> None:
+        self._health_listener = listener
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
+        self._publish_health_change()
         self._task = asyncio.create_task(self._run_loop())
         self._worker_task = asyncio.create_task(self._command_worker())
 
@@ -131,6 +137,7 @@ class Ew11Client:
                             self._reader.read(1024), timeout=self._timeout
                         )
                     except (asyncio.TimeoutError, TimeoutError):
+                        self._publish_health_change()
                         if self._should_reconnect_for_rx_silence():
                             silence = self._rx_silence_seconds()
                             raise ConnectionError(f"EW11 RX stale for {silence:.1f}s")
@@ -154,6 +161,7 @@ class Ew11Client:
     async def _close(self) -> None:
         self._connected = False
         self._connected_monotonic = None
+        self._publish_health_change()
         if self._writer:
             self._writer.close()
             try:
@@ -191,10 +199,12 @@ class Ew11Client:
         self._connected_monotonic = time.monotonic()
         self._last_rx_monotonic = None
         self._last_error = None
+        self._publish_health_change()
 
     def _mark_rx(self) -> None:
         self._last_rx_at = datetime.now(timezone.utc)
         self._last_rx_monotonic = time.monotonic()
+        self._publish_health_change()
 
     def _is_rx_stale(self) -> bool:
         silence = self._rx_silence_seconds()
@@ -224,6 +234,22 @@ class Ew11Client:
         if self._last_rx_monotonic is None:
             return "connected_no_rx"
         return "receiving"
+
+    def _health_signature(self) -> tuple[str, bool, bool, str | None]:
+        return (
+            self._health_state(self._is_rx_stale()),
+            self._connected,
+            self._running,
+            self._last_error,
+        )
+
+    def _publish_health_change(self) -> None:
+        signature = self._health_signature()
+        if signature == self._last_health_signature:
+            return
+        self._last_health_signature = signature
+        if self._health_listener is not None:
+            self._health_listener()
 
 
 def _isoformat_or_none(value: datetime | None) -> str | None:

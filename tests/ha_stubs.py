@@ -264,7 +264,12 @@ def _install_update_coordinator() -> None:
 
     class DataUpdateCoordinator:
         def __init__(self, *args, **kwargs):
-            pass
+            self.data = None
+            self.updated_data = []
+
+        def async_set_updated_data(self, data):
+            self.data = data
+            self.updated_data.append(data)
 
         def __class_getitem__(cls, item):
             return cls

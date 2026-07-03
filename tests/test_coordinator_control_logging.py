@@ -99,6 +99,36 @@ def test_meter_startup_probe_requests_whole_and_individual_meter_states():
     ]
 
 
+def test_coordinator_publishes_registry_state_on_ew11_health_change():
+    asyncio.run(_assert_coordinator_publishes_registry_state_on_ew11_health_change())
+
+
+async def _assert_coordinator_publishes_registry_state_on_ew11_health_change():
+    install_homeassistant_stubs()
+    const_module = load_integration_module("const")
+    coordinator_module = load_integration_module("coordinator")
+
+    coordinator = coordinator_module.Ksx4506Coordinator(
+        object(),
+        {
+            const_module.CONF_HOST: "ew11.example.invalid",
+            const_module.CONF_PORT: 8899,
+            const_module.CONF_TIMEOUT: 3.0,
+            const_module.CONF_RETRY: 2,
+            const_module.CONF_STX: const_module.DEFAULT_STX,
+            const_module.CONF_ETX: const_module.DEFAULT_ETX,
+            const_module.CONF_CHECKSUM: const_module.DEFAULT_CHECKSUM,
+        },
+    )
+    coordinator.registry.devices["light:sample"] = types.SimpleNamespace(
+        state={"is_on": True}
+    )
+
+    coordinator._client._mark_connected()
+
+    assert coordinator.data == {"light:sample": {"is_on": True}}
+
+
 def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
@@ -118,6 +148,10 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
 
     fake = FakeCoordinator()
     fake._on_frame = types.MethodType(coordinator_module.Ksx4506Coordinator._on_frame, fake)
+    fake._publish_registry_state = types.MethodType(
+        coordinator_module.Ksx4506Coordinator._publish_registry_state,
+        fake,
+    )
     frame = protocol_module.KsFrame(
         addr=0x40,
         sub_id=0x02,

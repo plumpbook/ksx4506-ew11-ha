@@ -62,6 +62,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             codec=self.codec,
             on_frame=self._on_frame,
         )
+        self._client.set_health_listener(self._publish_registry_state)
         self._gas_unlock = config.get("gas_unlock", False)
         self.max_attempts = max(
             1,
@@ -102,6 +103,11 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
+
+    def _publish_registry_state(self) -> None:
+        self.async_set_updated_data(
+            {key: device.state for key, device in self.registry.devices.items()}
+        )
 
     async def async_start(self) -> None:
         await self._client.start()
@@ -166,7 +172,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             if is_new:
                 async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
-        self.async_set_updated_data({k: v.state for k, v in self.registry.devices.items()})
+        self._publish_registry_state()
         self._notify_frame_waiters(frame)
 
     def _capture_packet(

@@ -72,6 +72,10 @@ def test_ew11_client_closes_connection_when_rx_reconnect_threshold_is_exceeded(m
     asyncio.run(_assert_connection_closes_when_rx_reconnect_threshold_is_exceeded(monkeypatch))
 
 
+def test_ew11_client_notifies_health_changes_without_rx_frames(monkeypatch):
+    asyncio.run(_assert_health_change_notifications_without_rx_frames(monkeypatch))
+
+
 async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
     ew11_client = load_integration_module("ew11_client")
     protocol = load_integration_module("protocol")
@@ -120,6 +124,60 @@ async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
         assert report["connected"] is True
         assert report["last_error"] is None
         assert writer.closed is False
+    finally:
+        await client.stop()
+
+
+async def _assert_health_change_notifications_without_rx_frames(monkeypatch):
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class NeverReceivingReader:
+        async def read(self, _size):
+            await asyncio.sleep(60)
+            return b""
+
+    class FakeWriter:
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    reader = NeverReceivingReader()
+    writer = FakeWriter()
+
+    async def open_connection(_host, _port):
+        return reader, writer
+
+    async def on_frame(_frame):
+        return None
+
+    health_states = []
+
+    def on_health_change():
+        health_states.append(client.health_report()["state"])
+
+    monkeypatch.setattr(ew11_client, "DEFAULT_RX_RECONNECT_AFTER", 0.04)
+    monkeypatch.setattr(ew11_client.asyncio, "open_connection", open_connection)
+    client = ew11_client.Ew11Client(
+        host="ew11.example.invalid",
+        port=8899,
+        timeout=0.01,
+        retry=0,
+        rx_stale_after=0.02,
+        codec=protocol.Ksx4506Codec(),
+        on_frame=on_frame,
+    )
+    client.set_health_listener(on_health_change)
+
+    await client.start()
+    try:
+        await asyncio.sleep(0.08)
+
+        assert "connected_no_rx" in health_states
+        assert "stale" in health_states
+        assert "disconnected" in health_states
     finally:
         await client.stop()
 
