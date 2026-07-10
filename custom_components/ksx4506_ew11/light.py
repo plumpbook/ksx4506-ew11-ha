@@ -57,7 +57,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
         parent = getattr(super(), "async_added_to_hass", None)
         if parent is not None:
             await parent()
-        await self._async_restore_last_on_state()
+        await self._async_restore_last_on_state(default_on=False)
 
     @property
     def supported_color_modes(self) -> set[ColorMode]:
@@ -83,6 +83,10 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
         if "on" not in self.dev.state:
             return None
         return bool(self.dev.state.get("on"))
+
+    @property
+    def assumed_state(self) -> bool:
+        return self._on_state_is_assumed
 
     def _target_sub_id(self) -> int:
         return int(self.dev.state.get("control_sub_id", self.sub_id))

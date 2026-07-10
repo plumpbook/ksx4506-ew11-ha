@@ -64,7 +64,11 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
     def dev(self):
         return self.coordinator.registry.devices[self.dev_key]
 
-    async def _async_restore_last_on_state(self) -> bool:
+    async def _async_restore_last_on_state(
+        self,
+        *,
+        default_on: bool | None = None,
+    ) -> bool:
         if "on" in self.dev.state:
             return False
 
@@ -74,11 +78,19 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
 
         last_state = await get_last_state()
         restored = _RESTORED_ON_STATES.get(getattr(last_state, "state", None))
-        if restored is None:
+        if restored is None and default_on is None:
             return False
 
-        self.dev.state["on"] = restored
+        self.dev.state["on"] = bool(default_on if restored is None else restored)
+        self.dev.state["state_assumed"] = True
+        self.dev.state["state_assumed_raw_hex"] = self.dev.last_raw_hex
         write_state = getattr(self, "async_write_ha_state", None)
         if write_state is not None:
             write_state()
         return True
+
+    @property
+    def _on_state_is_assumed(self) -> bool:
+        return bool(self.dev.state.get("state_assumed", False)) and (
+            self.dev.last_raw_hex == self.dev.state.get("state_assumed_raw_hex")
+        )
