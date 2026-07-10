@@ -28,6 +28,8 @@ from .const import (
 from .devices.common_entrance import (
     CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
+    STATUS_REQUEST as COMMON_ENTRANCE_STATUS_REQUEST,
+    STATUS_RESPONSE as COMMON_ENTRANCE_STATUS_RESPONSE,
     decode_common_entrance_state,
     format_common_entrance_packet_log,
 )
@@ -43,6 +45,8 @@ from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
+_F7_STATUS_REQUEST = 0x01
+_F7_STATUS_RESPONSE = 0x81
 GENERIC_SENSOR_DEVICE_ID = 0x60
 REQUESTABLE_F7_DEVICE_IDS = {
     LIGHT_DEVICE_ID,
@@ -52,6 +56,12 @@ REQUESTABLE_F7_DEVICE_IDS = {
     OUTLET_DEVICE_ID,
     COMMON_ENTRANCE_DEVICE_ID,
     GENERIC_SENSOR_DEVICE_ID,
+}
+STATUS_REQUEST_COMMAND_BY_DEVICE_ID = {
+    COMMON_ENTRANCE_DEVICE_ID: COMMON_ENTRANCE_STATUS_REQUEST,
+}
+STATUS_RESPONSE_COMMAND_BY_DEVICE_ID = {
+    COMMON_ENTRANCE_DEVICE_ID: COMMON_ENTRANCE_STATUS_RESPONSE,
 }
 
 
@@ -464,8 +474,34 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 self._frame_waiters.remove(waiter)
 
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
-        # Generic state request command for KS X 4506 family
-        return await self.async_send_f7_command(dev_id, sub_id, 0x01, b"")
+        cmd = _status_request_command(dev_id)
+        return await self.async_send_f7_command(dev_id, sub_id, cmd, b"")
+
+    async def async_request_f7_state_until(
+        self,
+        dev_id: int,
+        sub_id: int,
+        *,
+        interval: float = 0.25,
+    ) -> KsFrame | None:
+        request_cmd = _status_request_command(dev_id)
+        response_cmd = _status_response_command(dev_id)
+
+        def matcher(frame: KsFrame) -> bool:
+            return (
+                frame.addr == dev_id
+                and frame.sub_id == sub_id
+                and frame.cmd == response_cmd
+            )
+
+        return await self.async_send_f7_command_until(
+            dev_id,
+            sub_id,
+            request_cmd,
+            b"",
+            matcher,
+            interval=interval,
+        )
 
     async def async_probe_meter_states(
         self,
@@ -500,15 +536,17 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             if delay > 0:
                 await asyncio.sleep(delay)
             for dev_id, sub_id in self._known_state_request_targets():
-                ok = await self.async_request_f7_state(dev_id, sub_id)
-                _LOGGER.debug(
-                    "Known device startup probe dev=0x%02X sub=0x%02X ok=%s",
+                matched = await self.async_request_f7_state_until(
                     dev_id,
                     sub_id,
-                    ok,
+                    interval=interval,
                 )
-                if interval > 0:
-                    await asyncio.sleep(interval)
+                _LOGGER.debug(
+                    "Known device startup probe dev=0x%02X sub=0x%02X matched=%s",
+                    dev_id,
+                    sub_id,
+                    matched is not None,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -525,6 +563,14 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             if 0x01 <= sub_id <= 0xEF:
                 targets.add((dev.addr, sub_id))
         return sorted(targets)
+
+
+def _status_request_command(dev_id: int) -> int:
+    return STATUS_REQUEST_COMMAND_BY_DEVICE_ID.get(dev_id, _F7_STATUS_REQUEST)
+
+
+def _status_response_command(dev_id: int) -> int:
+    return STATUS_RESPONSE_COMMAND_BY_DEVICE_ID.get(dev_id, _F7_STATUS_RESPONSE)
 
 
 def _parse_packet_capture_filter(value: str) -> set[int] | None:

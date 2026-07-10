@@ -99,6 +99,48 @@ def test_meter_startup_probe_requests_whole_and_individual_meter_states():
     ]
 
 
+def test_known_device_startup_probe_retries_until_status_response():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    discovery_module = load_integration_module("discovery")
+    protocol_module = load_integration_module("protocol")
+
+    matched = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0x11,
+        cmd=0x81,
+        payload=b"\x00\x01\x00\x00",
+        checksum=0,
+        raw=bytes.fromhex("f70e11810400010000a5f6"),
+    )
+    fake = _FakeCoordinator(matched)
+    fake.registry = discovery_module.DeviceRegistry()
+    fake.registry.restore_device_from_key("0E11_light_1")
+    fake.async_send_f7_command_until = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
+        fake,
+    )
+    fake.async_request_f7_state_until = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_request_f7_state_until,
+        fake,
+    )
+    fake.async_probe_known_device_states = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_probe_known_device_states,
+        fake,
+    )
+    fake._known_state_request_targets = types.MethodType(
+        coordinator_module.Ksx4506Coordinator._known_state_request_targets,
+        fake,
+    )
+
+    asyncio.run(fake.async_probe_known_device_states(delay=0, interval=0))
+
+    assert fake.sent == [
+        (0x0E, 0x11, 0x01, b"", False),
+        (0x0E, 0x11, 0x01, b"", False),
+    ]
+
+
 def test_coordinator_publishes_registry_state_on_ew11_health_change():
     asyncio.run(_assert_coordinator_publishes_registry_state_on_ew11_health_change())
 
