@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.2.19
+- EW11 TCP chunk에 checksum 오류 프레임만 들어오는 경우에도 `EW11 Link`가 `receiving`으로 표시되던 문제를 수정했습니다.
+- 이제 유효한 KS X 4506 프레임이 파싱된 경우에만 마지막 RX 시각을 갱신하므로, raw 수신은 있지만 유효 프레임이 없는 상태를 `connected_no_rx` 또는 `stale`로 구분할 수 있습니다.
+- F7 제어 명령이 ACK/상태 확인 없이 포기될 때 payload, 전체 packet hex, EW11 health 상태를 warning 로그에 함께 남기도록 보강했습니다.
+
 ## v0.2.18
 - HA 시작 직후 유효한 마지막 `on/off` 상태가 없는 조명/콘센트도 `unknown`으로 방치하지 않고 조작 가능한 추정 `off` 상태로 표시합니다.
 - 추정 상태는 HA의 `assumed_state`로 노출되며, 실제 KS X 4506 상태 패킷이 수신되면 실측 상태로 전환됩니다.

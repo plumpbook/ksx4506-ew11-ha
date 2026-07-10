@@ -76,6 +76,10 @@ def test_ew11_client_notifies_health_changes_without_rx_frames(monkeypatch):
     asyncio.run(_assert_health_change_notifications_without_rx_frames(monkeypatch))
 
 
+def test_ew11_client_does_not_mark_invalid_chunks_as_rx(monkeypatch):
+    asyncio.run(_assert_invalid_chunks_do_not_mark_valid_rx(monkeypatch))
+
+
 async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
     ew11_client = load_integration_module("ew11_client")
     protocol = load_integration_module("protocol")
@@ -178,6 +182,63 @@ async def _assert_health_change_notifications_without_rx_frames(monkeypatch):
         assert "connected_no_rx" in health_states
         assert "stale" in health_states
         assert "disconnected" in health_states
+    finally:
+        await client.stop()
+
+
+async def _assert_invalid_chunks_do_not_mark_valid_rx(monkeypatch):
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class InvalidFrameReader:
+        def __init__(self):
+            self.read_event = asyncio.Event()
+            self.reads = 0
+
+        async def read(self, _size):
+            if self.reads == 0:
+                self.reads += 1
+                self.read_event.set()
+                return bytes.fromhex("f70e13810200006984")
+            await asyncio.sleep(60)
+            return b""
+
+    class FakeWriter:
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    reader = InvalidFrameReader()
+    writer = FakeWriter()
+
+    async def open_connection(_host, _port):
+        return reader, writer
+
+    async def on_frame(_frame):
+        return None
+
+    monkeypatch.setattr(ew11_client.asyncio, "open_connection", open_connection)
+    client = ew11_client.Ew11Client(
+        host="ew11.example.invalid",
+        port=8899,
+        timeout=0.05,
+        retry=0,
+        rx_stale_after=1.0,
+        codec=protocol.Ksx4506Codec(),
+        on_frame=on_frame,
+    )
+
+    await client.start()
+    try:
+        await asyncio.wait_for(reader.read_event.wait(), timeout=1)
+        await asyncio.sleep(0)
+        report = client.health_report()
+
+        assert report["state"] == "connected_no_rx"
+        assert report["last_rx_at"] is None
+        assert report["seconds_since_last_rx"] is None
     finally:
         await client.stop()
 

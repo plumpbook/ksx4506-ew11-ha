@@ -146,9 +146,11 @@ class Ew11Client:
                     if not data:
                         raise ConnectionError("EW11 connection closed")
 
-                    self._mark_rx()
                     _LOGGER.debug("EW11 RX chunk len=%d hex=%s", len(data), data.hex())
-                    for frame in self._codec.feed(data):
+                    frames = self._codec.feed(data)
+                    if frames:
+                        self._mark_rx()
+                    for frame in frames:
                         await self._on_frame(frame)
 
             except Exception as exc:  # noqa: BROAD_EXCEPT_OK

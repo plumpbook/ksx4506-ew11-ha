@@ -28,6 +28,15 @@ class _FakeCoordinator:
         return True
 
 
+class _FakeClient:
+    def health_report(self):
+        return {
+            "state": "stale",
+            "seconds_since_last_rx": 42.0,
+            "last_error": "EW11 RX stale for 42.0s",
+        }
+
+
 def test_send_f7_command_until_logs_control_attempts(caplog):
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
@@ -67,6 +76,49 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
     assert "TX F7 control attempt dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control wait timeout dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control matched dev=0x39 sub=0x11 cmd=0x41 attempt=2/3" in messages
+
+
+def test_send_f7_command_until_give_up_log_includes_payload_packet_and_health(caplog):
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    protocol_module = load_integration_module("protocol")
+
+    matched = protocol_module.KsFrame(
+        addr=0x39,
+        sub_id=0x11,
+        cmd=0x81,
+        payload=b"",
+        checksum=0,
+        raw=b"",
+    )
+    fake = _FakeCoordinator(matched, match_after_attempts=99)
+    fake.max_attempts = 1
+    fake.codec = protocol_module.Ksx4506Codec()
+    fake._client = _FakeClient()
+    fake.async_send_f7_command_until = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
+        fake,
+    )
+
+    caplog.set_level(logging.WARNING, logger="custom_components.ksx4506_ew11.coordinator")
+
+    result = asyncio.run(
+        fake.async_send_f7_command_until(
+            0x0E,
+            0x11,
+            0x41,
+            b"\x01\x01\x00",
+            lambda frame: False,
+        )
+    )
+
+    assert result is None
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "TX F7 control gave up dev=0x0E sub=0x11 cmd=0x41 attempts=1" in messages
+    assert "payload=010100" in messages
+    assert "packet=f70e114103010100aa06" in messages
+    assert "ew11_state=stale" in messages
+    assert "seconds_since_last_rx=42.0" in messages
 
 
 def test_meter_startup_probe_requests_whole_and_individual_meter_states():

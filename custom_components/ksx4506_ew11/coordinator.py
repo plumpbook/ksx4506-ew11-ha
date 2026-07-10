@@ -461,12 +461,20 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                     matched.cmd,
                 )
                 return matched
+            health = self._client.health_report()
             _LOGGER.warning(
-                "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X attempts=%d",
+                "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
+                "attempts=%d payload=%s packet=%s ew11_state=%s "
+                "seconds_since_last_rx=%s last_error=%s",
                 dev_id,
                 sub_id,
                 cmd,
                 attempts,
+                payload.hex(),
+                self.codec.build_f7(dev_id, sub_id, cmd, payload).hex(),
+                health.get("state"),
+                health.get("seconds_since_last_rx"),
+                health.get("last_error"),
             )
             return None
         finally:
