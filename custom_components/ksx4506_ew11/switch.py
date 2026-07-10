@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .device_metadata import format_device_name
@@ -92,7 +93,7 @@ def _thermostat_channels(dev):
     ]
 
 
-class KsxSwitch(KsxEntity, SwitchEntity):
+class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
     _attr_name = "Switch"
 
     @property
@@ -116,6 +117,12 @@ class KsxSwitch(KsxEntity, SwitchEntity):
 
 class KsxOutletSwitch(KsxSwitch):
     _attr_name = "Switch"
+
+    async def async_added_to_hass(self) -> None:
+        parent = getattr(super(), "async_added_to_hass", None)
+        if parent is not None:
+            await parent()
+        await self._async_restore_last_on_state()
 
     @property
     def is_on(self) -> bool | None:

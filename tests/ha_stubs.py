@@ -26,6 +26,7 @@ def install_homeassistant_stubs() -> None:
     _install_fan()
     _install_light()
     _install_number()
+    _install_restore_state()
     _install_sensor()
     _install_switch()
     _install_update_coordinator()
@@ -220,6 +221,20 @@ def _install_number() -> None:
     number.NumberDeviceClass = NumberDeviceClass
     number.NumberEntity = NumberEntity
     sys.modules["homeassistant.components.number"] = number
+
+
+def _install_restore_state() -> None:
+    restore_state = types.ModuleType("homeassistant.helpers.restore_state")
+
+    class RestoreEntity:
+        async def async_added_to_hass(self):
+            return None
+
+        async def async_get_last_state(self):
+            return getattr(self, "_last_state", None)
+
+    restore_state.RestoreEntity = RestoreEntity
+    sys.modules["homeassistant.helpers.restore_state"] = restore_state
 
 
 def _install_sensor() -> None:

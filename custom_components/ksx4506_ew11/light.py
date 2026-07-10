@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .devices.lighting import (
@@ -49,8 +50,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_DEVICE_ADDED, on_added))
 
 
-class KsxLight(KsxEntity, LightEntity):
+class KsxLight(KsxEntity, RestoreEntity, LightEntity):
     _attr_name = "Light"
+
+    async def async_added_to_hass(self) -> None:
+        parent = getattr(super(), "async_added_to_hass", None)
+        if parent is not None:
+            await parent()
+        await self._async_restore_last_on_state()
 
     @property
     def supported_color_modes(self) -> set[ColorMode]:

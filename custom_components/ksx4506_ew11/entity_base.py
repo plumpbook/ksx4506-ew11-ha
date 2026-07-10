@@ -12,6 +12,10 @@ from .discovery import DeviceState
 from .ew11_health import ew11_health_report_from_coordinator
 
 _MISSING_HEALTH_ERROR = "EW11 client health is unavailable"
+_RESTORED_ON_STATES = {
+    "on": True,
+    "off": False,
+}
 
 
 class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
@@ -59,3 +63,22 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
     @property
     def dev(self):
         return self.coordinator.registry.devices[self.dev_key]
+
+    async def _async_restore_last_on_state(self) -> bool:
+        if "on" in self.dev.state:
+            return False
+
+        get_last_state = getattr(self, "async_get_last_state", None)
+        if get_last_state is None:
+            return False
+
+        last_state = await get_last_state()
+        restored = _RESTORED_ON_STATES.get(getattr(last_state, "state", None))
+        if restored is None:
+            return False
+
+        self.dev.state["on"] = restored
+        write_state = getattr(self, "async_write_ha_state", None)
+        if write_state is not None:
+            write_state()
+        return True

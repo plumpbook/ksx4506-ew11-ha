@@ -177,6 +177,33 @@ def test_light_control_uses_suroup_module_channel_payload():
     assert coordinator.state_requests == [(0x0E, 0x13)]
 
 
+def test_light_restores_last_state_when_status_packet_is_missing():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    light = load_integration_module("light")
+
+    dev = discovery.DeviceState(
+        key="0E11_light_1",
+        addr=0x0E,
+        sub_id=0x11,
+        channel=1,
+        kind="light",
+        state={
+            "dimmable": False,
+            "status_sub_id": 0x11,
+            "control_sub_id": 0x11,
+            "control_channel": 1,
+        },
+    )
+    entity = light.KsxLight(_FakeCoordinator(dev), dev)
+    entity._last_state = types.SimpleNamespace(state="on")
+
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity.is_on is True
+    assert dev.state["on"] is True
+
+
 def test_light_control_stops_when_status_response_matches():
     install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
@@ -471,6 +498,31 @@ def test_outlet_individual_switch_controls_suroup_subid():
 
     assert coordinator.sent_f7 == [(0x39, 0x11, 0x41, b"\x11", False)] * 3
     assert coordinator.state_requests == [(0x39, 0x1F)]
+
+
+def test_outlet_switch_restores_last_state_when_status_packet_is_missing():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    switch = load_integration_module("switch")
+
+    dev = discovery.DeviceState(
+        key="3911_switch",
+        addr=0x39,
+        sub_id=0x11,
+        kind="switch",
+        state={
+            "status_sub_id": 0x1F,
+            "status_channel": 1,
+            "control_sub_id": 0x11,
+        },
+    )
+    entity = switch._switch_entities_for_device(_FakeCoordinator(dev), dev)[0]
+    entity._last_state = types.SimpleNamespace(state="off")
+
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity.is_on is False
+    assert dev.state["on"] is False
 
 
 def test_outlet_individual_switch_stops_when_status_matches():
