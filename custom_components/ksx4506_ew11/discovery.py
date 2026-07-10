@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
 from .devices.common_entrance import (
@@ -207,6 +208,13 @@ MAX_UNSUPPORTED_PACKET_RECORDS = 50
 MAX_CANDIDATE_PACKET_RECORDS = 100
 MAX_PACKET_RECORD_SAMPLES = 5
 
+_DEVICE_KEY_RE = re.compile(
+    r"^(?P<addr>[0-9A-F]{2})(?P<sub_id>[0-9A-F]{2})_"
+    r"(?P<kind>light|switch|sensor|gas_valve|entrance_panel|common_entrance|climate)"
+    r"(?:_(?P<channel>\d+))?$",
+    re.IGNORECASE,
+)
+
 
 class DeviceRegistry:
     def __init__(self) -> None:
@@ -218,6 +226,45 @@ class DeviceRegistry:
             "reason": None,
         }
         self._unsupported_seen_seq = 0
+
+    def restore_device_from_key(
+        self,
+        key: str,
+        *,
+        state_hints: set[str] | None = None,
+        channel_hints: set[int] | None = None,
+    ) -> tuple[DeviceState, bool] | None:
+        parsed = _parse_device_key(key)
+        if parsed is None:
+            return None
+
+        addr, sub_id, kind, channel = parsed
+        if not _is_valid_sub_id_for_device(addr, sub_id):
+            return None
+
+        mapped = DEVICE_ID_MAP.get(addr)
+        if mapped is None or mapped[0] != kind:
+            return None
+
+        key = _normalized_device_key(addr, sub_id, kind, channel)
+        is_new = key not in self.devices
+        if is_new:
+            self.devices[key] = DeviceState(
+                key=key,
+                addr=addr,
+                sub_id=sub_id,
+                channel=channel,
+                kind=kind,
+                capabilities=set(mapped[1]),
+            )
+
+        dev = self.devices[key]
+        _apply_restore_defaults(
+            dev,
+            state_hints=state_hints or set(),
+            channel_hints=channel_hints or set(),
+        )
+        return dev, is_new
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
         self._set_packet_classification("supported")
@@ -900,6 +947,107 @@ class DeviceRegistry:
             dev.state["source_sub_id"] = sub_id
             changes.append((dev, is_new))
         return changes
+
+
+def _parse_device_key(key: str) -> tuple[int, int, str, int | None] | None:
+    match = _DEVICE_KEY_RE.match(str(key or ""))
+    if match is None:
+        return None
+
+    addr = int(match.group("addr"), 16)
+    sub_id = int(match.group("sub_id"), 16)
+    kind = match.group("kind").lower()
+    channel_text = match.group("channel")
+    channel = int(channel_text) if channel_text else None
+    return addr, sub_id, kind, channel
+
+
+def _normalized_device_key(
+    addr: int,
+    sub_id: int,
+    kind: str,
+    channel: int | None,
+) -> str:
+    key = f"{addr:02X}{sub_id:02X}_{kind}"
+    if channel is not None:
+        key = f"{key}_{channel}"
+    return key
+
+
+def _apply_restore_defaults(
+    dev: DeviceState,
+    *,
+    state_hints: set[str],
+    channel_hints: set[int],
+) -> None:
+    if dev.addr == LIGHT_DEVICE_ID:
+        _restore_light_defaults(dev)
+    elif dev.addr == OUTLET_DEVICE_ID:
+        _restore_outlet_defaults(dev, state_hints=state_hints)
+    elif dev.addr == METER_DEVICE_ID:
+        _restore_meter_defaults(dev, state_hints=state_hints)
+    elif dev.addr == THERMOSTAT_DEVICE_ID:
+        _restore_thermostat_defaults(dev, channel_hints=channel_hints)
+    elif dev.addr == GENERIC_SENSOR_DEVICE_ID:
+        dev.state.setdefault("value_hex", None)
+
+
+def _restore_light_defaults(dev: DeviceState) -> None:
+    high = (dev.sub_id >> 4) & 0x0F
+    low = dev.sub_id & 0x0F
+    dev.state.setdefault("status_sub_id", dev.sub_id)
+    if dev.channel is not None and high > 0 and low == 0x0F:
+        dev.state.setdefault("control_sub_id", (high << 4) | dev.channel)
+        dev.state.pop("control_channel", None)
+    elif dev.channel is not None:
+        dev.state.setdefault("control_sub_id", dev.sub_id)
+        dev.state.setdefault("control_channel", dev.channel)
+    else:
+        dev.state.setdefault("control_sub_id", dev.sub_id)
+
+
+def _restore_outlet_defaults(dev: DeviceState, *, state_hints: set[str]) -> None:
+    high = (dev.sub_id >> 4) & 0x0F
+    low = dev.sub_id & 0x0F
+    dev.state.setdefault("control_sub_id", dev.sub_id)
+    if high > 0 and 0x01 <= low <= 0x0E:
+        dev.state.setdefault("status_sub_id", (high << 4) | 0x0F)
+        dev.state.setdefault("status_channel", low)
+    else:
+        dev.state.setdefault("status_sub_id", dev.sub_id)
+        dev.state.setdefault("status_channel", 1)
+
+    if "power_w" in state_hints:
+        dev.state.setdefault("power_w", None)
+    if "threshold_w" in state_hints:
+        dev.state.setdefault("threshold_w", None)
+
+
+def _restore_meter_defaults(dev: DeviceState, *, state_hints: set[str]) -> None:
+    if "instant" in state_hints:
+        dev.state.setdefault("instant", None)
+    if "total" in state_hints:
+        dev.state.setdefault("total", None)
+
+
+def _restore_thermostat_defaults(
+    dev: DeviceState,
+    *,
+    channel_hints: set[int],
+) -> None:
+    existing_channels = {
+        zone.get("channel")
+        for zone in dev.state.get("zones", [])
+        if isinstance(zone, dict)
+    }
+    zones = list(dev.state.get("zones", []))
+    for channel in sorted(channel_hints):
+        if channel in existing_channels:
+            continue
+        zones.append({"channel": channel})
+    if zones:
+        zones.sort(key=lambda item: int(item.get("channel", 0)))
+        dev.state["zones"] = zones
 
 
 def _ignored_command_reason(addr: int, cmd: int) -> str | None:

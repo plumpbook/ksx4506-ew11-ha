@@ -72,8 +72,10 @@ class KsxLight(KsxEntity, LightEntity):
         return max(1, min(255, round(step * 255 / 15)))
 
     @property
-    def is_on(self) -> bool:
-        return bool(self.dev.state.get("on", False))
+    def is_on(self) -> bool | None:
+        if "on" not in self.dev.state:
+            return None
+        return bool(self.dev.state.get("on"))
 
     def _target_sub_id(self) -> int:
         return int(self.dev.state.get("control_sub_id", self.sub_id))

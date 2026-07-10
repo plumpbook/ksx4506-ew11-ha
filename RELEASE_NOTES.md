@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.2.15
+- HA 재시작 후 조용한 장치의 상태 패킷이 아직 들어오지 않아 기존 유효 엔티티가 `unavailable`로 남는 문제를 수정했습니다.
+- 기존 HA entity/device registry의 KS X 4506 key를 시작 시 복원하고, 복원된 조명/콘센트/센서 상태를 한 번 probe하도록 보강했습니다.
+- 복원된 조명은 실제 상태 수신 전까지 임의로 꺼짐 처리하지 않고 `unknown` 상태로 유지합니다.
+
 ## v0.2.14
 - `EW11 Link` 진단 센서가 새 패킷 수신 없이도 연결 상태 변화를 즉시 반영하도록 수정했습니다.
 - EW11 수신이 `stale` 또는 `disconnected`로 바뀐 경우 HA 화면에 이전 `receiving` 상태가 남지 않도록 coordinator 갱신 경로를 보강했습니다.

@@ -31,13 +31,28 @@ from .devices.common_entrance import (
     decode_common_entrance_state,
     format_common_entrance_packet_log,
 )
+from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID
+from .devices.gas import GAS_DEVICE_ID
+from .devices.lighting import LIGHT_DEVICE_ID
 from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
+from .devices.outlet import OUTLET_DEVICE_ID
+from .devices.thermostat import THERMOSTAT_DEVICE_ID
 from .discovery import DeviceRegistry
 from .ew11_client import Ew11Client
 from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
+GENERIC_SENSOR_DEVICE_ID = 0x60
+REQUESTABLE_F7_DEVICE_IDS = {
+    LIGHT_DEVICE_ID,
+    GAS_DEVICE_ID,
+    ENTRANCE_PANEL_DEVICE_ID,
+    THERMOSTAT_DEVICE_ID,
+    OUTLET_DEVICE_ID,
+    COMMON_ENTRANCE_DEVICE_ID,
+    GENERIC_SENSOR_DEVICE_ID,
+}
 
 
 class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
@@ -100,6 +115,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         )
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
         self._meter_probe_task: asyncio.Task | None = None
+        self._known_device_probe_task: asyncio.Task | None = None
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
@@ -113,8 +129,20 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
         await self._client.start()
         if self._meter_probe_task is None or self._meter_probe_task.done():
             self._meter_probe_task = asyncio.create_task(self.async_probe_meter_states())
+        if (
+            self._known_device_probe_task is None
+            or self._known_device_probe_task.done()
+        ):
+            self._known_device_probe_task = asyncio.create_task(
+                self.async_probe_known_device_states()
+            )
 
     async def async_stop(self) -> None:
+        if self._known_device_probe_task:
+            self._known_device_probe_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._known_device_probe_task
+            self._known_device_probe_task = None
         if self._meter_probe_task:
             self._meter_probe_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -461,6 +489,42 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             raise
         except Exception:
             _LOGGER.exception("Meter startup probe failed")
+
+    async def async_probe_known_device_states(
+        self,
+        *,
+        delay: float = 1.5,
+        interval: float = 0.15,
+    ) -> None:
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            for dev_id, sub_id in self._known_state_request_targets():
+                ok = await self.async_request_f7_state(dev_id, sub_id)
+                _LOGGER.debug(
+                    "Known device startup probe dev=0x%02X sub=0x%02X ok=%s",
+                    dev_id,
+                    sub_id,
+                    ok,
+                )
+                if interval > 0:
+                    await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            _LOGGER.exception("Known device startup probe failed")
+
+    def _known_state_request_targets(self) -> list[tuple[int, int]]:
+        targets: set[tuple[int, int]] = set()
+        for dev in self.registry.devices.values():
+            if dev.addr == METER_DEVICE_ID:
+                continue
+            if dev.addr not in REQUESTABLE_F7_DEVICE_IDS:
+                continue
+            sub_id = int(dev.state.get("status_sub_id", dev.sub_id))
+            if 0x01 <= sub_id <= 0xEF:
+                targets.add((dev.addr, sub_id))
+        return sorted(targets)
 
 
 def _parse_packet_capture_filter(value: str) -> set[int] | None:

@@ -58,6 +58,17 @@ def test_suroup_light_module_subids_expand_own_channels():
     assert "0E1F_light_1" not in reg.devices
 
 
+def test_restore_suroup_light_device_from_known_key():
+    reg = DeviceRegistry()
+
+    restored = reg.restore_device_from_key("0E11_light_1")
+
+    assert restored == (reg.devices["0E11_light_1"], True)
+    assert reg.devices["0E11_light_1"].state["status_sub_id"] == 0x11
+    assert reg.devices["0E11_light_1"].state["control_sub_id"] == 0x11
+    assert reg.devices["0E11_light_1"].state["control_channel"] == 1
+
+
 def test_light_control_response_does_not_create_channels():
     reg = DeviceRegistry()
 
@@ -128,6 +139,21 @@ def test_group_outlet_status_expands_to_individual_control_subids():
     assert second.state["control_sub_id"] == 0x12
     assert second.state["on"] is False
     assert second.state["power_w"] == 2.6
+
+
+def test_restore_grouped_outlet_device_from_known_key():
+    reg = DeviceRegistry()
+
+    restored = reg.restore_device_from_key(
+        "3911_switch",
+        state_hints={"power_w"},
+    )
+
+    assert restored == (reg.devices["3911_switch"], True)
+    assert reg.devices["3911_switch"].state["control_sub_id"] == 0x11
+    assert reg.devices["3911_switch"].state["status_sub_id"] == 0x1F
+    assert reg.devices["3911_switch"].state["status_channel"] == 1
+    assert reg.devices["3911_switch"].state["power_w"] is None
 
 
 def test_outlet_threshold_response_decodes_cutoff_threshold():

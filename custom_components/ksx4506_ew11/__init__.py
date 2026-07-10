@@ -11,6 +11,7 @@ from .registry_cleanup import (
     async_prune_legacy_registry_entries as _async_prune_legacy_registry_entries,
     async_remove_entry,
 )
+from .registry_bootstrap import async_restore_registry_devices_from_ha
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -19,6 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = Ksx4506Coordinator(hass, effective_config(entry))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_update_entry))
+    await async_restore_registry_devices_from_ha(hass, entry, coordinator.registry)
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await _async_prune_legacy_registry_entries(hass, entry)
