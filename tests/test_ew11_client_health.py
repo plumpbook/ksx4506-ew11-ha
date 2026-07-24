@@ -80,6 +80,10 @@ def test_ew11_client_does_not_mark_invalid_chunks_as_rx(monkeypatch):
     asyncio.run(_assert_invalid_chunks_do_not_mark_valid_rx(monkeypatch))
 
 
+def test_ew11_client_tracks_disconnect_history():
+    asyncio.run(_assert_disconnect_history_is_tracked())
+
+
 async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
     ew11_client = load_integration_module("ew11_client")
     protocol = load_integration_module("protocol")
@@ -241,6 +245,40 @@ async def _assert_invalid_chunks_do_not_mark_valid_rx(monkeypatch):
         assert report["seconds_since_last_rx"] is None
     finally:
         await client.stop()
+
+
+async def _assert_disconnect_history_is_tracked():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    async def on_frame(_frame):
+        return None
+
+    def new_client():
+        return ew11_client.Ew11Client(
+            "ew11.example.invalid", 8899, 3.0, 2, protocol.Ksx4506Codec(), on_frame
+        )
+
+    client = new_client()
+    client._mark_connected()
+    await client._close(
+        reason="EW11 connection closed",
+        count_disconnect=True,
+    )
+
+    report = client.health_report()
+
+    assert report["disconnect_count"] == 1
+    assert report["last_disconnect_at"] is not None
+    assert report["last_disconnect_reason"] == "EW11 connection closed"
+    assert report["last_connected_duration_seconds"] is not None
+
+    planned_stop_client = new_client()
+    planned_stop_client._mark_connected()
+    await planned_stop_client.stop()
+    planned_stop_report = planned_stop_client.health_report()
+    assert planned_stop_report["disconnect_count"] == 0
+    assert planned_stop_report["last_disconnect_at"] is None
 
 
 async def _assert_connection_closes_when_rx_reconnect_threshold_is_exceeded(monkeypatch):

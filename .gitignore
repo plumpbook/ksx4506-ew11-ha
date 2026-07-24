@@ -13,3 +13,9 @@ KSX4506/
 # Local Codex operational memory. This can contain private NAS/Yellow details.
 AGENTS.md
 AGENTS.local.md
+
+# Local private exports, backups, and HA dashboard snapshots.
+.local/
+
+# Local review/evidence artifacts. These may contain private environment names.
+.omo/

@@ -7,6 +7,7 @@ from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
 from typing import Any, Final
 
+from .ew11_connection_stats import Ew11ConnectionStats
 from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,9 +49,12 @@ class Ew11Client:
         self._connected_monotonic: float | None = None
         self._last_rx_at: datetime | None = None
         self._last_rx_monotonic: float | None = None
+        self._connection_stats = Ew11ConnectionStats()
         self._last_error: str | None = None
         self._health_listener: Callable[[], None] | None = None
-        self._last_health_signature: tuple[str, bool, bool, str | None] | None = None
+        self._last_health_signature: (
+            tuple[str, bool, bool, str | None, tuple[int, int, int]] | None
+        ) = None
 
         self._cmd_queue: asyncio.Queue[tuple[bytes, asyncio.Future[bool]]] = asyncio.Queue()
 
@@ -86,7 +90,7 @@ class Ew11Client:
         seconds_since_last_rx = self._seconds_since_last_rx()
         stale = rx_silence is not None and rx_silence >= self._rx_stale_after
         state = self._health_state(stale)
-        return {
+        report = {
             "state": state,
             "connected": self._connected,
             "running": self._running,
@@ -102,6 +106,13 @@ class Ew11Client:
             "seconds_without_rx": rx_silence,
             "last_error": self._last_error,
         }
+        report.update(
+            self._connection_stats.report(
+                self._connected,
+                self._connected_monotonic,
+            )
+        )
+        return report
 
     async def send_with_retry(self, payload: bytes) -> bool:
         _LOGGER.debug("queue TX len=%d hex=%s", len(payload), payload.hex())
@@ -118,6 +129,8 @@ class Ew11Client:
         while self._running:
             try:
                 _LOGGER.info("Connecting EW11 %s:%s", self._host, self._port)
+                self._connection_stats.record_attempt()
+                self._publish_health_change()
                 try:
                     self._reader, self._writer = await asyncio.wait_for(
                         asyncio.open_connection(self._host, self._port),
@@ -154,15 +167,24 @@ class Ew11Client:
                         await self._on_frame(frame)
 
             except Exception as exc:  # noqa: BROAD_EXCEPT_OK
-                self._last_error = repr(exc)
+                reason = repr(exc)
+                self._last_error = reason
                 _LOGGER.warning("EW11 loop error (%s:%s): %r", self._host, self._port, exc)
-                await self._close()
+                await self._close(reason=reason, count_disconnect=True)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 15)
 
-    async def _close(self) -> None:
+    async def _close(
+        self,
+        reason: str | None = None,
+        count_disconnect: bool = False,
+    ) -> None:
+        was_connected = self._connected
+        connected_monotonic = self._connected_monotonic
         self._connected = False
         self._connected_monotonic = None
+        if was_connected and count_disconnect:
+            self._connection_stats.record_disconnect(reason, connected_monotonic)
         self._publish_health_change()
         if self._writer:
             self._writer.close()
@@ -197,6 +219,7 @@ class Ew11Client:
 
     def _mark_connected(self) -> None:
         self._connected = True
+        self._connection_stats.record_connected()
         self._connected_at = datetime.now(timezone.utc)
         self._connected_monotonic = time.monotonic()
         self._last_rx_monotonic = None
@@ -237,12 +260,13 @@ class Ew11Client:
             return "connected_no_rx"
         return "receiving"
 
-    def _health_signature(self) -> tuple[str, bool, bool, str | None]:
+    def _health_signature(self) -> tuple[str, bool, bool, str | None, tuple[int, int, int]]:
         return (
             self._health_state(self._is_rx_stale()),
             self._connected,
             self._running,
             self._last_error,
+            self._connection_stats.signature(),
         )
 
     def _publish_health_change(self) -> None:
