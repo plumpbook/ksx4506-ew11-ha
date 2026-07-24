@@ -7,6 +7,32 @@ STATUS_REQUEST = 0x01
 STATUS_RESPONSE = 0x81
 CONTROL_REQUEST = 0x41
 CONTROL_RESPONSE = 0xC1
+TOPOLOGY_CONFIRMATION_FRAMES = 2
+
+
+class LightTopologyTracker:
+    def __init__(self) -> None:
+        self._confirmed: dict[int, int] = {}
+        self._pending: dict[int, tuple[int, int]] = {}
+
+    def observe(self, sub_id: int, channel_count: int) -> int | None:
+        if self._confirmed.get(sub_id) == channel_count:
+            self._pending.pop(sub_id, None)
+            return channel_count
+
+        pending_count, seen = self._pending.get(sub_id, (channel_count, 0))
+        if pending_count != channel_count:
+            pending_count = channel_count
+            seen = 0
+        seen += 1
+
+        if seen < TOPOLOGY_CONFIRMATION_FRAMES:
+            self._pending[sub_id] = (pending_count, seen)
+            return None
+
+        self._confirmed[sub_id] = channel_count
+        self._pending.pop(sub_id, None)
+        return channel_count
 
 
 def decode_light_state_byte(state_byte: int) -> dict[str, bool | int]:

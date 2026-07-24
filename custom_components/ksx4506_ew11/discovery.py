@@ -31,6 +31,7 @@ from .devices.lighting import (
     LIGHT_DEVICE_ID,
     STATUS_REQUEST as LIGHT_STATUS_REQUEST,
     STATUS_RESPONSE as LIGHT_STATUS_RESPONSE,
+    LightTopologyTracker,
     decode_light_state_byte,
 )
 from .devices.meter import (
@@ -226,6 +227,8 @@ class DeviceRegistry:
             "reason": None,
         }
         self._unsupported_seen_seq = 0
+        self._light_topology = LightTopologyTracker()
+        self.retired_device_keys: set[str] = set()
 
     def restore_device_from_key(
         self,
@@ -317,6 +320,7 @@ class DeviceRegistry:
         # module as sub_id 0x11, 0x12, ... and carry channel states in payload.
         # Standard all-channel replies such as 0x1F are still expanded.
         if kind == "light" and addr == LIGHT_DEVICE_ID and cmd == LIGHT_STATUS_RESPONSE:
+            topology_pending = False
             if len(payload) > 1:
                 low = sub_id & 0x0F
                 high = (sub_id >> 4) & 0x0F
@@ -335,6 +339,7 @@ class DeviceRegistry:
                     if channel is not None:
                         key = f"{key}_{channel}"
 
+                    self.retired_device_keys.discard(key)
                     is_new = key not in self.devices
                     if is_new:
                         self.devices[key] = DeviceState(
@@ -381,7 +386,15 @@ class DeviceRegistry:
                             control_channel=None,
                         )
                     else:
+                        confirmed_count = self._light_topology.observe(
+                            sub_id,
+                            len(payload) - 1,
+                        )
+                        topology_pending = confirmed_count is None
                         for ch, state_byte in enumerate(payload[1:], start=1):
+                            key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
+                            if confirmed_count is None and key not in self.devices:
+                                continue
                             upsert_light(
                                 entity_sub_id=sub_id,
                                 channel=ch,
@@ -390,6 +403,17 @@ class DeviceRegistry:
                                 status_sub_id=sub_id,
                                 control_channel=ch,
                             )
+                        if confirmed_count is not None:
+                            for key, dev in list(self.devices.items()):
+                                if (
+                                    dev.addr == addr
+                                    and dev.sub_id == sub_id
+                                    and dev.kind == kind
+                                    and dev.channel is not None
+                                    and dev.channel > confirmed_count
+                                ):
+                                    self.retired_device_keys.add(key)
+                                    del self.devices[key]
                 elif 0x01 <= low <= 0x0E:
                     upsert_light(
                         entity_sub_id=sub_id,
@@ -400,7 +424,7 @@ class DeviceRegistry:
                         control_channel=None,
                     )
 
-            if not changes:
+            if not changes and not topology_pending:
                 self.record_candidate_packet(
                     "candidate_light_packet",
                     addr,

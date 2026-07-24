@@ -120,6 +120,35 @@ async def async_prune_legacy_registry_entries(
     _prune_legacy_registry_entries(hass, entry)
 
 
+async def async_remove_registry_device_keys(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    device_keys: set[str],
+) -> None:
+    if not device_keys:
+        return
+
+    await _async_ensure_registries_loaded(hass)
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    unique_ids = {f"ksx4506_{key}" for key in device_keys}
+
+    for entity_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if getattr(entity_entry, "unique_id", None) in unique_ids:
+            ent_reg.async_remove(entity_entry.entity_id)
+
+    for device_entry in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        identifiers = getattr(device_entry, "identifiers", set())
+        if any(
+            domain == DOMAIN and identifier in device_keys
+            for domain, identifier in identifiers
+        ):
+            dev_reg.async_update_device(
+                device_entry.id,
+                remove_config_entry_id=entry.entry_id,
+            )
+
+
 async def async_prune_legacy_outlet_group_registry_entries(
     hass: HomeAssistant,
     entry: ConfigEntry,

@@ -85,6 +85,55 @@ def test_remove_entry_cleans_entities_and_devices_for_config_entry():
     ]
 
 
+def test_remove_registry_device_keys_cleans_only_confirmed_stale_light():
+    install_homeassistant_stubs()
+    cleanup = load_integration_module("registry_cleanup")
+    entry = types.SimpleNamespace(entry_id="entry-a")
+    hass = types.SimpleNamespace(
+        entity_registry=_FakeEntityRegistry(
+            [
+                types.SimpleNamespace(
+                    entity_id="light.ksx_13_1",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_0E13_light_1",
+                ),
+                types.SimpleNamespace(
+                    entity_id="light.ksx_13_2",
+                    config_entry_id="entry-a",
+                    unique_id="ksx4506_0E13_light_2",
+                ),
+            ]
+        ),
+        device_registry=_FakeDeviceRegistry(
+            [
+                types.SimpleNamespace(
+                    id="light-device-1",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "0E13_light_1")},
+                ),
+                types.SimpleNamespace(
+                    id="light-device-2",
+                    config_entries={"entry-a"},
+                    identifiers={("ksx4506_ew11", "0E13_light_2")},
+                ),
+            ]
+        ),
+    )
+
+    asyncio.run(
+        cleanup.async_remove_registry_device_keys(
+            hass,
+            entry,
+            {"0E13_light_2"},
+        )
+    )
+
+    assert hass.entity_registry.removed == ["light.ksx_13_2"]
+    assert hass.device_registry.updated == [
+        ("light-device-2", {"remove_config_entry_id": "entry-a"}),
+    ]
+
+
 def test_setup_prunes_legacy_outlet_group_channel_registry_entries():
     install_homeassistant_stubs()
     integration = load_integration_module("__init__")

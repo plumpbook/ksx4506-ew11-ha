@@ -39,14 +39,21 @@ def test_light_status_byte_dimming_decode():
 def test_suroup_light_module_subids_expand_own_channels():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(
-        0x0E,
-        0x11,
-        0x81,
-        bytes.fromhex("00 00 00 00"),
-        "f70e118104000000006d08",
-    )
-    reg.upsert_from_frame(0x0E, 0x12, 0x81, bytes.fromhex("00 01 01"), "f70e1281030001016906")
+    for _ in range(2):
+        reg.upsert_from_frame(
+            0x0E,
+            0x11,
+            0x81,
+            bytes.fromhex("00 00 00 00"),
+            "f70e118104000000006d08",
+        )
+        reg.upsert_from_frame(
+            0x0E,
+            0x12,
+            0x81,
+            bytes.fromhex("00 01 01"),
+            "f70e1281030001016906",
+        )
 
     assert reg.devices["0E11_light_1"].state["on"] is False
     assert reg.devices["0E11_light_1"].state["control_sub_id"] == 0x11
@@ -56,6 +63,90 @@ def test_suroup_light_module_subids_expand_own_channels():
     assert reg.devices["0E12_light_1"].state["on"] is True
     assert reg.devices["0E12_light_2"].state["on"] is True
     assert "0E1F_light_1" not in reg.devices
+
+
+def test_suroup_light_module_ignores_single_frame_channel_count_spike():
+    reg = DeviceRegistry()
+
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01"),
+        "f7...",
+    )
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01"),
+        "f7...",
+    )
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01 00"),
+        "f7...",
+    )
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01"),
+        "f7...",
+    )
+
+    assert sorted(reg.devices) == ["0E13_light_1"]
+
+
+def test_suroup_light_module_adds_channel_after_confirmed_growth():
+    reg = DeviceRegistry()
+
+    for _ in range(2):
+        reg.upsert_from_frame(
+            0x0E,
+            0x13,
+            0x81,
+            bytes.fromhex("00 01"),
+            "f7...",
+        )
+
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01 00"),
+        "f7...",
+    )
+    assert sorted(reg.devices) == ["0E13_light_1"]
+
+    reg.upsert_from_frame(
+        0x0E,
+        0x13,
+        0x81,
+        bytes.fromhex("00 01 00"),
+        "f7...",
+    )
+    assert sorted(reg.devices) == ["0E13_light_1", "0E13_light_2"]
+
+
+def test_restored_suroup_light_channel_retires_after_confirmed_shrink():
+    reg = DeviceRegistry()
+    reg.restore_device_from_key("0E15_light_1")
+    reg.restore_device_from_key("0E15_light_2")
+
+    for _ in range(2):
+        reg.upsert_from_frame(
+            0x0E,
+            0x15,
+            0x81,
+            bytes.fromhex("00 01"),
+            "f7...",
+        )
+
+    assert sorted(reg.devices) == ["0E15_light_1"]
+    assert reg.retired_device_keys == {"0E15_light_2"}
 
 
 def test_restore_suroup_light_device_from_known_key():
@@ -72,7 +163,14 @@ def test_restore_suroup_light_device_from_known_key():
 def test_light_control_response_does_not_create_channels():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x0E, 0x11, 0x81, bytes.fromhex("00 00 00 00"), "f70e118104000000006d08")
+    for _ in range(2):
+        reg.upsert_from_frame(
+            0x0E,
+            0x11,
+            0x81,
+            bytes.fromhex("00 00 00 00"),
+            "f70e118104000000006d08",
+        )
     changes = reg.upsert_from_frame(
         0x0E,
         0x11,

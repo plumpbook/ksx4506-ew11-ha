@@ -23,6 +23,7 @@ from .const import (
     DEFAULT_PACKET_CAPTURE_LIMIT,
     DOMAIN,
     SIGNAL_DEVICE_ADDED,
+    SIGNAL_DEVICE_REMOVED,
     SIGNAL_DEVICE_UPDATE,
 )
 from .devices.common_entrance import (
@@ -190,6 +191,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 _LOGGER.debug(log_message)
             else:
                 _LOGGER.debug(log_message)
+        retired_before = self.registry.retired_device_keys.copy()
         changes = self.registry.upsert_from_frame(
             frame.addr,
             frame.sub_id,
@@ -210,6 +212,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             if is_new:
                 async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
+        for dev_key in self.registry.retired_device_keys - retired_before:
+            async_dispatcher_send(self.hass, SIGNAL_DEVICE_REMOVED, dev_key)
         self._publish_registry_state()
         self._notify_frame_waiters(frame)
 

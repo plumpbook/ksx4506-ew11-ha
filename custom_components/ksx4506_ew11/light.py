@@ -9,7 +9,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, SIGNAL_DEVICE_ADDED
+from .const import DOMAIN, SIGNAL_DEVICE_ADDED, SIGNAL_DEVICE_REMOVED
 from .devices.lighting import (
     CONTROL_RESPONSE as F7_LIGHT_CONTROL_RESPONSE,
     CONTROL_REQUEST as F7_LIGHT_CONTROL_REQUEST,
@@ -20,6 +20,7 @@ from .devices.lighting import (
 )
 from .protocol import KsFrame
 from .entity_base import KsxEntity
+from .registry_cleanup import async_remove_registry_device_keys
 
 CMD_SET_LIGHT = 0x11
 
@@ -27,6 +28,12 @@ CMD_SET_LIGHT = 0x11
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
     added_keys: set[str] = set()
+
+    await async_remove_registry_device_keys(
+        hass,
+        entry,
+        coordinator.registry.retired_device_keys,
+    )
 
     def build_all():
         return [KsxLight(coordinator, d) for d in coordinator.registry.devices.values() if d.kind == "light"]
@@ -47,7 +54,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async_add_entities([ent])
         added_keys.add(dev_key)
 
+    @callback
+    def on_removed(dev_key: str):
+        added_keys.discard(dev_key)
+        hass.async_create_task(
+            async_remove_registry_device_keys(hass, entry, {dev_key})
+        )
+
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_DEVICE_ADDED, on_added))
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_REMOVED, on_removed)
+    )
 
 
 class KsxLight(KsxEntity, RestoreEntity, LightEntity):

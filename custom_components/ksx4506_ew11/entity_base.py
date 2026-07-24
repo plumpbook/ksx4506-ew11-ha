@@ -23,6 +23,7 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
 
     def __init__(self, coordinator: Ksx4506Coordinator, dev: DeviceState) -> None:
         super().__init__(coordinator)
+        self._device_state = dev
         self.dev_key = dev.key
         self.addr = dev.addr
         self.sub_id = dev.sub_id
@@ -62,7 +63,10 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
 
     @property
     def dev(self):
-        return self.coordinator.registry.devices[self.dev_key]
+        return self.coordinator.registry.devices.get(
+            self.dev_key,
+            self._device_state,
+        )
 
     async def _async_restore_last_on_state(
         self,

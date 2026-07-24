@@ -197,6 +197,60 @@ def test_coordinator_publishes_registry_state_on_ew11_health_change():
     asyncio.run(_assert_coordinator_publishes_registry_state_on_ew11_health_change())
 
 
+def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypatch):
+    install_homeassistant_stubs()
+    const_module = load_integration_module("const")
+    coordinator_module = load_integration_module("coordinator")
+    protocol_module = load_integration_module("protocol")
+    dispatched = []
+
+    monkeypatch.setattr(
+        coordinator_module,
+        "async_dispatcher_send",
+        lambda hass, signal, dev_key: dispatched.append((signal, dev_key)),
+    )
+
+    class FakeCoordinator:
+        def __init__(self):
+            self.registry = coordinator_module.DeviceRegistry()
+            self.registry.restore_device_from_key("0E15_light_1")
+            self.registry.restore_device_from_key("0E15_light_2")
+            self.hass = object()
+            self.data = None
+
+        def async_set_updated_data(self, data):
+            self.data = data
+
+        def _notify_frame_waiters(self, frame):
+            return None
+
+    fake = FakeCoordinator()
+    fake._on_frame = types.MethodType(
+        coordinator_module.Ksx4506Coordinator._on_frame,
+        fake,
+    )
+    fake._publish_registry_state = types.MethodType(
+        coordinator_module.Ksx4506Coordinator._publish_registry_state,
+        fake,
+    )
+    frame = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0x15,
+        cmd=0x81,
+        payload=bytes.fromhex("00 01"),
+        checksum=0,
+        raw=b"",
+    )
+
+    asyncio.run(fake._on_frame(frame))
+    asyncio.run(fake._on_frame(frame))
+
+    assert (
+        const_module.SIGNAL_DEVICE_REMOVED,
+        "0E15_light_2",
+    ) in dispatched
+
+
 async def _assert_coordinator_publishes_registry_state_on_ew11_health_change():
     install_homeassistant_stubs()
     const_module = load_integration_module("const")
