@@ -58,14 +58,17 @@ Useful attributes:
 - `rx.f7_checksum_errors`: F7 frames that had no recoverable valid next header
 - `rx.f7_resync_events`: malformed F7 candidates where the decoder recovered at
   an embedded next F7 header
+- `rx.stx_resync_events`: false STX candidates where the decoder recovered at a
+  following valid header
 - `rx.last_resync`: most recent resync reason and source frame
 - `tx.giveups`: commands that exhausted ACK/status confirmation attempts
 - `tx.last_giveup`: most recent command that was abandoned after retry attempts
 
-`rx.f7_resync_events` is separated from checksum errors because TCP/EW11 chunks
+Resync events are separated from checksum/frame errors because TCP/EW11 chunks
 can contain a damaged or stale frame candidate immediately followed by a valid
-frame. In that case the decoder should recover at the next valid F7 header
-without reporting it as a checksum failure.
+frame, or a binary `0x02` byte that looks like STX inside an F7 stream. In those
+cases the decoder should recover at the next valid header without reporting it
+as a packet-quality failure.
 
 ## Packet Classifications
 

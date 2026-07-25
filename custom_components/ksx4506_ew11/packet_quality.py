@@ -13,6 +13,7 @@ class PacketQualityMonitor:
         self.f7_resync_events = 0
         self.stx_checksum_errors = 0
         self.stx_frame_errors = 0
+        self.stx_resync_events = 0
         self.tx_giveups = 0
         self.tx_control_giveups = 0
         self.tx_state_request_giveups = 0
@@ -152,6 +153,25 @@ class PacketQualityMonitor:
             length=length,
         )
 
+    def record_stx_resync(
+        self,
+        *,
+        reason: str,
+        frame_raw: bytes,
+        addr: int | None = None,
+        cmd: int | None = None,
+        length: int | None = None,
+    ) -> None:
+        self.stx_resync_events += 1
+        self._last_rx_resync = _frame_error_payload(
+            "stx_resync",
+            reason,
+            frame_raw,
+            dev_id=addr,
+            cmd=cmd,
+            length=length,
+        )
+
     def record_tx_giveup(
         self,
         *,
@@ -202,7 +222,7 @@ class PacketQualityMonitor:
             "summary": (
                 f"rx_checksum_errors={self.f7_checksum_errors + self.stx_checksum_errors}, "
                 f"rx_frame_errors={self.f7_frame_errors + self.stx_frame_errors}, "
-                f"rx_resync_events={self.f7_resync_events}, "
+                f"rx_resync_events={self.f7_resync_events + self.stx_resync_events}, "
                 f"tx_giveups={self.tx_giveups}"
             ),
             "rx": {
@@ -213,6 +233,7 @@ class PacketQualityMonitor:
                 "f7_resync_events": self.f7_resync_events,
                 "stx_checksum_errors": self.stx_checksum_errors,
                 "stx_frame_errors": self.stx_frame_errors,
+                "stx_resync_events": self.stx_resync_events,
                 "last_valid_f7": self._last_valid_f7,
                 "last_error": self._last_rx_error,
                 "last_resync": self._last_rx_resync,

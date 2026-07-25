@@ -99,6 +99,15 @@ class Ksx4506Codec:
                 pass
         return min(positions) if positions else -1
 
+    def _parse_buffer_head(self) -> KsFrame | None:
+        if not self._buf:
+            return None
+        if self._buf[0] == self._stx:
+            return self._parse_stx_frame()
+        if self._buf[0] == 0xF7:
+            return self._parse_f7_frame()
+        return None
+
     def _valid_embedded_f7_pos(self, limit: int) -> int:
         pos = 5
         while pos < limit:
@@ -135,6 +144,17 @@ class Ksx4506Codec:
         length = self._buf[3]
         total = 1 + 1 + 1 + 1 + length + 1 + 1
         if total < 7 or total > 512:
+            n = self._next_header_pos(1)
+            if n > 0:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_stx_resync(
+                        reason="invalid_length_before_next_header",
+                        frame_raw=bytes(self._buf[:n]),
+                        length=length,
+                    )
+                del self._buf[:n]
+                return self._parse_buffer_head()
+
             _LOGGER.debug("drop STX: invalid length=%d", total)
             if self._packet_quality is not None:
                 self._packet_quality.record_stx_frame_error(
@@ -149,21 +169,33 @@ class Ksx4506Codec:
             n = self._next_header_pos(1)
             if n > 0:
                 if self._packet_quality is not None:
-                    self._packet_quality.record_f7_resync(
+                    self._packet_quality.record_stx_resync(
                         reason="incomplete_before_next_header",
                         frame_raw=bytes(self._buf[:n]),
-                        dev_id=dev_id,
-                        sub_id=sub_id,
-                        cmd=cmd,
+                        addr=self._buf[1] if len(self._buf) > 1 else None,
+                        cmd=self._buf[2] if len(self._buf) > 2 else None,
                         length=length,
                     )
                 del self._buf[:n]
-                return self._parse_f7_frame()
+                return self._parse_buffer_head()
             return None
 
         frame_raw = bytes(self._buf[:total])
 
         if frame_raw[-1] != self._etx:
+            n = self._next_header_pos(1)
+            if n > 0 and n < total:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_stx_resync(
+                        reason="missing_etx_before_next_header",
+                        frame_raw=frame_raw,
+                        addr=frame_raw[1],
+                        cmd=frame_raw[2],
+                        length=length,
+                    )
+                del self._buf[:n]
+                return self._parse_buffer_head()
+
             _LOGGER.debug("drop STX: missing ETX raw=%s", frame_raw.hex())
             if self._packet_quality is not None:
                 self._packet_quality.record_stx_frame_error(
@@ -182,6 +214,19 @@ class Ksx4506Codec:
         recv_checksum = frame_raw[4 + length]
         calc_checksum = self.calc_checksum([addr, cmd, length, *payload])
         if recv_checksum != calc_checksum:
+            n = self._next_header_pos(1)
+            if n > 0 and n < total:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_stx_resync(
+                        reason="checksum_mismatch_before_next_header",
+                        frame_raw=frame_raw,
+                        addr=addr,
+                        cmd=cmd,
+                        length=length,
+                    )
+                del self._buf[:n]
+                return self._parse_buffer_head()
+
             _LOGGER.debug(
                 "drop STX: checksum mismatch recv=0x%02X calc=0x%02X raw=%s",
                 recv_checksum,
@@ -291,8 +336,17 @@ class Ksx4506Codec:
         if len(self._buf) < total:
             n = self._next_header_pos(1)
             if n > 0:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_f7_resync(
+                        reason="incomplete_before_next_header",
+                        frame_raw=bytes(self._buf[:n]),
+                        dev_id=dev_id,
+                        sub_id=sub_id,
+                        cmd=cmd,
+                        length=length,
+                    )
                 del self._buf[:n]
-                return None
+                return self._parse_buffer_head()
             return None
 
         frame_raw = bytes(self._buf[:total])
@@ -322,7 +376,7 @@ class Ksx4506Codec:
                         length=length,
                     )
                 del self._buf[:resync_pos]
-                return self._parse_f7_frame()
+                return self._parse_buffer_head()
 
             self._emit_f7_packet_log(
                 dev_id=dev_id,
