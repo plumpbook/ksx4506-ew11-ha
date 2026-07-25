@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 import json
 import logging
-from typing import Iterable
 
 from .frame import ChecksumError, Frame, FrameError
 from .packet_quality import PacketQualityMonitor
@@ -37,11 +37,11 @@ class Ksx4506Codec:
         checksum_mode: str = "sum8",
         packet_quality: PacketQualityMonitor | None = None,
     ) -> None:
-        self._stx = stx
-        self._etx = etx
-        self._checksum_mode = checksum_mode
-        self._packet_quality = packet_quality
-        self._buf = bytearray()
+        self._stx: int = stx
+        self._etx: int = etx
+        self._checksum_mode: str = checksum_mode
+        self._packet_quality: PacketQualityMonitor | None = packet_quality
+        self._buf: bytearray = bytearray()
         self._last_ok_f7_hex: str | None = None
         self._last_bad_f7_hex: str | None = None
 
@@ -129,7 +129,7 @@ class Ksx4506Codec:
                 return pos
 
             try:
-                Frame.from_bytes(bytes(self._buf[pos : pos + total]))
+                _ = Frame.from_bytes(bytes(self._buf[pos : pos + total]))
             except FrameError:
                 pos += 1
                 continue
@@ -266,6 +266,7 @@ class Ksx4506Codec:
         frame_raw: bytes,
         parity: bool,
     ) -> None:
+        hex_string = frame_raw.hex()
         info = {
             "header": "f7",
             "devId": f"{dev_id:02x}",
@@ -275,8 +276,8 @@ class Ksx4506Codec:
             "data": payload.hex(),
             "xor": f"{recv_xor:02x}",
             "add": f"{recv_add:02x}",
-            "size": len(frame_raw.hex()),
-            "hexString": frame_raw.hex(),
+            "size": len(hex_string),
+            "hexString": hex_string,
             "checksum": {"xor": f"{calc_xor:02x}", "add": f"{calc_add:02x}"},
             "parity": parity,
         }
@@ -284,7 +285,7 @@ class Ksx4506Codec:
         if not parity:
             _LOGGER.warning(
                 "drop F7: checksum mismatch dev=0x%02X sub=0x%02X cmd=0x%02X "
-                "len=%d recv=0x%02X/0x%02X calc=0x%02X/0x%02X",
+                + "len=%d recv=0x%02X/0x%02X calc=0x%02X/0x%02X",
                 dev_id,
                 sub_id,
                 cmd,
@@ -294,8 +295,8 @@ class Ksx4506Codec:
                 calc_xor,
                 calc_add,
             )
-            if self._last_bad_f7_hex != info["hexString"]:
-                self._last_bad_f7_hex = info["hexString"]
+            if self._last_bad_f7_hex != hex_string:
+                self._last_bad_f7_hex = hex_string
                 _LOGGER.debug(
                     "drop F7 packet :: %s",
                     json.dumps(info, ensure_ascii=False, indent=2),
@@ -303,9 +304,9 @@ class Ksx4506Codec:
             return
 
         # 정상 패킷은 중복 로그 억제
-        if self._last_ok_f7_hex == info["hexString"]:
+        if self._last_ok_f7_hex == hex_string:
             return
-        self._last_ok_f7_hex = info["hexString"]
+        self._last_ok_f7_hex = hex_string
         _LOGGER.debug("packet :: %s", json.dumps(info, ensure_ascii=False, indent=2))
 
     def _parse_f7_frame(self) -> KsFrame | None:
