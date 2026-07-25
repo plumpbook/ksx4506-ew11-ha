@@ -76,6 +76,25 @@ class KsxPacketCaptureSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.packet_capture_report()
 
 
+class KsxPacketQualitySensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_name = "Packet Quality"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"ksx4506_{entry.entry_id}_packet_quality"
+        self._attr_device_info = _ew11_device_info(entry)
+
+    @property
+    def native_value(self):
+        return self.coordinator.packet_quality_report()["state"]
+
+    @property
+    def extra_state_attributes(self):
+        return self.coordinator.packet_quality_report()
+
+
 def _ew11_device_info(entry: ConfigEntry) -> dict:
     return {
         "identifiers": {(DOMAIN, entry.entry_id)},

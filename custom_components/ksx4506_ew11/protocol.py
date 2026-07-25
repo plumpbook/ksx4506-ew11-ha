@@ -6,6 +6,7 @@ import logging
 from typing import Iterable
 
 from .frame import ChecksumError, Frame, FrameError
+from .packet_quality import PacketQualityMonitor
 
 
 @dataclass
@@ -29,10 +30,17 @@ class Ksx4506Codec:
     2) legacy F7-stream (frame starts with 0xF7, next 0xF7 starts next frame)
     """
 
-    def __init__(self, stx: int = 0x02, etx: int = 0x03, checksum_mode: str = "sum8") -> None:
+    def __init__(
+        self,
+        stx: int = 0x02,
+        etx: int = 0x03,
+        checksum_mode: str = "sum8",
+        packet_quality: PacketQualityMonitor | None = None,
+    ) -> None:
         self._stx = stx
         self._etx = etx
         self._checksum_mode = checksum_mode
+        self._packet_quality = packet_quality
         self._buf = bytearray()
         self._last_ok_f7_hex: str | None = None
         self._last_bad_f7_hex: str | None = None
@@ -99,6 +107,12 @@ class Ksx4506Codec:
         total = 1 + 1 + 1 + 1 + length + 1 + 1
         if total < 7 or total > 512:
             _LOGGER.debug("drop STX: invalid length=%d", total)
+            if self._packet_quality is not None:
+                self._packet_quality.record_stx_frame_error(
+                    reason="invalid_length",
+                    frame_raw=bytes(self._buf[: min(len(self._buf), 16)]),
+                    length=length,
+                )
             del self._buf[:1]
             return None
 
@@ -113,6 +127,14 @@ class Ksx4506Codec:
 
         if frame_raw[-1] != self._etx:
             _LOGGER.debug("drop STX: missing ETX raw=%s", frame_raw.hex())
+            if self._packet_quality is not None:
+                self._packet_quality.record_stx_frame_error(
+                    reason="missing_etx",
+                    frame_raw=frame_raw,
+                    addr=frame_raw[1],
+                    cmd=frame_raw[2],
+                    length=length,
+                )
             del self._buf[:1]
             return None
 
@@ -128,11 +150,22 @@ class Ksx4506Codec:
                 calc_checksum,
                 frame_raw.hex(),
             )
+            if self._packet_quality is not None:
+                self._packet_quality.record_stx_checksum_error(
+                    addr=addr,
+                    cmd=cmd,
+                    length=length,
+                    recv_checksum=recv_checksum,
+                    calc_checksum=calc_checksum,
+                    frame_raw=frame_raw,
+                )
             del self._buf[:1]
             return None
 
         del self._buf[:total]
         _LOGGER.debug("parsed STX frame addr=0x%02X cmd=0x%02X len=%d", addr, cmd, len(payload))
+        if self._packet_quality is not None:
+            self._packet_quality.record_stx_frame_ok()
         return KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=recv_checksum, raw=frame_raw)
 
     def _emit_f7_packet_log(
@@ -205,6 +238,15 @@ class Ksx4506Codec:
 
         if total < 7 or total > 512:
             _LOGGER.debug("drop F7: invalid length=%d", total)
+            if self._packet_quality is not None:
+                self._packet_quality.record_f7_frame_error(
+                    reason="invalid_length",
+                    frame_raw=bytes(self._buf[: min(len(self._buf), 16)]),
+                    dev_id=dev_id,
+                    sub_id=sub_id,
+                    cmd=cmd,
+                    length=length,
+                )
             del self._buf[:1]
             return None
 
@@ -243,10 +285,31 @@ class Ksx4506Codec:
                 frame_raw=frame_raw,
                 parity=False,
             )
+            if self._packet_quality is not None:
+                self._packet_quality.record_f7_checksum_error(
+                    dev_id=dev_id,
+                    sub_id=sub_id,
+                    cmd=cmd,
+                    length=length,
+                    recv_xor=recv_xor,
+                    recv_add=recv_add,
+                    calc_xor=calc_xor,
+                    calc_add=calc_add,
+                    frame_raw=frame_raw,
+                )
             del self._buf[:1]
             return None
         except FrameError as exc:
             _LOGGER.debug("drop F7: invalid frame raw=%s error=%s", frame_raw.hex(), exc)
+            if self._packet_quality is not None:
+                self._packet_quality.record_f7_frame_error(
+                    reason=str(exc),
+                    frame_raw=frame_raw,
+                    dev_id=dev_id,
+                    sub_id=sub_id,
+                    cmd=cmd,
+                    length=length,
+                )
             del self._buf[:1]
             return None
 
@@ -265,6 +328,14 @@ class Ksx4506Codec:
         )
 
         del self._buf[:total]
+        if self._packet_quality is not None:
+            self._packet_quality.record_f7_frame_ok(
+                dev_id=parsed.device_id,
+                sub_id=parsed.sub_id,
+                cmd=parsed.command_type,
+                length=parsed.length,
+                frame_raw=frame_raw,
+            )
         return KsFrame(
             addr=parsed.device_id,
             sub_id=parsed.sub_id,

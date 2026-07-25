@@ -213,6 +213,26 @@ def test_packet_capture_sensor_reports_coordinator_capture():
     assert entity._attr_unique_id == "ksx4506_entry-1_packet_capture"
 
 
+def test_packet_quality_sensor_reports_coordinator_quality():
+    install_homeassistant_stubs()
+    sensor_module = load_integration_module("sensor")
+
+    report = {
+        "state": "tx_giveups",
+        "summary": "rx_checksum_errors=0, rx_frame_errors=0, tx_giveups=1",
+        "rx": {"f7_checksum_errors": 0},
+        "tx": {"giveups": 1},
+    }
+    coordinator = types.SimpleNamespace(packet_quality_report=lambda: report)
+    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+
+    entity = sensor_module.KsxPacketQualitySensor(coordinator, entry)
+
+    assert entity.native_value == "tx_giveups"
+    assert entity.extra_state_attributes["tx"]["giveups"] == 1
+    assert entity._attr_unique_id == "ksx4506_entry-1_packet_quality"
+
+
 def test_ew11_link_sensor_reports_connection_health():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")

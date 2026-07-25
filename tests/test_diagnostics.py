@@ -27,6 +27,23 @@ class _FakeCoordinator:
             "last_error": None,
         }
 
+    def packet_quality_report(self):
+        return {
+            "state": "rx_errors",
+            "summary": "rx_checksum_errors=1, rx_frame_errors=0, tx_giveups=0",
+            "rx": {
+                "f7_checksum_errors": 1,
+                "f7_frame_errors": 0,
+                "stx_checksum_errors": 0,
+                "stx_frame_errors": 0,
+            },
+            "tx": {
+                "giveups": 0,
+                "control_giveups": 0,
+                "state_request_giveups": 0,
+            },
+        }
+
 
 def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     coordinator = _FakeCoordinator()
@@ -72,6 +89,8 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     assert data["unsupported_packets"]["candidate_packets"][0]["sub_id"] == "0xF1"
     assert data["ew11_connection"]["state"] == "stale"
     assert data["ew11_connection"]["seconds_since_last_rx"] == 180.0
+    assert data["packet_quality"]["state"] == "rx_errors"
+    assert data["packet_quality"]["rx"]["f7_checksum_errors"] == 1
     assert "unsupported_packet.yml" in data["report_url"]
 
 

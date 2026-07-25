@@ -10,6 +10,7 @@ from .config import effective_config
 from .const import CONF_EXPOSE_PACKET_SAMPLES, CONF_HOST, DOMAIN
 from .coordinator import Ksx4506Coordinator
 from .ew11_health import ew11_health_report_from_coordinator
+from .packet_quality import empty_packet_quality_report
 
 TO_REDACT = {CONF_HOST}
 
@@ -43,6 +44,7 @@ async def async_get_config_entry_diagnostics(
         },
         "known_devices": _known_device_summary(coordinator),
         "ew11_connection": ew11_health_report_from_coordinator(coordinator),
+        "packet_quality": _packet_quality_summary(coordinator),
         "unsupported_packets": unsupported,
         "report_url": "https://github.com/plumpbook/ksx4506-ew11-ha/issues/new?template=unsupported_packet.yml",
     }
@@ -69,3 +71,11 @@ def _known_device_summary(coordinator: Ksx4506Coordinator | None) -> list[dict[s
         }
         for dev in sorted(coordinator.registry.devices.values(), key=lambda item: item.key)
     ]
+
+
+def _packet_quality_summary(
+    coordinator: Ksx4506Coordinator | None,
+) -> dict[str, Any]:
+    if coordinator is None:
+        return empty_packet_quality_report()
+    return coordinator.packet_quality_report()

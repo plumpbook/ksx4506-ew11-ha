@@ -15,6 +15,7 @@ from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .diagnostic_sensors import (
     KsxEw11LinkSensor,
     KsxPacketCaptureSensor,
+    KsxPacketQualitySensor,
     KsxUnsupportedPacketsSensor,
 )
 from .devices.meter import METER_DEVICE_ID
@@ -37,6 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         KsxEw11LinkSensor(coordinator, entry),
         KsxUnsupportedPacketsSensor(coordinator, entry),
         KsxPacketCaptureSensor(coordinator, entry),
+        KsxPacketQualitySensor(coordinator, entry),
         *build_all(),
     ]
     if init_ents:

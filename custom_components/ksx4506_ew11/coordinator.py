@@ -42,6 +42,7 @@ from .devices.outlet import OUTLET_DEVICE_ID
 from .devices.thermostat import THERMOSTAT_DEVICE_ID
 from .discovery import DeviceRegistry
 from .ew11_client import Ew11Client
+from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,10 +76,12 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             update_interval=timedelta(seconds=30),
         )
         self.registry = DeviceRegistry()
+        self.packet_quality = PacketQualityMonitor()
         self.codec = Ksx4506Codec(
             stx=int(config["stx"], 16),
             etx=int(config["etx"], 16),
             checksum_mode=config["checksum"],
+            packet_quality=self.packet_quality,
         )
         self._client = Ew11Client(
             host=config["host"],
@@ -317,6 +320,12 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             "packets": packets,
         }
 
+    def packet_quality_report(self) -> dict[str, Any]:
+        quality = getattr(self, "packet_quality", None)
+        if quality is None:
+            return empty_packet_quality_report()
+        return quality.report()
+
     def _notify_frame_waiters(self, frame: KsFrame) -> None:
         for matcher, fut in tuple(self._frame_waiters):
             if fut.done():
@@ -480,6 +489,21 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
                 health.get("seconds_since_last_rx"),
                 health.get("last_error"),
             )
+            quality = getattr(self, "packet_quality", None)
+            if quality is not None:
+                quality.record_tx_giveup(
+                    dev_id=dev_id,
+                    sub_id=sub_id,
+                    cmd=cmd,
+                    payload=payload,
+                    attempts=attempts,
+                    is_state_request=cmd == _status_request_command(dev_id)
+                    and payload == b"",
+                    health=health,
+                )
+                publish = getattr(self, "_publish_registry_state", None)
+                if publish is not None:
+                    publish()
             return None
         finally:
             with suppress(ValueError):
