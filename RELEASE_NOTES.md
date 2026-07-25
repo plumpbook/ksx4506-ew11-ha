@@ -1,8 +1,10 @@
 # Release Notes
 
-## v0.2.21
+## v0.2.22
 - `Packet Quality` 진단 센서를 추가해 F7/STX 수신 오류와 제어 명령 최종 실패 횟수를 확인할 수 있게 했습니다.
 - F7 프레임 후보 안에 다음 유효 F7 헤더가 포함되거나 F7 스트림의 `0x02` 바이트가 STX처럼 보이는 경우를 resync 이벤트로 분리해, 경계 복구 상황과 실제 checksum/frame 실패를 구분합니다.
+
+## v0.2.21
 - `EW11 Link` 진단 속성에 연결 시도 횟수, 성공 횟수, 끊김 횟수, 마지막 끊김 시각/이유, 마지막 연결 지속 시간, 현재 연결 지속 시간을 추가했습니다.
 - Home Assistant 자동화와 Lovelace 대시보드에 남은 삭제/교체된 엔티티 참조를 로컬에서 확인할 수 있는 `scripts/check_ha_entity_refs.py` 점검 도구를 추가했습니다.
 - `.local/`과 `.omo/` 같은 로컬 export/evidence 폴더가 실수로 공개 산출물 검사나 커밋 범위에 들어가지 않도록 ignore 규칙을 보강했습니다.
