@@ -4,8 +4,8 @@ import sys
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
-from ha_stubs import install_homeassistant_stubs  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
+from .ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 install_homeassistant_stubs()
 const = load_integration_module("const")

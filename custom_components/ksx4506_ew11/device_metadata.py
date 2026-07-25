@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .devices.meter import METER_DEVICE_ID
 
 DEVICE_MANUFACTURER = "KS X 4506"
@@ -32,7 +34,7 @@ def format_device_name(
     sub_id: int,
     *,
     channel: int | None = None,
-    state: dict | None = None,
+    state: dict[str, Any] | None = None,
 ) -> str:
     prefix = _DEVICE_NAME_PREFIXES.get(addr)
     if prefix is None:
@@ -55,7 +57,7 @@ def format_device_name(
     return name
 
 
-def _display_sub_id(addr: int, sub_id: int, state: dict | None) -> int:
+def _display_sub_id(addr: int, sub_id: int, state: dict[str, Any] | None) -> int:
     if addr in {0x0E, 0x39} and isinstance(state, dict):
         control_sub_id = state.get("control_sub_id")
         if isinstance(control_sub_id, int):

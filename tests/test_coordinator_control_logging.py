@@ -5,8 +5,14 @@ import sys
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
-from ha_stubs import install_homeassistant_stubs  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
+from .ha_stubs import install_homeassistant_stubs  # noqa: E402
+
+
+def _bind_method(instance, name: str, method):
+    bound_method = types.MethodType(method, instance)
+    setattr(instance, name, bound_method)
+    return bound_method
 
 
 class _FakeCoordinator:
@@ -51,15 +57,16 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
         raw=bytes.fromhex("f73911c10200011d22"),
     )
     fake = _FakeCoordinator(matched)
-    fake.async_send_f7_command_until = types.MethodType(
-        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
+    send_until = _bind_method(
         fake,
+        "async_send_f7_command_until",
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
     )
 
     caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11.coordinator")
 
     result = asyncio.run(
-        fake.async_send_f7_command_until(
+        send_until(
             0x39,
             0x11,
             0x41,
@@ -93,17 +100,18 @@ def test_send_f7_command_until_give_up_log_includes_payload_packet_and_health(ca
     )
     fake = _FakeCoordinator(matched, match_after_attempts=99)
     fake.max_attempts = 1
-    fake.codec = protocol_module.Ksx4506Codec()
-    fake._client = _FakeClient()
-    fake.async_send_f7_command_until = types.MethodType(
-        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
+    setattr(fake, "codec", protocol_module.Ksx4506Codec())
+    setattr(fake, "_client", _FakeClient())
+    send_until = _bind_method(
         fake,
+        "async_send_f7_command_until",
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
     )
 
     caplog.set_level(logging.WARNING, logger="custom_components.ksx4506_ew11.coordinator")
 
     result = asyncio.run(
-        fake.async_send_f7_command_until(
+        send_until(
             0x0E,
             0x11,
             0x41,
@@ -134,12 +142,13 @@ def test_meter_startup_probe_requests_whole_and_individual_meter_states():
             return True
 
     fake = FakeCoordinator()
-    fake.async_probe_meter_states = types.MethodType(
-        coordinator_module.Ksx4506Coordinator.async_probe_meter_states,
+    probe_meter_states = _bind_method(
         fake,
+        "async_probe_meter_states",
+        coordinator_module.Ksx4506Coordinator.async_probe_meter_states,
     )
 
-    asyncio.run(fake.async_probe_meter_states(delay=0, interval=0))
+    asyncio.run(probe_meter_states(delay=0, interval=0))
 
     assert fake.state_requests == [
         (0x30, 0x0F),
@@ -166,26 +175,31 @@ def test_known_device_startup_probe_retries_until_status_response():
         raw=bytes.fromhex("f70e11810400010000a5f6"),
     )
     fake = _FakeCoordinator(matched)
-    fake.registry = discovery_module.DeviceRegistry()
-    fake.registry.restore_device_from_key("0E11_light_1")
-    fake.async_send_f7_command_until = types.MethodType(
+    registry = discovery_module.DeviceRegistry()
+    setattr(fake, "registry", registry)
+    registry.restore_device_from_key("0E11_light_1")
+    _bind_method(
+        fake,
+        "async_send_f7_command_until",
         coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
-        fake,
     )
-    fake.async_request_f7_state_until = types.MethodType(
+    _bind_method(
+        fake,
+        "async_request_f7_state_until",
         coordinator_module.Ksx4506Coordinator.async_request_f7_state_until,
-        fake,
     )
-    fake.async_probe_known_device_states = types.MethodType(
+    probe_known_device_states = _bind_method(
+        fake,
+        "async_probe_known_device_states",
         coordinator_module.Ksx4506Coordinator.async_probe_known_device_states,
-        fake,
     )
-    fake._known_state_request_targets = types.MethodType(
-        coordinator_module.Ksx4506Coordinator._known_state_request_targets,
+    _bind_method(
         fake,
+        "_known_state_request_targets",
+        coordinator_module.Ksx4506Coordinator._known_state_request_targets,
     )
 
-    asyncio.run(fake.async_probe_known_device_states(delay=0, interval=0))
+    asyncio.run(probe_known_device_states(delay=0, interval=0))
 
     assert fake.sent == [
         (0x0E, 0x11, 0x01, b"", False),
@@ -222,16 +236,19 @@ def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypat
             self.data = data
 
         def _notify_frame_waiters(self, frame):
+            _ = frame
             return None
 
     fake = FakeCoordinator()
-    fake._on_frame = types.MethodType(
+    on_frame = _bind_method(
+        fake,
+        "_on_frame",
         coordinator_module.Ksx4506Coordinator._on_frame,
-        fake,
     )
-    fake._publish_registry_state = types.MethodType(
-        coordinator_module.Ksx4506Coordinator._publish_registry_state,
+    _bind_method(
         fake,
+        "_publish_registry_state",
+        coordinator_module.Ksx4506Coordinator._publish_registry_state,
     )
     frame = protocol_module.KsFrame(
         addr=0x0E,
@@ -242,8 +259,8 @@ def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypat
         raw=b"",
     )
 
-    asyncio.run(fake._on_frame(frame))
-    asyncio.run(fake._on_frame(frame))
+    asyncio.run(on_frame(frame))
+    asyncio.run(on_frame(frame))
 
     assert (
         const_module.SIGNAL_DEVICE_REMOVED,
@@ -292,13 +309,19 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
             self.data = data
 
         def _notify_frame_waiters(self, frame):
+            _ = frame
             return None
 
     fake = FakeCoordinator()
-    fake._on_frame = types.MethodType(coordinator_module.Ksx4506Coordinator._on_frame, fake)
-    fake._publish_registry_state = types.MethodType(
-        coordinator_module.Ksx4506Coordinator._publish_registry_state,
+    on_frame = _bind_method(
         fake,
+        "_on_frame",
+        coordinator_module.Ksx4506Coordinator._on_frame,
+    )
+    _bind_method(
+        fake,
+        "_publish_registry_state",
+        coordinator_module.Ksx4506Coordinator._publish_registry_state,
     )
     frame = protocol_module.KsFrame(
         addr=0x40,
@@ -311,7 +334,7 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
 
     caplog.set_level(logging.INFO, logger="custom_components.ksx4506_ew11.coordinator")
 
-    asyncio.run(fake._on_frame(frame))
+    asyncio.run(on_frame(frame))
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "Common entrance call event sub=0x02 detected=True" in messages

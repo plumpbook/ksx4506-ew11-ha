@@ -1,0 +1,39 @@
+[project]
+name = "ksx4506-ew11-ha"
+version = "0.2.22"
+description = "Home Assistant integration for KS X 4506 over EW11"
+readme = "README.md"
+requires-python = ">=3.13.2,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.9",
+    "homeassistant==2026.2.0",
+    "pytest>=8.0",
+]
+
+[tool.basedpyright]
+include = [
+    "custom_components/ksx4506_ew11",
+    "scripts",
+    "tests",
+]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+]
+ignore = [
+    "tests/ha_stubs.py",
+]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportImplicitRelativeImport = "error"
+reportIncompatibleVariableOverride = "none"
+reportMissingTypeArgument = "error"
+reportUnreachable = "none"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

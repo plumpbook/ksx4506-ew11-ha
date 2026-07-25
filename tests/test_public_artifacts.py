@@ -57,9 +57,17 @@ def test_public_artifacts_do_not_contain_local_environment_identifiers():
                 findings.append(f"{rel_path}: contains local marker {marker!r}")
 
         for match in IPV4_RE.finditer(text):
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line_end = text.find("\n", match.end())
+            if line_end == -1:
+                line_end = len(text)
+            if path.name == "uv.lock" and text[line_start:line_end].lstrip().startswith(
+                "version = "
+            ):
+                continue
             value = match.group(0)
             try:
-                ip = ipaddress.ip_address(value)
+                ip = ipaddress.IPv4Address(value)
             except ValueError:
                 continue
             if _is_documentation_ip(ip):

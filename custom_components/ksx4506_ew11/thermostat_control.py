@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from .devices.thermostat import (
     HEAT_CONTROL_REQUEST,
@@ -168,13 +169,16 @@ def _thermostat_temperature_success_matcher(
     return matcher
 
 
-def _state_matches(state: dict, turn_on: bool) -> bool:
+def _state_matches(state: Mapping[str, Any], turn_on: bool) -> bool:
     if "on" not in state:
         return False
     return bool(state["on"]) is turn_on
 
 
-def _target_temperature_matches(state: dict, temperature: float) -> bool:
+def _target_temperature_matches(
+    state: Mapping[str, Any],
+    temperature: float,
+) -> bool:
     target_temp = state.get("target_temp")
     if target_temp is None:
         return False

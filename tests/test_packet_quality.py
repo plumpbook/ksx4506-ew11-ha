@@ -4,8 +4,8 @@ import sys
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
-from ha_stubs import install_homeassistant_stubs  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
+from .ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 def test_packet_quality_monitor_reports_rx_checksum_error():
@@ -147,13 +147,14 @@ def test_packet_quality_records_tx_give_up_from_coordinator():
             self.published += 1
 
     fake = FakeCoordinator()
-    fake.async_send_f7_command_until = types.MethodType(
+    send_until = types.MethodType(
         coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
         fake,
     )
+    setattr(fake, "async_send_f7_command_until", send_until)
 
     result = asyncio.run(
-        fake.async_send_f7_command_until(
+        send_until(
             0x0E,
             0x11,
             0x41,

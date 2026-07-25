@@ -4,8 +4,8 @@ import sys
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
-from ha_stubs import install_homeassistant_stubs  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
+from .ha_stubs import install_homeassistant_stubs  # noqa: E402
 
 
 class _FakeRegistry:
@@ -61,6 +61,7 @@ class _FakeCoordinator:
         interval=0.1,
         guard=False,
     ):
+        _ = interval
         for _ in range(max_attempts or self.max_attempts):
             self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
             for index, frame in enumerate(self.matched_frames):

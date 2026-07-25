@@ -25,8 +25,8 @@ def _load_integration_module(name: str):
         module_name,
         INTEGRATION_ROOT / Path(*name.split(".")).with_suffix(".py"),
     )
-    module = module_from_spec(spec)
     assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module

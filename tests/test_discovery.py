@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
 
 _module = load_integration_module("discovery")
 DeviceRegistry = _module.DeviceRegistry

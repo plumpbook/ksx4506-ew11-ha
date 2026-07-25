@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
 
 
 def test_ew11_client_reports_disconnected_before_start():

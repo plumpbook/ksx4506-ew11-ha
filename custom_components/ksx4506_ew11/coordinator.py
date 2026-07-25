@@ -67,8 +67,8 @@ STATUS_RESPONSE_COMMAND_BY_DEVICE_ID = {
 }
 
 
-class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
-    def __init__(self, hass: HomeAssistant, config: dict) -> None:
+class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
+    def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -128,8 +128,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict]):
             maxlen=self.packet_capture_limit
         )
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
-        self._meter_probe_task: asyncio.Task | None = None
-        self._known_device_probe_task: asyncio.Task | None = None
+        self._meter_probe_task: asyncio.Task[None] | None = None
+        self._known_device_probe_task: asyncio.Task[None] | None = None
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}

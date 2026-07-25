@@ -18,8 +18,8 @@ sys.modules.setdefault("custom_components.ksx4506_ew11", integration)
 
 _PROTOCOL_PATH = INTEGRATION_ROOT / "protocol.py"
 _spec = spec_from_file_location("custom_components.ksx4506_ew11.protocol", _PROTOCOL_PATH)
-_module = module_from_spec(_spec)
 assert _spec is not None and _spec.loader is not None
+_module = module_from_spec(_spec)
 sys.modules[_spec.name] = _module
 _spec.loader.exec_module(_module)
 Ksx4506Codec = _module.Ksx4506Codec

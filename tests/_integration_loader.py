@@ -23,8 +23,8 @@ def load_integration_module(name: str):
     module_name = f"custom_components.ksx4506_ew11.{name}"
     module_path = INTEGRATION_ROOT / Path(*name.split(".")).with_suffix(".py")
     spec = spec_from_file_location(module_name, module_path)
-    module = module_from_spec(spec)
     assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module

@@ -31,7 +31,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     init_ents = build_all()
     if init_ents:
         async_add_entities(init_ents)
-        added_keys.update(e._attr_unique_id for e in init_ents)
+        added_keys.update(
+            entity_id
+            for entity in init_ents
+            if (entity_id := entity._attr_unique_id) is not None
+        )
 
     @callback
     def on_added(dev_key: str):
@@ -41,10 +45,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
         new_entities = []
         for ent in _number_entities_for_device(coordinator, d):
-            if ent._attr_unique_id in added_keys:
+            entity_id = ent._attr_unique_id
+            if entity_id is None or entity_id in added_keys:
                 continue
             new_entities.append(ent)
-            added_keys.add(ent._attr_unique_id)
+            added_keys.add(entity_id)
 
         if new_entities:
             async_add_entities(new_entities)

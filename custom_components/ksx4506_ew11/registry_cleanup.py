@@ -224,7 +224,10 @@ def _prune_legacy_registry_entries(
             )
 
 
-def _entity_entries_for_cleanup(ent_reg, entry: ConfigEntry) -> list:
+def _entity_entries_for_cleanup(
+    ent_reg,
+    entry: ConfigEntry,
+) -> list[er.RegistryEntry]:
     entries = list(er.async_entries_for_config_entry(ent_reg, entry.entry_id))
     seen = {
         getattr(entity_entry, "entity_id", id(entity_entry))
@@ -252,7 +255,10 @@ def _entity_entries_for_cleanup(ent_reg, entry: ConfigEntry) -> list:
     return entries
 
 
-def _device_entries_for_cleanup(dev_reg, entry: ConfigEntry) -> list:
+def _device_entries_for_cleanup(
+    dev_reg,
+    entry: ConfigEntry,
+) -> list[dr.DeviceEntry]:
     entries = list(dr.async_entries_for_config_entry(dev_reg, entry.entry_id))
     seen = {
         getattr(device_entry, "id", id(device_entry))

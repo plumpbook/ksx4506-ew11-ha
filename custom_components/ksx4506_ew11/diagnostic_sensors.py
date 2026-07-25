@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .config import effective_config
 from .const import CONF_EXPOSE_PACKET_SAMPLES, DOMAIN
+from .coordinator import Ksx4506Coordinator
 from .device_metadata import DEVICE_MANUFACTURER, DEVICE_MODEL
 from .ew11_health import ew11_health_report_from_coordinator
 
 
-class KsxEw11LinkSensor(CoordinatorEntity, SensorEntity):
+class KsxEw11LinkSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "EW11 Link"
     _attr_entity_registry_enabled_default = True
@@ -29,7 +31,7 @@ class KsxEw11LinkSensor(CoordinatorEntity, SensorEntity):
         return ew11_health_report_from_coordinator(self.coordinator)
 
 
-class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
+class KsxUnsupportedPacketsSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Unsupported Packets"
     _attr_entity_registry_enabled_default = True
@@ -57,7 +59,7 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity, SensorEntity):
         )
 
 
-class KsxPacketCaptureSensor(CoordinatorEntity, SensorEntity):
+class KsxPacketCaptureSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Packet Capture"
     _attr_entity_registry_enabled_default = True
@@ -76,7 +78,7 @@ class KsxPacketCaptureSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.packet_capture_report()
 
 
-class KsxPacketQualitySensor(CoordinatorEntity, SensorEntity):
+class KsxPacketQualitySensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Packet Quality"
     _attr_entity_registry_enabled_default = True
@@ -95,10 +97,10 @@ class KsxPacketQualitySensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.packet_quality_report()
 
 
-def _ew11_device_info(entry: ConfigEntry) -> dict:
-    return {
-        "identifiers": {(DOMAIN, entry.entry_id)},
-        "name": entry.title,
-        "manufacturer": DEVICE_MANUFACTURER,
-        "model": DEVICE_MODEL,
-    }
+def _ew11_device_info(entry: ConfigEntry) -> DeviceInfo:
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer=DEVICE_MANUFACTURER,
+        model=DEVICE_MODEL,
+    )

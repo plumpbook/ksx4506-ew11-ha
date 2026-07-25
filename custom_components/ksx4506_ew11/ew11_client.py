@@ -41,8 +41,8 @@ class Ew11Client:
 
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
-        self._task: asyncio.Task | None = None
-        self._worker_task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
         self._running = False
         self._connected = False
         self._connected_at: datetime | None = None

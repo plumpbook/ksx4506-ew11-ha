@@ -170,7 +170,7 @@ class UnsupportedPacketRecord:
     sample_raw_hexes: list[str] = field(default_factory=list)
 
     def as_dict(self, *, include_packet_samples: bool = False) -> dict[str, Any]:
-        data = {
+        data: dict[str, str | int | bool | list[str]] = {
             "category": self.category,
             "reason": self.reason,
             "signature": self.signature,

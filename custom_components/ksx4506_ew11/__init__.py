@@ -13,6 +13,11 @@ from .registry_cleanup import (
 )
 from .registry_bootstrap import async_restore_registry_devices_from_ha
 
+__all__ = (
+    "_async_prune_legacy_outlet_group_registry_entries",
+    "async_remove_entry",
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_prune_legacy_registry_entries(hass, entry)

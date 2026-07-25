@@ -9,12 +9,16 @@ def ew11_health_report_from_coordinator(coordinator: Any) -> dict[str, Any]:
 
     coordinator_report = getattr(coordinator, "ew11_health_report", None)
     if callable(coordinator_report):
-        return coordinator_report()
+        report = coordinator_report()
+        if isinstance(report, dict):
+            return report
 
     client = getattr(coordinator, "_client", None)
     client_report = getattr(client, "health_report", None)
     if callable(client_report):
-        return client_report()
+        report = client_report()
+        if isinstance(report, dict):
+            return report
 
     return _missing_health_report()
 

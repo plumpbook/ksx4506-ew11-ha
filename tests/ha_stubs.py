@@ -74,6 +74,7 @@ def _install_climate() -> None:
 
     climate_const.HVACAction = HVACAction
     climate_const.HVACMode = HVACMode
+    climate_const.ClimateEntityFeature = ClimateEntityFeature
 
     sys.modules["homeassistant.components.climate"] = climate
     sys.modules["homeassistant.components.climate.const"] = climate_const
@@ -161,6 +162,7 @@ def _install_diagnostics() -> None:
 def _install_device_registry() -> None:
     device_registry = types.ModuleType("homeassistant.helpers.device_registry")
     device_registry.async_get = lambda hass: hass.device_registry
+    device_registry.DeviceInfo = dict
     device_registry.async_entries_for_config_entry = (
         lambda registry, entry_id: [
             entry

@@ -4,7 +4,7 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _integration_loader import load_integration_module  # noqa: E402
+from ._integration_loader import load_integration_module  # noqa: E402
 
 
 common_entrance = load_integration_module("devices.common_entrance")

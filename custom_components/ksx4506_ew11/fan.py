@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.fan import FanEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -50,7 +52,12 @@ class KsxFan(KsxEntity, FanEntity):
         speed = int(self.dev.state.get("speed", 0))
         return min(speed * 33, 100)
 
-    async def async_turn_on(self, percentage=None, **kwargs):
+    async def async_turn_on(
+        self,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         speed = 1 if percentage is None else max(1, min(3, round(percentage / 33)))
         await self.coordinator.async_send_command(self.addr, CMD_SET_FAN, bytes([speed]))
 

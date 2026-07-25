@@ -81,7 +81,12 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
             return False
 
         last_state = await get_last_state()
-        restored = _RESTORED_ON_STATES.get(getattr(last_state, "state", None))
+        last_state_value = getattr(last_state, "state", None)
+        restored = (
+            _RESTORED_ON_STATES.get(last_state_value)
+            if isinstance(last_state_value, str)
+            else None
+        )
         if restored is None and default_on is None:
             return False
 
