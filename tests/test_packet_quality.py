@@ -2,6 +2,7 @@ from pathlib import Path
 import asyncio
 import sys
 import types
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ._integration_loader import load_integration_module  # noqa: E402
@@ -38,6 +39,38 @@ def test_packet_quality_monitor_reports_rx_checksum_error():
     assert report["rx"]["last_error"]["raw_hex"] == "F70E11810200010000"
 
 
+def test_packet_quality_state_recovers_after_recent_window_expires():
+    install_homeassistant_stubs()
+    packet_quality = load_integration_module("packet_quality")
+
+    now = datetime(2026, 7, 25, 10, 0, tzinfo=timezone.utc)
+
+    def clock():
+        return now
+
+    monitor = packet_quality.PacketQualityMonitor(clock=clock)
+    monitor.record_f7_checksum_error(
+        dev_id=0x0E,
+        sub_id=0x11,
+        cmd=0x81,
+        length=2,
+        recv_xor=0x00,
+        recv_add=0x00,
+        calc_xor=0x6D,
+        calc_add=0xA0,
+        frame_raw=bytes.fromhex("F7 0E 11 81 02 00 01 00 00"),
+    )
+
+    now += timedelta(seconds=packet_quality.PACKET_QUALITY_RECENT_WINDOW_SECONDS + 1)
+    report = monitor.report()
+
+    assert report["state"] == "ok"
+    assert report["lifetime_state"] == "rx_errors"
+    assert report["recent_window_seconds"] == 600
+    assert report["recent"]["rx_checksum_errors"] == 0
+    assert report["rx"]["f7_checksum_errors"] == 1
+
+
 def test_codec_records_f7_checksum_errors_and_valid_f7_frames():
     install_homeassistant_stubs()
     packet_quality = load_integration_module("packet_quality")
@@ -58,6 +91,35 @@ def test_codec_records_f7_checksum_errors_and_valid_f7_frames():
     assert report["rx"]["valid_f7_frames"] == 1
     assert report["rx"]["last_valid_f7"]["device_id"] == "0x0E"
     assert report["rx"]["last_error"]["device_id"] == "0x0E"
+
+
+def test_state_request_giveups_do_not_degrade_packet_quality_state():
+    install_homeassistant_stubs()
+    packet_quality = load_integration_module("packet_quality")
+
+    monitor = packet_quality.PacketQualityMonitor()
+    monitor.record_tx_giveup(
+        dev_id=0x0E,
+        sub_id=0x3F,
+        cmd=0x01,
+        payload=b"",
+        attempts=10,
+        is_state_request=True,
+        health={
+            "state": "receiving",
+            "seconds_since_last_rx": 0.3,
+            "last_error": None,
+        },
+    )
+
+    report = monitor.report()
+
+    assert report["state"] == "ok"
+    assert report["lifetime_state"] == "ok"
+    assert report["recent"]["tx_state_request_giveups"] == 1
+    assert report["tx"]["giveups"] == 1
+    assert report["tx"]["control_giveups"] == 0
+    assert report["tx"]["state_request_giveups"] == 1
 
 
 def test_codec_resyncs_when_bad_f7_frame_contains_next_valid_header():

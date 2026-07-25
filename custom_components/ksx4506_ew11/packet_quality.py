@@ -1,11 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from collections import deque
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from typing import Any, Final
+
+PACKET_QUALITY_RECENT_WINDOW_SECONDS: Final = 600
+_MAX_RECENT_EVENTS: Final = 512
+_EVENT_F7_CHECKSUM_ERROR: Final = "f7_checksum_error"
+_EVENT_F7_FRAME_ERROR: Final = "f7_frame_error"
+_EVENT_F7_RESYNC: Final = "f7_resync"
+_EVENT_STX_CHECKSUM_ERROR: Final = "stx_checksum_error"
+_EVENT_STX_FRAME_ERROR: Final = "stx_frame_error"
+_EVENT_STX_RESYNC: Final = "stx_resync"
+_EVENT_TX_CONTROL_GIVEUP: Final = "tx_control_giveup"
+_EVENT_TX_STATE_REQUEST_GIVEUP: Final = "tx_state_request_giveup"
 
 
 class PacketQualityMonitor:
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
+        self._clock = clock or _utc_now
         self.valid_f7_frames = 0
         self.valid_stx_frames = 0
         self.f7_checksum_errors = 0
@@ -21,6 +35,9 @@ class PacketQualityMonitor:
         self._last_rx_error: dict[str, Any] | None = None
         self._last_rx_resync: dict[str, Any] | None = None
         self._last_tx_giveup: dict[str, Any] | None = None
+        self._recent_events: deque[tuple[datetime, str]] = deque(
+            maxlen=_MAX_RECENT_EVENTS
+        )
 
     def record_f7_frame_ok(
         self,
@@ -31,9 +48,10 @@ class PacketQualityMonitor:
         length: int,
         frame_raw: bytes,
     ) -> None:
+        now = self._now()
         self.valid_f7_frames += 1
         self._last_valid_f7 = {
-            "time": _now(),
+            "time": _format_time(now),
             "device_id": _hex_byte(dev_id),
             "sub_id": _hex_byte(sub_id),
             "command_type": _hex_byte(cmd),
@@ -57,9 +75,11 @@ class PacketQualityMonitor:
         calc_add: int,
         frame_raw: bytes,
     ) -> None:
+        now = self._now()
         self.f7_checksum_errors += 1
+        self._record_recent_event(now, _EVENT_F7_CHECKSUM_ERROR)
         self._last_rx_error = {
-            "time": _now(),
+            "time": _format_time(now),
             "kind": "f7_checksum",
             "device_id": _hex_byte(dev_id),
             "sub_id": _hex_byte(sub_id),
@@ -80,11 +100,14 @@ class PacketQualityMonitor:
         cmd: int | None = None,
         length: int | None = None,
     ) -> None:
+        now = self._now()
         self.f7_frame_errors += 1
+        self._record_recent_event(now, _EVENT_F7_FRAME_ERROR)
         self._last_rx_error = _frame_error_payload(
             "f7_frame",
             reason,
             frame_raw,
+            now=now,
             dev_id=dev_id,
             sub_id=sub_id,
             cmd=cmd,
@@ -101,11 +124,14 @@ class PacketQualityMonitor:
         cmd: int | None = None,
         length: int | None = None,
     ) -> None:
+        now = self._now()
         self.f7_resync_events += 1
+        self._record_recent_event(now, _EVENT_F7_RESYNC)
         self._last_rx_resync = _frame_error_payload(
             "f7_resync",
             reason,
             frame_raw,
+            now=now,
             dev_id=dev_id,
             sub_id=sub_id,
             cmd=cmd,
@@ -122,9 +148,11 @@ class PacketQualityMonitor:
         calc_checksum: int,
         frame_raw: bytes,
     ) -> None:
+        now = self._now()
         self.stx_checksum_errors += 1
+        self._record_recent_event(now, _EVENT_STX_CHECKSUM_ERROR)
         self._last_rx_error = {
-            "time": _now(),
+            "time": _format_time(now),
             "kind": "stx_checksum",
             "device_id": _hex_byte(addr),
             "command_type": _hex_byte(cmd),
@@ -143,11 +171,14 @@ class PacketQualityMonitor:
         cmd: int | None = None,
         length: int | None = None,
     ) -> None:
+        now = self._now()
         self.stx_frame_errors += 1
+        self._record_recent_event(now, _EVENT_STX_FRAME_ERROR)
         self._last_rx_error = _frame_error_payload(
             "stx_frame",
             reason,
             frame_raw,
+            now=now,
             dev_id=addr,
             cmd=cmd,
             length=length,
@@ -162,11 +193,14 @@ class PacketQualityMonitor:
         cmd: int | None = None,
         length: int | None = None,
     ) -> None:
+        now = self._now()
         self.stx_resync_events += 1
+        self._record_recent_event(now, _EVENT_STX_RESYNC)
         self._last_rx_resync = _frame_error_payload(
             "stx_resync",
             reason,
             frame_raw,
+            now=now,
             dev_id=addr,
             cmd=cmd,
             length=length,
@@ -183,13 +217,16 @@ class PacketQualityMonitor:
         is_state_request: bool,
         health: dict[str, Any],
     ) -> None:
+        now = self._now()
         self.tx_giveups += 1
         if is_state_request:
             self.tx_state_request_giveups += 1
+            self._record_recent_event(now, _EVENT_TX_STATE_REQUEST_GIVEUP)
         else:
             self.tx_control_giveups += 1
+            self._record_recent_event(now, _EVENT_TX_CONTROL_GIVEUP)
         self._last_tx_giveup = {
-            "time": _now(),
+            "time": _format_time(now),
             "device_id": _hex_byte(dev_id),
             "sub_id": _hex_byte(sub_id),
             "command_type": _hex_byte(cmd),
@@ -203,28 +240,41 @@ class PacketQualityMonitor:
         }
 
     def report(self) -> dict[str, Any]:
+        now = self._now()
+        recent = self._recent_counts(now)
         rx_error_count = (
             self.f7_checksum_errors
             + self.f7_frame_errors
             + self.stx_checksum_errors
             + self.stx_frame_errors
         )
-        state = "ok"
-        if rx_error_count and self.tx_giveups:
-            state = "rx_and_tx_errors"
-        elif self.tx_giveups:
-            state = "tx_giveups"
-        elif rx_error_count:
-            state = "rx_errors"
+        recent_rx_error_count = (
+            recent["rx_checksum_errors"] + recent["rx_frame_errors"]
+        )
+        state = _quality_state(
+            rx_error_count=recent_rx_error_count,
+            tx_control_giveups=recent["tx_control_giveups"],
+        )
+        lifetime_state = _quality_state(
+            rx_error_count=rx_error_count,
+            tx_control_giveups=self.tx_control_giveups,
+        )
 
         return {
             "state": state,
+            "lifetime_state": lifetime_state,
+            "recent_window_seconds": PACKET_QUALITY_RECENT_WINDOW_SECONDS,
             "summary": (
-                f"rx_checksum_errors={self.f7_checksum_errors + self.stx_checksum_errors}, "
-                f"rx_frame_errors={self.f7_frame_errors + self.stx_frame_errors}, "
-                f"rx_resync_events={self.f7_resync_events + self.stx_resync_events}, "
-                f"tx_giveups={self.tx_giveups}"
+                f"recent_state={state}, "
+                f"recent_rx_checksum_errors={recent['rx_checksum_errors']}, "
+                f"recent_rx_frame_errors={recent['rx_frame_errors']}, "
+                f"recent_rx_resync_events={recent['rx_resync_events']}, "
+                f"recent_tx_control_giveups={recent['tx_control_giveups']}, "
+                f"lifetime_rx_checksum_errors={self.f7_checksum_errors + self.stx_checksum_errors}, "
+                f"lifetime_tx_control_giveups={self.tx_control_giveups}, "
+                f"lifetime_tx_state_request_giveups={self.tx_state_request_giveups}"
             ),
+            "recent": recent,
             "rx": {
                 "valid_f7_frames": self.valid_f7_frames,
                 "valid_stx_frames": self.valid_stx_frames,
@@ -246,9 +296,65 @@ class PacketQualityMonitor:
             },
         }
 
+    def _now(self) -> datetime:
+        value = self._clock()
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def _record_recent_event(self, now: datetime, event: str) -> None:
+        self._recent_events.append((now, event))
+
+    def _recent_counts(self, now: datetime) -> dict[str, int]:
+        cutoff = now - timedelta(seconds=PACKET_QUALITY_RECENT_WINDOW_SECONDS)
+        while self._recent_events and self._recent_events[0][0] < cutoff:
+            self._recent_events.popleft()
+
+        counts = {
+            _EVENT_F7_CHECKSUM_ERROR: 0,
+            _EVENT_F7_FRAME_ERROR: 0,
+            _EVENT_F7_RESYNC: 0,
+            _EVENT_STX_CHECKSUM_ERROR: 0,
+            _EVENT_STX_FRAME_ERROR: 0,
+            _EVENT_STX_RESYNC: 0,
+            _EVENT_TX_CONTROL_GIVEUP: 0,
+            _EVENT_TX_STATE_REQUEST_GIVEUP: 0,
+        }
+        for _, event in self._recent_events:
+            counts[event] += 1
+
+        return {
+            "rx_checksum_errors": (
+                counts[_EVENT_F7_CHECKSUM_ERROR]
+                + counts[_EVENT_STX_CHECKSUM_ERROR]
+            ),
+            "rx_frame_errors": (
+                counts[_EVENT_F7_FRAME_ERROR] + counts[_EVENT_STX_FRAME_ERROR]
+            ),
+            "rx_resync_events": (
+                counts[_EVENT_F7_RESYNC] + counts[_EVENT_STX_RESYNC]
+            ),
+            "tx_giveups": (
+                counts[_EVENT_TX_CONTROL_GIVEUP]
+                + counts[_EVENT_TX_STATE_REQUEST_GIVEUP]
+            ),
+            "tx_control_giveups": counts[_EVENT_TX_CONTROL_GIVEUP],
+            "tx_state_request_giveups": counts[_EVENT_TX_STATE_REQUEST_GIVEUP],
+        }
+
 
 def empty_packet_quality_report() -> dict[str, Any]:
     return PacketQualityMonitor().report()
+
+
+def _quality_state(*, rx_error_count: int, tx_control_giveups: int) -> str:
+    if rx_error_count and tx_control_giveups:
+        return "rx_and_tx_errors"
+    if tx_control_giveups:
+        return "tx_giveups"
+    if rx_error_count:
+        return "rx_errors"
+    return "ok"
 
 
 def _frame_error_payload(
@@ -256,13 +362,14 @@ def _frame_error_payload(
     reason: str,
     frame_raw: bytes,
     *,
+    now: datetime,
     dev_id: int | None = None,
     sub_id: int | None = None,
     cmd: int | None = None,
     length: int | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "time": _now(),
+        "time": _format_time(now),
         "kind": kind,
         "reason": reason,
         "raw_hex": frame_raw.hex().upper(),
@@ -282,5 +389,9 @@ def _hex_byte(value: int) -> str:
     return f"0x{value & 0xFF:02X}"
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _format_time(value: datetime) -> str:
+    return value.isoformat()

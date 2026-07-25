@@ -129,6 +129,54 @@ def test_send_f7_command_until_give_up_log_includes_payload_packet_and_health(ca
     assert "seconds_since_last_rx=42.0" in messages
 
 
+def test_send_f7_state_request_give_up_logs_at_debug_not_warning(caplog):
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    packet_quality_module = load_integration_module("packet_quality")
+    protocol_module = load_integration_module("protocol")
+
+    matched = protocol_module.KsFrame(
+        addr=0x0E,
+        sub_id=0x3F,
+        cmd=0x81,
+        payload=b"",
+        checksum=0,
+        raw=b"",
+    )
+    fake = _FakeCoordinator(matched, match_after_attempts=99)
+    fake.max_attempts = 1
+    monitor = packet_quality_module.PacketQualityMonitor()
+    setattr(fake, "codec", protocol_module.Ksx4506Codec())
+    setattr(fake, "_client", _FakeClient())
+    setattr(fake, "packet_quality", monitor)
+    send_until = _bind_method(
+        fake,
+        "async_send_f7_command_until",
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
+    )
+
+    caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11.coordinator")
+
+    result = asyncio.run(
+        send_until(
+            0x0E,
+            0x3F,
+            0x01,
+            b"",
+            lambda frame: False,
+            interval=0,
+        )
+    )
+
+    assert result is None
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "TX F7 state request gave up dev=0x0E sub=0x3F cmd=0x01" in messages
+    report = monitor.report()
+    assert report["state"] == "ok"
+    assert report["tx"]["state_request_giveups"] == 1
+
+
 def test_meter_startup_probe_requests_whole_and_individual_meter_states():
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")

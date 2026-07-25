@@ -1,6 +1,6 @@
 [project]
 name = "ksx4506-ew11-ha"
-version = "0.2.23"
+version = "0.2.24"
 description = "Home Assistant integration for KS X 4506 over EW11"
 readme = "README.md"
 requires-python = ">=3.13.2,<3.14"

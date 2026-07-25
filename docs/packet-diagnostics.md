@@ -54,15 +54,29 @@ to respond.
 
 Useful attributes:
 
-- `summary`: RX checksum/frame errors, F7 resync events, and TX giveups
+- `state`: recent health state for the last 10 minutes
+- `lifetime_state`: health state if all counters since integration start are
+  considered
+- `summary`: recent RX checksum/frame errors, F7 resync events, and control TX
+  giveups, plus lifetime control/state-request giveups
+- `recent`: recent 10-minute counts used to calculate `state`
 - `rx.f7_checksum_errors`: F7 frames that had no recoverable valid next header
 - `rx.f7_resync_events`: malformed F7 candidates where the decoder recovered at
   an embedded next F7 header
 - `rx.stx_resync_events`: false STX candidates where the decoder recovered at a
   following valid header
 - `rx.last_resync`: most recent resync reason and source frame
-- `tx.giveups`: commands that exhausted ACK/status confirmation attempts
+- `tx.giveups`: commands or state requests that exhausted confirmation attempts
+- `tx.control_giveups`: user-facing control commands that exhausted
+  ACK/status confirmation attempts
+- `tx.state_request_giveups`: startup or follow-up state requests that exhausted
+  status confirmation attempts
 - `tx.last_giveup`: most recent command that was abandoned after retry attempts
+
+Only recent RX errors and recent `tx.control_giveups` affect `state`. State
+request giveups are kept in attributes for diagnosis, but they do not mark the
+sensor unhealthy by themselves because restored historical entities may be
+probed during startup.
 
 Resync events are separated from checksum/frame errors because TCP/EW11 chunks
 can contain a damaged or stale frame candidate immediately followed by a valid

@@ -475,20 +475,40 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 return matched
             health = self._client.health_report()
-            _LOGGER.warning(
-                "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
-                "attempts=%d payload=%s packet=%s ew11_state=%s "
-                "seconds_since_last_rx=%s last_error=%s",
-                dev_id,
-                sub_id,
-                cmd,
-                attempts,
-                payload.hex(),
-                self.codec.build_f7(dev_id, sub_id, cmd, payload).hex(),
-                health.get("state"),
-                health.get("seconds_since_last_rx"),
-                health.get("last_error"),
+            is_state_request = (
+                cmd == _status_request_command(dev_id) and payload == b""
             )
+            packet_hex = self.codec.build_f7(dev_id, sub_id, cmd, payload).hex()
+            if is_state_request:
+                _LOGGER.debug(
+                    "TX F7 state request gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
+                    "attempts=%d payload=%s packet=%s ew11_state=%s "
+                    "seconds_since_last_rx=%s last_error=%s",
+                    dev_id,
+                    sub_id,
+                    cmd,
+                    attempts,
+                    payload.hex(),
+                    packet_hex,
+                    health.get("state"),
+                    health.get("seconds_since_last_rx"),
+                    health.get("last_error"),
+                )
+            else:
+                _LOGGER.warning(
+                    "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
+                    "attempts=%d payload=%s packet=%s ew11_state=%s "
+                    "seconds_since_last_rx=%s last_error=%s",
+                    dev_id,
+                    sub_id,
+                    cmd,
+                    attempts,
+                    payload.hex(),
+                    packet_hex,
+                    health.get("state"),
+                    health.get("seconds_since_last_rx"),
+                    health.get("last_error"),
+                )
             quality = getattr(self, "packet_quality", None)
             if quality is not None:
                 quality.record_tx_giveup(
@@ -497,8 +517,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     cmd=cmd,
                     payload=payload,
                     attempts=attempts,
-                    is_state_request=cmd == _status_request_command(dev_id)
-                    and payload == b"",
+                    is_state_request=is_state_request,
                     health=health,
                 )
                 publish = getattr(self, "_publish_registry_state", None)
