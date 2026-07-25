@@ -1,22 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
-import json
 import logging
 
-from .frame import ChecksumError, Frame, FrameError
+from .frame import Frame
 from .packet_quality import PacketQualityMonitor
-
-
-@dataclass
-class KsFrame:
-    addr: int
-    cmd: int
-    payload: bytes
-    checksum: int
-    raw: bytes
-    sub_id: int = 0
+from .protocol_f7 import parse_f7_frame, valid_embedded_f7_pos
+from .protocol_f7_log import F7PacketLogger
+from .protocol_stx import parse_stx_frame
+from .protocol_types import KsFrame
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,8 +34,7 @@ class Ksx4506Codec:
         self._checksum_mode: str = checksum_mode
         self._packet_quality: PacketQualityMonitor | None = packet_quality
         self._buf: bytearray = bytearray()
-        self._last_ok_f7_hex: str | None = None
-        self._last_bad_f7_hex: str | None = None
+        self._f7_logger = F7PacketLogger()
 
     def feed(self, data: bytes) -> list[KsFrame]:
         self._buf.extend(data)
@@ -108,349 +99,14 @@ class Ksx4506Codec:
             return self._parse_f7_frame()
         return None
 
-    def _valid_embedded_f7_pos(self, limit: int) -> int:
-        pos = 5
-        while pos < limit:
-            try:
-                pos = self._buf.index(0xF7, pos, limit)
-            except ValueError:
-                return -1
-
-            if len(self._buf) < pos + 5:
-                return pos
-
-            length = self._buf[pos + 4]
-            total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
-            if total < 7 or total > 512:
-                pos += 1
-                continue
-
-            if len(self._buf) < pos + total:
-                return pos
-
-            try:
-                _ = Frame.from_bytes(bytes(self._buf[pos : pos + total]))
-            except FrameError:
-                pos += 1
-                continue
-            return pos
-
-        return -1
-
     def _parse_stx_frame(self) -> KsFrame | None:
-        if len(self._buf) < 7:
-            return None
-
-        length = self._buf[3]
-        total = 1 + 1 + 1 + 1 + length + 1 + 1
-        if total < 7 or total > 512:
-            n = self._next_header_pos(1)
-            if n > 0:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_stx_resync(
-                        reason="invalid_length_before_next_header",
-                        frame_raw=bytes(self._buf[:n]),
-                        length=length,
-                    )
-                del self._buf[:n]
-                return self._parse_buffer_head()
-
-            _LOGGER.debug("drop STX: invalid length=%d", total)
-            if self._packet_quality is not None:
-                self._packet_quality.record_stx_frame_error(
-                    reason="invalid_length",
-                    frame_raw=bytes(self._buf[: min(len(self._buf), 16)]),
-                    length=length,
-                )
-            del self._buf[:1]
-            return None
-
-        if len(self._buf) < total:
-            n = self._next_header_pos(1)
-            if n > 0:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_stx_resync(
-                        reason="incomplete_before_next_header",
-                        frame_raw=bytes(self._buf[:n]),
-                        addr=self._buf[1] if len(self._buf) > 1 else None,
-                        cmd=self._buf[2] if len(self._buf) > 2 else None,
-                        length=length,
-                    )
-                del self._buf[:n]
-                return self._parse_buffer_head()
-            return None
-
-        frame_raw = bytes(self._buf[:total])
-
-        if frame_raw[-1] != self._etx:
-            n = self._next_header_pos(1)
-            if n > 0 and n < total:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_stx_resync(
-                        reason="missing_etx_before_next_header",
-                        frame_raw=frame_raw,
-                        addr=frame_raw[1],
-                        cmd=frame_raw[2],
-                        length=length,
-                    )
-                del self._buf[:n]
-                return self._parse_buffer_head()
-
-            _LOGGER.debug("drop STX: missing ETX raw=%s", frame_raw.hex())
-            if self._packet_quality is not None:
-                self._packet_quality.record_stx_frame_error(
-                    reason="missing_etx",
-                    frame_raw=frame_raw,
-                    addr=frame_raw[1],
-                    cmd=frame_raw[2],
-                    length=length,
-                )
-            del self._buf[:1]
-            return None
-
-        addr = frame_raw[1]
-        cmd = frame_raw[2]
-        payload = frame_raw[4 : 4 + length]
-        recv_checksum = frame_raw[4 + length]
-        calc_checksum = self.calc_checksum([addr, cmd, length, *payload])
-        if recv_checksum != calc_checksum:
-            n = self._next_header_pos(1)
-            if n > 0 and n < total:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_stx_resync(
-                        reason="checksum_mismatch_before_next_header",
-                        frame_raw=frame_raw,
-                        addr=addr,
-                        cmd=cmd,
-                        length=length,
-                    )
-                del self._buf[:n]
-                return self._parse_buffer_head()
-
-            _LOGGER.debug(
-                "drop STX: checksum mismatch recv=0x%02X calc=0x%02X raw=%s",
-                recv_checksum,
-                calc_checksum,
-                frame_raw.hex(),
-            )
-            if self._packet_quality is not None:
-                self._packet_quality.record_stx_checksum_error(
-                    addr=addr,
-                    cmd=cmd,
-                    length=length,
-                    recv_checksum=recv_checksum,
-                    calc_checksum=calc_checksum,
-                    frame_raw=frame_raw,
-                )
-            del self._buf[:1]
-            return None
-
-        del self._buf[:total]
-        _LOGGER.debug("parsed STX frame addr=0x%02X cmd=0x%02X len=%d", addr, cmd, len(payload))
-        if self._packet_quality is not None:
-            self._packet_quality.record_stx_frame_ok()
-        return KsFrame(addr=addr, cmd=cmd, payload=payload, checksum=recv_checksum, raw=frame_raw)
-
-    def _emit_f7_packet_log(
-        self,
-        *,
-        dev_id: int,
-        sub_id: int,
-        cmd: int,
-        length: int,
-        payload: bytes,
-        recv_xor: int,
-        recv_add: int,
-        calc_xor: int,
-        calc_add: int,
-        frame_raw: bytes,
-        parity: bool,
-    ) -> None:
-        hex_string = frame_raw.hex()
-        info = {
-            "header": "f7",
-            "devId": f"{dev_id:02x}",
-            "subId": f"{sub_id:02x}",
-            "command": f"{cmd:02x}",
-            "len": length,
-            "data": payload.hex(),
-            "xor": f"{recv_xor:02x}",
-            "add": f"{recv_add:02x}",
-            "size": len(hex_string),
-            "hexString": hex_string,
-            "checksum": {"xor": f"{calc_xor:02x}", "add": f"{calc_add:02x}"},
-            "parity": parity,
-        }
-
-        if not parity:
-            _LOGGER.warning(
-                "drop F7: checksum mismatch dev=0x%02X sub=0x%02X cmd=0x%02X "
-                + "len=%d recv=0x%02X/0x%02X calc=0x%02X/0x%02X",
-                dev_id,
-                sub_id,
-                cmd,
-                length,
-                recv_xor,
-                recv_add,
-                calc_xor,
-                calc_add,
-            )
-            if self._last_bad_f7_hex != hex_string:
-                self._last_bad_f7_hex = hex_string
-                _LOGGER.debug(
-                    "drop F7 packet :: %s",
-                    json.dumps(info, ensure_ascii=False, indent=2),
-                )
-            return
-
-        # 정상 패킷은 중복 로그 억제
-        if self._last_ok_f7_hex == hex_string:
-            return
-        self._last_ok_f7_hex = hex_string
-        _LOGGER.debug("packet :: %s", json.dumps(info, ensure_ascii=False, indent=2))
+        return parse_stx_frame(self)
 
     def _parse_f7_frame(self) -> KsFrame | None:
-        # header+dev+sub+cmd+len+xor+add => minimum 7 bytes
-        if len(self._buf) < 7:
-            return None
+        return parse_f7_frame(self)
 
-        dev_id = self._buf[1]
-        sub_id = self._buf[2]
-        cmd = self._buf[3]
-        length = self._buf[4]
-        total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
-
-        if total < 7 or total > 512:
-            _LOGGER.debug("drop F7: invalid length=%d", total)
-            if self._packet_quality is not None:
-                self._packet_quality.record_f7_frame_error(
-                    reason="invalid_length",
-                    frame_raw=bytes(self._buf[: min(len(self._buf), 16)]),
-                    dev_id=dev_id,
-                    sub_id=sub_id,
-                    cmd=cmd,
-                    length=length,
-                )
-            del self._buf[:1]
-            return None
-
-        if len(self._buf) < total:
-            n = self._next_header_pos(1)
-            if n > 0:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_f7_resync(
-                        reason="incomplete_before_next_header",
-                        frame_raw=bytes(self._buf[:n]),
-                        dev_id=dev_id,
-                        sub_id=sub_id,
-                        cmd=cmd,
-                        length=length,
-                    )
-                del self._buf[:n]
-                return self._parse_buffer_head()
-            return None
-
-        frame_raw = bytes(self._buf[:total])
-        recv_xor = frame_raw[5 + length]
-        recv_add = frame_raw[6 + length]
-
-        try:
-            parsed = Frame.from_bytes(frame_raw)
-            calc_xor, calc_add = parsed.checksums()
-        except ChecksumError:
-            payload = frame_raw[5 : 5 + length]
-            calc_xor, calc_add = Frame(
-                device_id=dev_id,
-                sub_id=sub_id,
-                command_type=cmd,
-                data=payload,
-            ).checksums()
-            resync_pos = self._valid_embedded_f7_pos(total)
-            if resync_pos > 0:
-                if self._packet_quality is not None:
-                    self._packet_quality.record_f7_resync(
-                        reason="checksum_mismatch_with_embedded_header",
-                        frame_raw=frame_raw,
-                        dev_id=dev_id,
-                        sub_id=sub_id,
-                        cmd=cmd,
-                        length=length,
-                    )
-                del self._buf[:resync_pos]
-                return self._parse_buffer_head()
-
-            self._emit_f7_packet_log(
-                dev_id=dev_id,
-                sub_id=sub_id,
-                cmd=cmd,
-                length=length,
-                payload=payload,
-                recv_xor=recv_xor,
-                recv_add=recv_add,
-                calc_xor=calc_xor,
-                calc_add=calc_add,
-                frame_raw=frame_raw,
-                parity=False,
-            )
-            if self._packet_quality is not None:
-                self._packet_quality.record_f7_checksum_error(
-                    dev_id=dev_id,
-                    sub_id=sub_id,
-                    cmd=cmd,
-                    length=length,
-                    recv_xor=recv_xor,
-                    recv_add=recv_add,
-                    calc_xor=calc_xor,
-                    calc_add=calc_add,
-                    frame_raw=frame_raw,
-                )
-            del self._buf[:1]
-            return None
-        except FrameError as exc:
-            _LOGGER.debug("drop F7: invalid frame raw=%s error=%s", frame_raw.hex(), exc)
-            if self._packet_quality is not None:
-                self._packet_quality.record_f7_frame_error(
-                    reason=str(exc),
-                    frame_raw=frame_raw,
-                    dev_id=dev_id,
-                    sub_id=sub_id,
-                    cmd=cmd,
-                    length=length,
-                )
-            del self._buf[:1]
-            return None
-
-        self._emit_f7_packet_log(
-            dev_id=parsed.device_id,
-            sub_id=parsed.sub_id,
-            cmd=parsed.command_type,
-            length=parsed.length,
-            payload=parsed.data,
-            recv_xor=recv_xor,
-            recv_add=recv_add,
-            calc_xor=calc_xor,
-            calc_add=calc_add,
-            frame_raw=frame_raw,
-            parity=True,
-        )
-
-        del self._buf[:total]
-        if self._packet_quality is not None:
-            self._packet_quality.record_f7_frame_ok(
-                dev_id=parsed.device_id,
-                sub_id=parsed.sub_id,
-                cmd=parsed.command_type,
-                length=parsed.length,
-                frame_raw=frame_raw,
-            )
-        return KsFrame(
-            addr=parsed.device_id,
-            sub_id=parsed.sub_id,
-            cmd=parsed.command_type,
-            payload=parsed.data,
-            checksum=recv_add,
-            raw=frame_raw,
-        )
+    def _valid_embedded_f7_pos(self, limit: int) -> int:
+        return valid_embedded_f7_pos(self._buf, limit)
 
     def build(self, addr: int, cmd: int, payload: bytes) -> bytes:
         length = len(payload)
@@ -476,3 +132,6 @@ class Ksx4506Codec:
         for v in values:
             s = (s + (v & 0xFF)) & 0xFF
         return s
+
+
+__all__ = ["KsFrame", "Ksx4506Codec"]
