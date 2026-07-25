@@ -83,6 +83,8 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 
 아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다. 진단 분류와 센서 속성의 의미는 [Packet Diagnostics](docs/packet-diagnostics.md)를 참고하세요.
 
+EW11이 연결된 것처럼 보이지만 장치 반응이 느리거나 간헐적으로 실패하면 `Packet Quality` 진단 센서에서 `rx_checksum_errors`, `rx_resync_events`, `tx_giveups`, `last_giveup` 속성을 먼저 확인하세요. `rx_resync_events`는 깨진 후보 프레임 안에서 다음 유효 F7 헤더를 찾아 복구한 횟수라 실제 checksum 실패와 분리해 봅니다.
+
 기본 제보에는 raw 패킷 샘플이 포함되지 않습니다. 먼저 안전한 기본 diagnostics로 제보하고, 장치 분석에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 잠시 켜세요.
 
 1. Home Assistant에서 `설정` -> `기기 및 서비스` -> `KS X 4506 EW11`로 이동합니다.

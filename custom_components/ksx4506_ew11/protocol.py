@@ -99,6 +99,35 @@ class Ksx4506Codec:
                 pass
         return min(positions) if positions else -1
 
+    def _valid_embedded_f7_pos(self, limit: int) -> int:
+        pos = 5
+        while pos < limit:
+            try:
+                pos = self._buf.index(0xF7, pos, limit)
+            except ValueError:
+                return -1
+
+            if len(self._buf) < pos + 5:
+                return pos
+
+            length = self._buf[pos + 4]
+            total = 1 + 1 + 1 + 1 + 1 + length + 1 + 1
+            if total < 7 or total > 512:
+                pos += 1
+                continue
+
+            if len(self._buf) < pos + total:
+                return pos
+
+            try:
+                Frame.from_bytes(bytes(self._buf[pos : pos + total]))
+            except FrameError:
+                pos += 1
+                continue
+            return pos
+
+        return -1
+
     def _parse_stx_frame(self) -> KsFrame | None:
         if len(self._buf) < 7:
             return None
@@ -119,8 +148,17 @@ class Ksx4506Codec:
         if len(self._buf) < total:
             n = self._next_header_pos(1)
             if n > 0:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_f7_resync(
+                        reason="incomplete_before_next_header",
+                        frame_raw=bytes(self._buf[:n]),
+                        dev_id=dev_id,
+                        sub_id=sub_id,
+                        cmd=cmd,
+                        length=length,
+                    )
                 del self._buf[:n]
-                return None
+                return self._parse_f7_frame()
             return None
 
         frame_raw = bytes(self._buf[:total])
@@ -272,6 +310,20 @@ class Ksx4506Codec:
                 command_type=cmd,
                 data=payload,
             ).checksums()
+            resync_pos = self._valid_embedded_f7_pos(total)
+            if resync_pos > 0:
+                if self._packet_quality is not None:
+                    self._packet_quality.record_f7_resync(
+                        reason="checksum_mismatch_with_embedded_header",
+                        frame_raw=frame_raw,
+                        dev_id=dev_id,
+                        sub_id=sub_id,
+                        cmd=cmd,
+                        length=length,
+                    )
+                del self._buf[:resync_pos]
+                return self._parse_f7_frame()
+
             self._emit_f7_packet_log(
                 dev_id=dev_id,
                 sub_id=sub_id,

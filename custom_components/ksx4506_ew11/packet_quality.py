@@ -10,6 +10,7 @@ class PacketQualityMonitor:
         self.valid_stx_frames = 0
         self.f7_checksum_errors = 0
         self.f7_frame_errors = 0
+        self.f7_resync_events = 0
         self.stx_checksum_errors = 0
         self.stx_frame_errors = 0
         self.tx_giveups = 0
@@ -17,6 +18,7 @@ class PacketQualityMonitor:
         self.tx_state_request_giveups = 0
         self._last_valid_f7: dict[str, Any] | None = None
         self._last_rx_error: dict[str, Any] | None = None
+        self._last_rx_resync: dict[str, Any] | None = None
         self._last_tx_giveup: dict[str, Any] | None = None
 
     def record_f7_frame_ok(
@@ -80,6 +82,27 @@ class PacketQualityMonitor:
         self.f7_frame_errors += 1
         self._last_rx_error = _frame_error_payload(
             "f7_frame",
+            reason,
+            frame_raw,
+            dev_id=dev_id,
+            sub_id=sub_id,
+            cmd=cmd,
+            length=length,
+        )
+
+    def record_f7_resync(
+        self,
+        *,
+        reason: str,
+        frame_raw: bytes,
+        dev_id: int | None = None,
+        sub_id: int | None = None,
+        cmd: int | None = None,
+        length: int | None = None,
+    ) -> None:
+        self.f7_resync_events += 1
+        self._last_rx_resync = _frame_error_payload(
+            "f7_resync",
             reason,
             frame_raw,
             dev_id=dev_id,
@@ -179,6 +202,7 @@ class PacketQualityMonitor:
             "summary": (
                 f"rx_checksum_errors={self.f7_checksum_errors + self.stx_checksum_errors}, "
                 f"rx_frame_errors={self.f7_frame_errors + self.stx_frame_errors}, "
+                f"rx_resync_events={self.f7_resync_events}, "
                 f"tx_giveups={self.tx_giveups}"
             ),
             "rx": {
@@ -186,10 +210,12 @@ class PacketQualityMonitor:
                 "valid_stx_frames": self.valid_stx_frames,
                 "f7_checksum_errors": self.f7_checksum_errors,
                 "f7_frame_errors": self.f7_frame_errors,
+                "f7_resync_events": self.f7_resync_events,
                 "stx_checksum_errors": self.stx_checksum_errors,
                 "stx_frame_errors": self.stx_frame_errors,
                 "last_valid_f7": self._last_valid_f7,
                 "last_error": self._last_rx_error,
+                "last_resync": self._last_rx_resync,
             },
             "tx": {
                 "giveups": self.tx_giveups,

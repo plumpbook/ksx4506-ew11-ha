@@ -60,6 +60,32 @@ def test_codec_records_f7_checksum_errors_and_valid_f7_frames():
     assert report["rx"]["last_error"]["device_id"] == "0x0E"
 
 
+def test_codec_resyncs_when_bad_f7_frame_contains_next_valid_header():
+    install_homeassistant_stubs()
+    packet_quality = load_integration_module("packet_quality")
+    protocol = load_integration_module("protocol")
+
+    monitor = packet_quality.PacketQualityMonitor()
+    codec = protocol.Ksx4506Codec(packet_quality=monitor)
+    raw = bytes.fromhex(
+        "F7 36 1F 81 0F 00 00 1F 00 00 05 FE "
+        "F7 0E 11 01 00 E9 00 95 "
+        "F7 0E 11 81 04 00 00 00 00 6D 08"
+    )
+
+    frames = codec.feed(raw)
+
+    assert [(frame.addr, frame.sub_id, frame.cmd) for frame in frames] == [
+        (0x0E, 0x11, 0x01),
+        (0x0E, 0x11, 0x81),
+    ]
+    report = monitor.report()
+    assert report["state"] == "ok"
+    assert report["rx"]["f7_checksum_errors"] == 0
+    assert report["rx"]["f7_resync_events"] == 1
+    assert report["rx"]["last_resync"]["reason"] == "checksum_mismatch_with_embedded_header"
+
+
 def test_packet_quality_records_tx_give_up_from_coordinator():
     install_homeassistant_stubs()
     packet_quality = load_integration_module("packet_quality")
