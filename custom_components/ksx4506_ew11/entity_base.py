@@ -68,6 +68,24 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
             self._device_state,
         )
 
+    def _handle_coordinator_update(self) -> None:
+        changed_device_keys = getattr(
+            self.coordinator,
+            "_last_changed_device_keys",
+            None,
+        )
+        if changed_device_keys is not None and self.dev_key not in changed_device_keys:
+            return
+
+        update_handler = getattr(super(), "_handle_coordinator_update", None)
+        if update_handler is not None:
+            update_handler()
+            return
+
+        write_state = getattr(self, "async_write_ha_state", None)
+        if write_state is not None:
+            write_state()
+
     async def _async_restore_last_on_state(
         self,
         *,

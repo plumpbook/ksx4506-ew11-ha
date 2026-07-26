@@ -127,6 +127,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.packet_capture: deque[dict[str, Any]] = deque(
             maxlen=self.packet_capture_limit
         )
+        self._last_changed_device_keys: frozenset[str] | None = None
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
         self._meter_probe_task: asyncio.Task[None] | None = None
         self._known_device_probe_task: asyncio.Task[None] | None = None
@@ -134,7 +135,13 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
 
-    def _publish_registry_state(self) -> None:
+    def _publish_registry_state(
+        self,
+        changed_device_keys: set[str] | frozenset[str] | None = None,
+    ) -> None:
+        self._last_changed_device_keys = (
+            None if changed_device_keys is None else frozenset(changed_device_keys)
+        )
         self.async_set_updated_data(
             {key: device.state for key, device in self.registry.devices.items()}
         )
@@ -217,7 +224,10 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
         for dev_key in self.registry.retired_device_keys - retired_before:
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_REMOVED, dev_key)
-        self._publish_registry_state()
+        self._publish_registry_state(
+            {dev.key for dev, _is_new in changes}
+            | (self.registry.retired_device_keys - retired_before)
+        )
         self._notify_frame_waiters(frame)
 
     def _capture_packet(
