@@ -49,7 +49,10 @@ def test_packet_capture_records_filtered_frames_with_limit():
     coordinator_module.Ksx4506Coordinator._capture_packet(fake, first)
     coordinator_module.Ksx4506Coordinator._capture_packet(fake, ignored)
     coordinator_module.Ksx4506Coordinator._capture_packet(fake, latest)
-    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(fake)
+    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(
+        fake,
+        include_packet_samples=True,
+    )
 
     assert report["enabled"] is True
     assert report["filter"] == "33"
@@ -130,6 +133,9 @@ def test_packet_capture_report_splits_candidate_and_unsupported_packets():
     assert report["packets"][0]["classification"] == "candidate"
     assert report["packets"][1]["classification"] == "unsupported"
     assert report["packets"][2]["classification"] == "supported"
+    assert report["packet_samples_redacted"] is True
+    assert "raw_hex" not in repr(report)
+    assert "payload_hex" not in repr(report)
 
 
 def test_packet_capture_report_includes_readable_summary_fields():
@@ -173,7 +179,10 @@ def test_packet_capture_report_includes_readable_summary_fields():
         classification={"classification": "candidate", "reason": "unregistered_sub_id"},
     )
 
-    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(fake)
+    report = coordinator_module.Ksx4506Coordinator.packet_capture_report(
+        fake,
+        include_packet_samples=True,
+    )
 
     assert report["summary"] == (
         "supported=0, ignored_request=0, candidate=1, unsupported=1"
@@ -195,22 +204,57 @@ def test_packet_capture_sensor_reports_coordinator_capture():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")
 
-    coordinator = types.SimpleNamespace(
-        packet_capture_report=lambda: {
+    include_samples = []
+
+    def packet_capture_report(*, include_packet_samples=False):
+        include_samples.append(include_packet_samples)
+        return {
             "enabled": True,
             "filter": "33,40",
             "limit": 20,
             "count": 1,
             "packets": [{"device_id": "0x33"}],
         }
+
+    coordinator = types.SimpleNamespace(
+        packet_capture_report=packet_capture_report,
     )
-    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+    entry = types.SimpleNamespace(
+        entry_id="entry-1",
+        title="EW11 example",
+        data={},
+        options={},
+    )
 
     entity = sensor_module.KsxPacketCaptureSensor(coordinator, entry)
 
     assert entity.native_value == 1
     assert entity.extra_state_attributes["packets"] == [{"device_id": "0x33"}]
     assert entity._attr_unique_id == "ksx4506_entry-1_packet_capture"
+    assert include_samples == [False, False]
+
+
+def test_packet_capture_sensor_honors_explicit_sample_exposure_option():
+    install_homeassistant_stubs()
+    sensor_module = load_integration_module("sensor")
+    include_samples = []
+
+    def packet_capture_report(*, include_packet_samples=False):
+        include_samples.append(include_packet_samples)
+        return {"count": 1, "packets": [{"raw_hex": "F733"}]}
+
+    coordinator = types.SimpleNamespace(packet_capture_report=packet_capture_report)
+    entry = types.SimpleNamespace(
+        entry_id="entry-1",
+        title="EW11 example",
+        data={},
+        options={"expose_packet_samples": True},
+    )
+
+    entity = sensor_module.KsxPacketCaptureSensor(coordinator, entry)
+
+    assert entity.extra_state_attributes["packets"] == [{"raw_hex": "F733"}]
+    assert include_samples == [True]
 
 
 def test_packet_quality_sensor_reports_coordinator_quality():
@@ -223,14 +267,27 @@ def test_packet_quality_sensor_reports_coordinator_quality():
         "rx": {"f7_checksum_errors": 0},
         "tx": {"giveups": 1},
     }
-    coordinator = types.SimpleNamespace(packet_quality_report=lambda: report)
-    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+    include_samples = []
+
+    def packet_quality_report(*, include_packet_samples=False):
+        include_samples.append(include_packet_samples)
+        return report
+
+    coordinator = types.SimpleNamespace(packet_quality_report=packet_quality_report)
+    entry = types.SimpleNamespace(
+        entry_id="entry-1",
+        title="EW11 example",
+        data={},
+        options={},
+    )
 
     entity = sensor_module.KsxPacketQualitySensor(coordinator, entry)
 
     assert entity.native_value == "tx_giveups"
     assert entity.extra_state_attributes["tx"]["giveups"] == 1
     assert entity._attr_unique_id == "ksx4506_entry-1_packet_quality"
+    assert entity._attr_entity_registry_enabled_default is False
+    assert include_samples == [False, False]
 
 
 def test_ew11_link_sensor_reports_connection_health():

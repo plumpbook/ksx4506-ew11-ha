@@ -5,6 +5,7 @@ from typing import Any
 from homeassistant.components.fan import FanEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -59,7 +60,13 @@ class KsxFan(KsxEntity, FanEntity):
         **kwargs: Any,
     ) -> None:
         speed = 1 if percentage is None else max(1, min(3, round(percentage / 33)))
-        await self.coordinator.async_send_command(self.addr, CMD_SET_FAN, bytes([speed]))
+        if not await self.coordinator.async_send_command(
+            self.addr, CMD_SET_FAN, bytes([speed])
+        ):
+            raise HomeAssistantError("KSX fan command could not be sent")
 
     async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_send_command(self.addr, CMD_SET_FAN, b"\x00")
+        if not await self.coordinator.async_send_command(
+            self.addr, CMD_SET_FAN, b"\x00"
+        ):
+            raise HomeAssistantError("KSX fan command could not be sent")

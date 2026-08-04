@@ -83,7 +83,12 @@ def parse_stx_frame(codec: StxCodecHost) -> KsFrame | None:
             del codec._buf[:n]
             return codec._parse_buffer_head()
 
-        _LOGGER.debug("drop STX: missing ETX raw=%s", frame_raw.hex())
+        _LOGGER.debug(
+            "drop STX: missing ETX addr=0x%02X cmd=0x%02X len=%d",
+            frame_raw[1],
+            frame_raw[2],
+            length,
+        )
         if codec._packet_quality is not None:
             codec._packet_quality.record_stx_frame_error(
                 reason="missing_etx",
@@ -115,10 +120,13 @@ def parse_stx_frame(codec: StxCodecHost) -> KsFrame | None:
             return codec._parse_buffer_head()
 
         _LOGGER.debug(
-            "drop STX: checksum mismatch recv=0x%02X calc=0x%02X raw=%s",
+            "drop STX: checksum mismatch addr=0x%02X cmd=0x%02X len=%d "
+            "recv=0x%02X calc=0x%02X",
+            addr,
+            cmd,
+            length,
             recv_checksum,
             calc_checksum,
-            frame_raw.hex(),
         )
         if codec._packet_quality is not None:
             codec._packet_quality.record_stx_checksum_error(

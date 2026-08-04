@@ -521,6 +521,19 @@ def test_supported_command_with_invalid_payload_is_candidate():
     assert report["latest_packet"]["reason"] == "candidate_light_packet"
 
 
+def test_oversized_light_group_payload_does_not_create_devices():
+    reg = DeviceRegistry()
+    payload = bytes([0x00]) + bytes([0x01]) * 254
+
+    changes = reg.upsert_from_frame(0x0E, 0x1F, 0x81, payload, "f7...")
+
+    assert changes == []
+    assert reg.devices == {}
+    report = reg.unsupported_packet_report()
+    assert report["candidate_seen"] == 1
+    assert report["latest_packet"]["reason"] == "invalid_light_channel_count"
+
+
 def test_registry_tracks_last_packet_classification():
     reg = DeviceRegistry()
 

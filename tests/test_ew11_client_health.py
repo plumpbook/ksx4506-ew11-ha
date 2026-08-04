@@ -1,6 +1,8 @@
 from pathlib import Path
 import asyncio  # noqa: ANYIO_OK
 from datetime import datetime, timezone
+import logging
+import socket
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -82,6 +84,27 @@ def test_ew11_client_does_not_mark_invalid_chunks_as_rx(monkeypatch):
 
 def test_ew11_client_tracks_disconnect_history():
     asyncio.run(_assert_disconnect_history_is_tracked())
+
+
+def test_timed_out_queued_command_is_not_sent_later():
+    asyncio.run(_assert_timed_out_queued_command_is_not_sent_later())
+
+
+def test_stalled_drain_is_aborted_and_returns_failure():
+    asyncio.run(_assert_stalled_drain_is_aborted_and_returns_failure())
+
+
+def test_stop_resolves_an_active_command_and_awaits_worker():
+    asyncio.run(_assert_stop_resolves_an_active_command_and_awaits_worker())
+
+
+def test_client_exchanges_frames_over_loopback_tcp(caplog):
+    caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11")
+    asyncio.run(_assert_client_exchanges_frames_over_loopback_tcp())
+
+    messages = "\n".join(record.getMessage() for record in caplog.records).lower()
+    assert "f70e1101001e2d" not in messages
+    assert "f70e11810200016a04" not in messages
 
 
 async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
@@ -279,6 +302,196 @@ async def _assert_disconnect_history_is_tracked():
     planned_stop_report = planned_stop_client.health_report()
     assert planned_stop_report["disconnect_count"] == 0
     assert planned_stop_report["last_disconnect_at"] is None
+
+
+async def _assert_timed_out_queued_command_is_not_sent_later():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class FakeWriter:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, payload):
+            self.writes.append(payload)
+
+        async def drain(self):
+            return None
+
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def on_frame(_frame):
+        return None
+
+    writer = FakeWriter()
+    client = ew11_client.Ew11Client(
+        "ew11.example.invalid", 8899, 0.1, 0, protocol.Ksx4506Codec(), on_frame
+    )
+    client._running = True
+    client._writer = writer
+    client._command_timeout = lambda: 0.01
+
+    assert await client.send_with_retry(b"expired") is False
+
+    client._worker_task = asyncio.create_task(client._command_worker())
+    await asyncio.wait_for(client._cmd_queue.join(), timeout=1)
+    await client.stop()
+
+    assert writer.writes == []
+
+
+async def _assert_stalled_drain_is_aborted_and_returns_failure():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class FakeTransport:
+        def __init__(self):
+            self.aborted = False
+
+        def abort(self):
+            self.aborted = True
+
+    class FakeWriter:
+        def __init__(self):
+            self.transport = FakeTransport()
+            self.drain_started = asyncio.Event()
+
+        def write(self, _payload):
+            return None
+
+        async def drain(self):
+            self.drain_started.set()
+            await asyncio.Event().wait()
+
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def on_frame(_frame):
+        return None
+
+    writer = FakeWriter()
+    client = ew11_client.Ew11Client(
+        "ew11.example.invalid", 8899, 0.01, 0, protocol.Ksx4506Codec(), on_frame
+    )
+    client._running = True
+    client._writer = writer
+    client._worker_task = asyncio.create_task(client._command_worker())
+
+    result = await asyncio.wait_for(client.send_with_retry(b"blocked"), timeout=1)
+    await client.stop()
+
+    assert result is False
+    assert writer.transport.aborted is True
+
+
+async def _assert_stop_resolves_an_active_command_and_awaits_worker():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    class FakeWriter:
+        def __init__(self):
+            self.drain_started = asyncio.Event()
+
+        def write(self, _payload):
+            return None
+
+        async def drain(self):
+            self.drain_started.set()
+            await asyncio.Event().wait()
+
+        def close(self):
+            return None
+
+        async def wait_closed(self):
+            return None
+
+    async def on_frame(_frame):
+        return None
+
+    writer = FakeWriter()
+    client = ew11_client.Ew11Client(
+        "ew11.example.invalid", 8899, 60.0, 0, protocol.Ksx4506Codec(), on_frame
+    )
+    client._running = True
+    client._writer = writer
+    client._worker_task = asyncio.create_task(client._command_worker())
+    send_task = asyncio.create_task(client.send_with_retry(b"active"))
+    await asyncio.wait_for(writer.drain_started.wait(), timeout=1)
+
+    await asyncio.wait_for(client.stop(), timeout=1)
+
+    assert await send_task is False
+    assert client._worker_task is None
+
+
+async def _assert_client_exchanges_frames_over_loopback_tcp():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+    command = bytes.fromhex("F70E1101001E2D")
+    response = protocol.Ksx4506Codec().build_f7(0x0E, 0x11, 0x81, b"\x00\x01")
+    received_packet = asyncio.get_running_loop().create_future()
+    received_frame = asyncio.get_running_loop().create_future()
+    handler_done = asyncio.Event()
+
+    async def handle_connection(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            received_packet.set_result(await reader.readexactly(len(command)))
+            writer.write(response)
+            await writer.drain()
+            await reader.read()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            handler_done.set()
+
+    server = await asyncio.start_server(
+        handle_connection,
+        host="localhost",
+        port=0,
+        family=socket.AF_INET,
+    )
+    server_socket = server.sockets[0]
+    host, port = server_socket.getsockname()[:2]
+
+    async def on_frame(frame) -> None:
+        if not received_frame.done():
+            received_frame.set_result(frame)
+
+    client = ew11_client.Ew11Client(
+        host,
+        port,
+        0.5,
+        0,
+        protocol.Ksx4506Codec(),
+        on_frame,
+    )
+    try:
+        await client.start()
+        assert await asyncio.wait_for(client.send_with_retry(command), timeout=2)
+        assert await asyncio.wait_for(received_packet, timeout=2) == command
+        frame = await asyncio.wait_for(received_frame, timeout=2)
+        assert (frame.addr, frame.sub_id, frame.cmd, frame.payload) == (
+            0x0E,
+            0x11,
+            0x81,
+            b"\x00\x01",
+        )
+        assert client.health_report()["state"] == "receiving"
+    finally:
+        await client.stop()
+        await asyncio.wait_for(handler_done.wait(), timeout=2)
+        server.close()
+        await server.wait_closed()
 
 
 async def _assert_connection_closes_when_rx_reconnect_threshold_is_exceeded(monkeypatch):

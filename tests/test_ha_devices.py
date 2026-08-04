@@ -71,7 +71,6 @@ def test_common_entrance_formats_readable_packet_log():
         0x02,
         0x10,
         bytes.fromhex("62 02 00 00 00 00"),
-        bytes.fromhex("F7 40 02 10 06 62 02 00 00 00 00 C3 76"),
         direction="RX",
     )
 
@@ -83,8 +82,9 @@ def test_common_entrance_formats_readable_packet_log():
     assert "call_detected=true" in message
     assert "call_type=0x62" in message
     assert "line=0x02" in message
-    assert 'payload="62 02 00 00 00 00"' in message
-    assert 'raw="F7 40 02 10 06 62 02 00 00 00 00 C3 76"' in message
+    assert "payload_len=6" in message
+    assert "620200000000" not in message
+    assert "F740021006620200000000C376" not in message.replace(" ", "").upper()
 
 
 def test_entrance_panel_decodes_observed_status_bits():

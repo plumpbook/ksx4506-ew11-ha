@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -16,6 +17,7 @@ class KsxEw11LinkSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "EW11 Link"
     _attr_entity_registry_enabled_default = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -35,6 +37,7 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity[Ksx4506Coordinator], SensorE
     _attr_has_entity_name = True
     _attr_name = "Unsupported Packets"
     _attr_entity_registry_enabled_default = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -63,38 +66,54 @@ class KsxPacketCaptureSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity
     _attr_has_entity_name = True
     _attr_name = "Packet Capture"
     _attr_entity_registry_enabled_default = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._include_packet_samples = bool(
+            effective_config(entry).get(CONF_EXPOSE_PACKET_SAMPLES, False)
+        )
         self._attr_unique_id = f"ksx4506_{entry.entry_id}_packet_capture"
         self._attr_device_info = _ew11_device_info(entry)
 
     @property
     def native_value(self):
-        return self.coordinator.packet_capture_report()["count"]
+        return self.coordinator.packet_capture_report(
+            include_packet_samples=self._include_packet_samples
+        )["count"]
 
     @property
     def extra_state_attributes(self):
-        return self.coordinator.packet_capture_report()
+        return self.coordinator.packet_capture_report(
+            include_packet_samples=self._include_packet_samples
+        )
 
 
 class KsxPacketQualitySensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Packet Quality"
-    _attr_entity_registry_enabled_default = True
+    _attr_entity_registry_enabled_default = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._include_packet_samples = bool(
+            effective_config(entry).get(CONF_EXPOSE_PACKET_SAMPLES, False)
+        )
         self._attr_unique_id = f"ksx4506_{entry.entry_id}_packet_quality"
         self._attr_device_info = _ew11_device_info(entry)
 
     @property
     def native_value(self):
-        return self.coordinator.packet_quality_report()["state"]
+        return self.coordinator.packet_quality_report(
+            include_packet_samples=self._include_packet_samples
+        )["state"]
 
     @property
     def extra_state_attributes(self):
-        return self.coordinator.packet_quality_report()
+        return self.coordinator.packet_quality_report(
+            include_packet_samples=self._include_packet_samples
+        )
 
 
 def _ew11_device_info(entry: ConfigEntry) -> DeviceInfo:

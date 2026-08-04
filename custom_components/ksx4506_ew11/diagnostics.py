@@ -37,23 +37,45 @@ async def async_get_config_entry_diagnostics(
         }
     )
 
-    return {
+    diagnostics = {
         "config_entry": {
             "title": _redact_title(entry.title, entry.data.get(CONF_HOST)),
             "data": async_redact_data(config, TO_REDACT),
         },
         "known_devices": _known_device_summary(coordinator),
-        "ew11_connection": ew11_health_report_from_coordinator(coordinator),
-        "packet_quality": _packet_quality_summary(coordinator),
+        "ew11_connection": async_redact_data(
+            ew11_health_report_from_coordinator(coordinator),
+            TO_REDACT,
+        ),
+        "packet_quality": _packet_quality_summary(
+            coordinator,
+            include_packet_samples=include_packet_samples,
+        ),
         "unsupported_packets": unsupported,
         "report_url": "https://github.com/plumpbook/ksx4506-ew11-ha/issues/new?template=unsupported_packet.yml",
     }
+    return _redact_host_occurrences(diagnostics, entry.data.get(CONF_HOST))
 
 
 def _redact_title(title: str, host: Any) -> str:
     if not isinstance(host, str) or not host:
         return title
     return title.replace(host, "**REDACTED**")
+
+
+def _redact_host_occurrences(value: Any, host: Any) -> Any:
+    if not isinstance(host, str) or not host:
+        return value
+    if isinstance(value, str):
+        return value.replace(host, "**REDACTED**")
+    if isinstance(value, dict):
+        return {
+            key: _redact_host_occurrences(item, host)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_host_occurrences(item, host) for item in value]
+    return value
 
 
 def _known_device_summary(coordinator: Ksx4506Coordinator | None) -> list[dict[str, Any]]:
@@ -75,7 +97,13 @@ def _known_device_summary(coordinator: Ksx4506Coordinator | None) -> list[dict[s
 
 def _packet_quality_summary(
     coordinator: Ksx4506Coordinator | None,
+    *,
+    include_packet_samples: bool,
 ) -> dict[str, Any]:
     if coordinator is None:
-        return empty_packet_quality_report()
-    return coordinator.packet_quality_report()
+        return empty_packet_quality_report(
+            include_packet_samples=include_packet_samples
+        )
+    return coordinator.packet_quality_report(
+        include_packet_samples=include_packet_samples
+    )

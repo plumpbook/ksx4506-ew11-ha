@@ -27,6 +27,7 @@ LOCAL_ENVIRONMENT_MARKERS = tuple(
     )
 )
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico"}
+ACTION_REF_RE = re.compile(r"^\s*uses:\s*[^@\s]+@([0-9a-f]{40})\s*$", re.MULTILINE)
 
 
 def _repository_files() -> list[Path]:
@@ -79,5 +80,18 @@ def test_public_artifacts_do_not_contain_local_environment_identifiers():
                 or ip in CGNAT_NET
             ):
                 findings.append(f"{rel_path}: contains local/private IP {value}")
+
+    assert findings == []
+
+
+def test_github_actions_are_pinned_to_full_commit_shas():
+    findings: list[str] = []
+
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        uses_lines = [line for line in text.splitlines() if "uses:" in line]
+        pinned_lines = ACTION_REF_RE.findall(text)
+        if len(uses_lines) != len(pinned_lines):
+            findings.append(str(path.relative_to(ROOT)))
 
     assert findings == []

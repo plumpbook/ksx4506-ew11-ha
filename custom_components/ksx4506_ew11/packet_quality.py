@@ -15,6 +15,7 @@ _EVENT_STX_FRAME_ERROR: Final = "stx_frame_error"
 _EVENT_STX_RESYNC: Final = "stx_resync"
 _EVENT_TX_CONTROL_GIVEUP: Final = "tx_control_giveup"
 _EVENT_TX_STATE_REQUEST_GIVEUP: Final = "tx_state_request_giveup"
+_PACKET_SAMPLE_KEYS: Final = frozenset({"raw_hex", "payload_hex"})
 
 
 class PacketQualityMonitor:
@@ -239,7 +240,7 @@ class PacketQualityMonitor:
             "last_error": health.get("last_error"),
         }
 
-    def report(self) -> dict[str, Any]:
+    def report(self, *, include_packet_samples: bool = False) -> dict[str, Any]:
         now = self._now()
         recent = self._recent_counts(now)
         rx_error_count = (
@@ -260,9 +261,10 @@ class PacketQualityMonitor:
             tx_control_giveups=self.tx_control_giveups,
         )
 
-        return {
+        report = {
             "state": state,
             "lifetime_state": lifetime_state,
+            "packet_samples_redacted": not include_packet_samples,
             "recent_window_seconds": PACKET_QUALITY_RECENT_WINDOW_SECONDS,
             "summary": (
                 f"recent_state={state}, "
@@ -295,6 +297,9 @@ class PacketQualityMonitor:
                 "last_giveup": self._last_tx_giveup,
             },
         }
+        if include_packet_samples:
+            return report
+        return _without_packet_samples(report)
 
     def _now(self) -> datetime:
         value = self._clock()
@@ -343,8 +348,24 @@ class PacketQualityMonitor:
         }
 
 
-def empty_packet_quality_report() -> dict[str, Any]:
-    return PacketQualityMonitor().report()
+def empty_packet_quality_report(
+    *, include_packet_samples: bool = False
+) -> dict[str, Any]:
+    return PacketQualityMonitor().report(
+        include_packet_samples=include_packet_samples
+    )
+
+
+def _without_packet_samples(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_packet_samples(item)
+            for key, item in value.items()
+            if key not in _PACKET_SAMPLE_KEYS
+        }
+    if isinstance(value, list):
+        return [_without_packet_samples(item) for item in value]
+    return value
 
 
 def _quality_state(*, rx_error_count: int, tx_control_giveups: int) -> str:

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -154,33 +153,46 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
 
         return matcher
 
-    async def _async_send_light_control(self, target_sub: int, payload: bytes, *, turn_on: bool) -> None:
-        status_sub = self._status_sub_id()
-        send_until = getattr(self.coordinator, "async_send_f7_command_until", None)
-        if send_until is None:
-            await self.coordinator.async_send_f7_command(
-                self.addr,
-                target_sub,
-                F7_LIGHT_CONTROL_REQUEST,
-                payload,
-            )
-            matched = None
-        else:
-            matched = await send_until(
-                self.addr,
-                target_sub,
-                F7_LIGHT_CONTROL_REQUEST,
-                payload,
-                self._control_success_matcher(
-                    target_sub=target_sub,
-                    status_sub=status_sub,
-                    turn_on=turn_on,
-                ),
+    def _state_confirmation_matcher(
+        self,
+        *,
+        status_sub: int,
+        turn_on: bool,
+    ):
+        expected_on = bool(turn_on)
+        status_index = self._status_payload_index()
+
+        def matcher(frame: KsFrame) -> bool:
+            return (
+                frame.addr == self.addr
+                and frame.sub_id == status_sub
+                and frame.cmd == F7_LIGHT_STATUS_RESPONSE
+                and len(frame.payload) > status_index
+                and bool(frame.payload[status_index] & 0x01) == expected_on
             )
 
-        if matched is None or matched.cmd != F7_LIGHT_STATUS_RESPONSE:
-            await asyncio.sleep(0.12)
-            await self.coordinator.async_request_f7_state(self.addr, status_sub)
+        return matcher
+
+    async def _async_send_light_control(self, target_sub: int, payload: bytes, *, turn_on: bool) -> None:
+        status_sub = self._status_sub_id()
+        matched = await self.coordinator.async_send_f7_command_and_confirm(
+            self.addr,
+            target_sub,
+            F7_LIGHT_CONTROL_REQUEST,
+            payload,
+            self._control_success_matcher(
+                target_sub=target_sub,
+                status_sub=status_sub,
+                turn_on=turn_on,
+            ),
+            status_sub_id=status_sub,
+            confirmation_matcher=self._state_confirmation_matcher(
+                status_sub=status_sub,
+                turn_on=turn_on,
+            ),
+        )
+        if matched is None:
+            raise HomeAssistantError("KSX light command state was not confirmed")
 
     async def async_turn_on(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
@@ -202,7 +214,10 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
                 turn_on=True,
             )
             return
-        await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x01")
+        if not await self.coordinator.async_send_command(
+            self.addr, CMD_SET_LIGHT, b"\x01"
+        ):
+            raise HomeAssistantError("KSX light command could not be sent")
 
     async def async_turn_off(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
@@ -213,4 +228,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
                 turn_on=False,
             )
             return
-        await self.coordinator.async_send_command(self.addr, CMD_SET_LIGHT, b"\x00")
+        if not await self.coordinator.async_send_command(
+            self.addr, CMD_SET_LIGHT, b"\x00"
+        ):
+            raise HomeAssistantError("KSX light command could not be sent")

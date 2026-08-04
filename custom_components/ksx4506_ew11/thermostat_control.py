@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any
+
+from homeassistant.exceptions import HomeAssistantError
 
 from .devices.thermostat import (
     HEAT_CONTROL_REQUEST,
     STATE_RESPONSE_COMMANDS,
+    STATUS_RESPONSE,
     TEMPERATURE_CONTROL_REQUEST,
     build_thermostat_heat_request,
     build_thermostat_temperature_request,
@@ -27,34 +29,29 @@ async def async_send_thermostat_heat_control(
     target_sub_id = thermostat_target_sub_id(status_sub_id, channel)
     frame = build_thermostat_heat_request(target_sub_id, turn_on=turn_on)
 
-    send_until = getattr(coordinator, "async_send_f7_command_until", None)
-    if send_until is None:
-        await coordinator.async_send_f7_command(
-            addr,
-            frame.sub_id,
-            HEAT_CONTROL_REQUEST,
-            frame.data,
-        )
-        matched = None
-    else:
-        matched = await send_until(
-            addr,
-            frame.sub_id,
-            HEAT_CONTROL_REQUEST,
-            frame.data,
-            _thermostat_heat_success_matcher(
-                addr=addr,
-                target_sub_id=target_sub_id,
-                status_sub_id=status_sub_id,
-                channel=channel,
-                turn_on=turn_on,
-            ),
-            interval=0.5,
-        )
-
-    if matched is None or matched.sub_id != status_sub_id:
-        await asyncio.sleep(0.12)
-        await coordinator.async_request_f7_state(addr, status_sub_id)
+    response_matcher = _thermostat_heat_success_matcher(
+        addr=addr,
+        target_sub_id=target_sub_id,
+        status_sub_id=status_sub_id,
+        channel=channel,
+        turn_on=turn_on,
+    )
+    matched = await coordinator.async_send_f7_command_and_confirm(
+        addr,
+        frame.sub_id,
+        HEAT_CONTROL_REQUEST,
+        frame.data,
+        response_matcher,
+        status_sub_id=status_sub_id,
+        confirmation_matcher=_status_confirmation_matcher(
+            response_matcher,
+            status_sub_id=status_sub_id,
+        ),
+        interval=0.5,
+        confirmation_interval=0.5,
+    )
+    if matched is None:
+        raise HomeAssistantError("KSX thermostat heat state was not confirmed")
 
 
 async def async_send_thermostat_temperature_control(
@@ -71,34 +68,31 @@ async def async_send_thermostat_temperature_control(
         temperature=temperature,
     )
 
-    send_until = getattr(coordinator, "async_send_f7_command_until", None)
-    if send_until is None:
-        await coordinator.async_send_f7_command(
-            addr,
-            frame.sub_id,
-            TEMPERATURE_CONTROL_REQUEST,
-            frame.data,
+    response_matcher = _thermostat_temperature_success_matcher(
+        addr=addr,
+        target_sub_id=target_sub_id,
+        status_sub_id=status_sub_id,
+        channel=channel,
+        temperature=temperature,
+    )
+    matched = await coordinator.async_send_f7_command_and_confirm(
+        addr,
+        frame.sub_id,
+        TEMPERATURE_CONTROL_REQUEST,
+        frame.data,
+        response_matcher,
+        status_sub_id=status_sub_id,
+        confirmation_matcher=_status_confirmation_matcher(
+            response_matcher,
+            status_sub_id=status_sub_id,
+        ),
+        interval=0.5,
+        confirmation_interval=0.5,
+    )
+    if matched is None:
+        raise HomeAssistantError(
+            "KSX thermostat target temperature was not confirmed"
         )
-        matched = None
-    else:
-        matched = await send_until(
-            addr,
-            frame.sub_id,
-            TEMPERATURE_CONTROL_REQUEST,
-            frame.data,
-            _thermostat_temperature_success_matcher(
-                addr=addr,
-                target_sub_id=target_sub_id,
-                status_sub_id=status_sub_id,
-                channel=channel,
-                temperature=temperature,
-            ),
-            interval=0.5,
-        )
-
-    if matched is None or matched.sub_id != status_sub_id:
-        await asyncio.sleep(0.12)
-        await coordinator.async_request_f7_state(addr, status_sub_id)
 
 
 def _thermostat_heat_success_matcher(
@@ -183,3 +177,18 @@ def _target_temperature_matches(
     if target_temp is None:
         return False
     return abs(float(target_temp) - float(temperature)) < 0.01
+
+
+def _status_confirmation_matcher(
+    response_matcher: Callable[[KsFrame], bool],
+    *,
+    status_sub_id: int,
+) -> Callable[[KsFrame], bool]:
+    def matcher(frame: KsFrame) -> bool:
+        return (
+            frame.sub_id == status_sub_id
+            and frame.cmd == STATUS_RESPONSE
+            and response_matcher(frame)
+        )
+
+    return matcher

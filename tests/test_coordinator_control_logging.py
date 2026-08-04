@@ -19,6 +19,7 @@ class _FakeCoordinator:
     def __init__(self, matched_frame, *, match_after_attempts=2):
         self.max_attempts = 3
         self._frame_waiters = []
+        self._transaction_lock = asyncio.Lock()
         self.sent = []
         self._matched_frame = matched_frame
         self._match_after_attempts = match_after_attempts
@@ -32,6 +33,21 @@ class _FakeCoordinator:
             if not fut.done() and matcher(self._matched_frame):
                 fut.set_result(self._matched_frame)
         return True
+
+    async def _async_send_f7_command_unlocked(
+        self, dev_id, sub_id, cmd, payload, *, guard=False
+    ):
+        return await self.async_send_f7_command(
+            dev_id, sub_id, cmd, payload, guard=guard
+        )
+
+    async def _async_send_f7_command_until_unlocked(self, *args, **kwargs):
+        coordinator_module = load_integration_module("coordinator")
+        method = types.MethodType(
+            coordinator_module.Ksx4506Coordinator._async_send_f7_command_until_unlocked,
+            self,
+        )
+        return await method(*args, **kwargs)
 
 
 class _FakeClient:
@@ -70,7 +86,7 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
             0x39,
             0x11,
             0x41,
-            b"\x11",
+            bytes.fromhex("DE AD BE EF"),
             lambda frame: frame.addr == 0x39
             and frame.sub_id == 0x11
             and frame.cmd == 0xC1,
@@ -83,9 +99,10 @@ def test_send_f7_command_until_logs_control_attempts(caplog):
     assert "TX F7 control attempt dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control wait timeout dev=0x39 sub=0x11 cmd=0x41 attempt=1/3" in messages
     assert "TX F7 control matched dev=0x39 sub=0x11 cmd=0x41 attempt=2/3" in messages
+    assert "deadbeef" not in messages.lower()
 
 
-def test_send_f7_command_until_give_up_log_includes_payload_packet_and_health(caplog):
+def test_send_f7_command_until_give_up_log_omits_packet_samples(caplog):
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
     protocol_module = load_integration_module("protocol")
@@ -123,8 +140,9 @@ def test_send_f7_command_until_give_up_log_includes_payload_packet_and_health(ca
     assert result is None
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "TX F7 control gave up dev=0x0E sub=0x11 cmd=0x41 attempts=1" in messages
-    assert "payload=010100" in messages
-    assert "packet=f70e114103010100aa06" in messages
+    assert "payload_len=3" in messages
+    assert "010100" not in messages
+    assert "f70e114103010100aa06" not in messages
     assert "ew11_state=stale" in messages
     assert "seconds_since_last_rx=42.0" in messages
 
@@ -175,6 +193,89 @@ def test_send_f7_state_request_give_up_logs_at_debug_not_warning(caplog):
     report = monitor.report()
     assert report["state"] == "ok"
     assert report["tx"]["state_request_giveups"] == 1
+
+
+def test_control_transactions_remain_serialized_through_state_confirmation():
+    asyncio.run(_assert_control_transactions_remain_serialized())
+
+
+async def _assert_control_transactions_remain_serialized():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+
+    first_ack = types.SimpleNamespace(kind="first_ack")
+    first_state = types.SimpleNamespace(kind="first_state")
+    second_state = types.SimpleNamespace(kind="second_state")
+
+    class FakeCoordinator:
+        def __init__(self):
+            self._transaction_lock = asyncio.Lock()
+            self.calls = []
+            self.first_status_started = asyncio.Event()
+            self.release_first_status = asyncio.Event()
+
+        async def _async_send_f7_command_until_unlocked(
+            self,
+            dev_id,
+            sub_id,
+            cmd,
+            payload,
+            matcher,
+            **_kwargs,
+        ):
+            self.calls.append((dev_id, sub_id, cmd, payload))
+            if payload == b"first":
+                return first_ack
+            if payload == b"second":
+                return second_state
+            self.first_status_started.set()
+            await self.release_first_status.wait()
+            return first_state
+
+    fake = FakeCoordinator()
+    send_and_confirm = _bind_method(
+        fake,
+        "async_send_f7_command_and_confirm",
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_and_confirm,
+    )
+    first = asyncio.create_task(
+        send_and_confirm(
+            0x0E,
+            0x11,
+            0x41,
+            b"first",
+            lambda frame: frame.kind == "first_ack",
+            status_sub_id=0x11,
+            confirmation_matcher=lambda frame: frame.kind == "first_state",
+            max_attempts=1,
+            interval=0,
+            confirmation_interval=0,
+        )
+    )
+    await asyncio.wait_for(fake.first_status_started.wait(), timeout=1)
+
+    second = asyncio.create_task(
+        send_and_confirm(
+            0x0E,
+            0x12,
+            0x41,
+            b"second",
+            lambda frame: frame.kind == "second_state",
+            status_sub_id=0x12,
+            confirmation_matcher=lambda frame: frame.kind == "second_state",
+            max_attempts=1,
+            interval=0,
+            confirmation_interval=0,
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert all(call[3] != b"second" for call in fake.calls)
+
+    fake.release_first_status.set()
+    assert await asyncio.wait_for(first, timeout=1) is first_state
+    assert await asyncio.wait_for(second, timeout=1) is second_state
+    assert [call[3] for call in fake.calls] == [b"first", b"", b"second"]
 
 
 def test_meter_startup_probe_requests_whole_and_individual_meter_states():
@@ -380,7 +481,7 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
         raw=bytes.fromhex("F7 40 02 10 06 62 02 00 00 00 00 C3 76"),
     )
 
-    caplog.set_level(logging.INFO, logger="custom_components.ksx4506_ew11.coordinator")
+    caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11.coordinator")
 
     asyncio.run(on_frame(frame))
 

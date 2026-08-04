@@ -129,12 +129,10 @@ def parse_f7_frame(codec: F7CodecHost) -> KsFrame | None:
                 sub_id=sub_id,
                 cmd=cmd,
                 length=length,
-                payload=payload,
                 recv_xor=recv_xor,
                 recv_add=recv_add,
                 calc_xor=calc_xor,
                 calc_add=calc_add,
-                frame_raw=frame_raw,
             ),
             parity=False,
         )
@@ -153,7 +151,15 @@ def parse_f7_frame(codec: F7CodecHost) -> KsFrame | None:
         del codec._buf[:1]
         return None
     except FrameError as exc:
-        _LOGGER.debug("drop F7: invalid frame raw=%s error=%s", frame_raw.hex(), exc)
+        _LOGGER.debug(
+            "drop F7: invalid frame dev=0x%02X sub=0x%02X cmd=0x%02X "
+            "len=%d error=%s",
+            dev_id,
+            sub_id,
+            cmd,
+            length,
+            exc,
+        )
         if codec._packet_quality is not None:
             codec._packet_quality.record_f7_frame_error(
                 reason=str(exc),
@@ -172,12 +178,10 @@ def parse_f7_frame(codec: F7CodecHost) -> KsFrame | None:
             sub_id=parsed.sub_id,
             cmd=parsed.command_type,
             length=parsed.length,
-            payload=parsed.data,
             recv_xor=recv_xor,
             recv_add=recv_add,
             calc_xor=calc_xor,
             calc_add=calc_add,
-            frame_raw=frame_raw,
         ),
         parity=True,
     )

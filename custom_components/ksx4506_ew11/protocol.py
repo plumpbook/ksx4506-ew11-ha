@@ -38,7 +38,7 @@ class Ksx4506Codec:
 
     def feed(self, data: bytes) -> list[KsFrame]:
         self._buf.extend(data)
-        _LOGGER.debug("codec.feed bytes=%d data=%s", len(data), data.hex())
+        _LOGGER.debug("codec.feed bytes=%d", len(data))
         out: list[KsFrame] = []
 
         while True:

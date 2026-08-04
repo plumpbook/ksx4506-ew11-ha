@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -106,18 +105,20 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
         return bool(self.dev.state.get("on", False))
 
     async def async_turn_on(self, **kwargs):
-        await self.coordinator.async_send_command(
+        if not await self.coordinator.async_send_command(
             self.addr,
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=True),
-        )
+        ):
+            raise HomeAssistantError("KSX switch command could not be sent")
 
     async def async_turn_off(self, **kwargs):
-        await self.coordinator.async_send_command(
+        if not await self.coordinator.async_send_command(
             self.addr,
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=False),
-        )
+        ):
+            raise HomeAssistantError("KSX switch command could not be sent")
 
 
 class KsxOutletSwitch(KsxSwitch):
@@ -150,32 +151,27 @@ class KsxOutletSwitch(KsxSwitch):
         status_sub = int(self.dev.state.get("status_sub_id", target_sub))
         frame = build_outlet_control_request(target_sub, turn_on=turn_on)
 
-        send_until = getattr(self.coordinator, "async_send_f7_command_until", None)
-        if send_until is None:
-            await self.coordinator.async_send_f7_command(
-                self.addr,
-                frame.sub_id,
-                F7_OUTLET_CONTROL_REQUEST,
-                frame.data,
-            )
-            matched = None
-        else:
-            matched = await send_until(
-                self.addr,
-                frame.sub_id,
-                F7_OUTLET_CONTROL_REQUEST,
-                frame.data,
-                self._control_success_matcher(
-                    target_sub=target_sub,
-                    status_sub=status_sub,
-                    turn_on=turn_on,
-                ),
-                interval=0.25,
-            )
-
-        if matched is None or matched.cmd != F7_OUTLET_STATUS_RESPONSE:
-            await asyncio.sleep(0.12)
-            await self.coordinator.async_request_f7_state(self.addr, status_sub)
+        matched = await self.coordinator.async_send_f7_command_and_confirm(
+            self.addr,
+            frame.sub_id,
+            F7_OUTLET_CONTROL_REQUEST,
+            frame.data,
+            self._control_success_matcher(
+                target_sub=target_sub,
+                status_sub=status_sub,
+                turn_on=turn_on,
+            ),
+            status_sub_id=status_sub,
+            confirmation_matcher=self._status_confirmation_matcher(
+                target_sub=target_sub,
+                status_sub=status_sub,
+                turn_on=turn_on,
+            ),
+            interval=0.25,
+            confirmation_interval=0.25,
+        )
+        if matched is None:
+            raise HomeAssistantError("KSX outlet command state was not confirmed")
 
     def _control_success_matcher(
         self,
@@ -198,6 +194,32 @@ class KsxOutletSwitch(KsxSwitch):
                 )
                 return state.get("on") is bool(turn_on)
             if frame.sub_id != status_sub or frame.cmd != F7_OUTLET_STATUS_RESPONSE:
+                return False
+            state = decode_outlet_state(
+                frame.payload,
+                unit=target_sub & 0x0F,
+                channel=status_channel,
+                command_type=frame.cmd,
+            )
+            return state.get("on") is bool(turn_on)
+
+        return matcher
+
+    def _status_confirmation_matcher(
+        self,
+        *,
+        target_sub: int,
+        status_sub: int,
+        turn_on: bool,
+    ):
+        status_channel = int(self.dev.state.get("status_channel", 1))
+
+        def matcher(frame: KsFrame) -> bool:
+            if (
+                frame.addr != self.addr
+                or frame.sub_id != status_sub
+                or frame.cmd != F7_OUTLET_STATUS_RESPONSE
+            ):
                 return False
             state = decode_outlet_state(
                 frame.payload,

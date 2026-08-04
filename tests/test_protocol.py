@@ -36,11 +36,16 @@ def test_build_and_parse_sum8():
     assert f.payload == b"\x01\x02"
 
 
-def test_bad_checksum_dropped():
+def test_bad_checksum_dropped(caplog):
     c = Ksx4506Codec()
     pkt = bytearray(c.build(0x11, 0x22, b"\x01"))
     pkt[-2] ^= 0xFF
+    raw_hex = bytes(pkt).hex()
+
+    caplog.set_level(logging.DEBUG, logger="custom_components.ksx4506_ew11.protocol")
+
     assert c.feed(bytes(pkt)) == []
+    assert raw_hex not in "\n".join(record.getMessage() for record in caplog.records)
 
 
 def _build_f7(dev: int, sub: int, cmd: int, payload: bytes) -> bytes:
@@ -108,4 +113,5 @@ def test_bad_f7_checksum_warning_does_not_expose_raw_packet(caplog):
     ]
     assert warning_messages
     assert raw_hex not in "\n".join(warning_messages)
-    assert raw_hex in "\n".join(debug_messages)
+    assert raw_hex not in "\n".join(debug_messages)
+    assert bytes(pkt)[5:-2].hex() not in "\n".join(debug_messages)

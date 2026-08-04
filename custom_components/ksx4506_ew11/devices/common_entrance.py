@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..frame import Frame, hex_from_bytes
+from ..frame import Frame
 
 COMMON_ENTRANCE_DEVICE_ID = 0x40
 
@@ -75,7 +75,6 @@ def format_common_entrance_packet_log(
     sub_id: int,
     command_type: int,
     payload: bytes,
-    raw: bytes | None = None,
     *,
     direction: str = "RX",
 ) -> str:
@@ -102,9 +101,7 @@ def format_common_entrance_packet_log(
         if "status_byte" in state:
             parts.append(f"status=0x{state['status_byte']:02X}")
 
-    parts.append(f'payload="{hex_from_bytes(payload) or "-"}"')
-    if raw is not None:
-        parts.append(f'raw="{hex_from_bytes(raw)}"')
+    parts.append(f"payload_len={len(payload)}")
     return " ".join(parts)
 
 

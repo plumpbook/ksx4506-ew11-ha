@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 LIGHT_DEVICE_ID = 0x0E
 STATUS_REQUEST = 0x01
 STATUS_RESPONSE = 0x81
 CONTROL_REQUEST = 0x41
 CONTROL_RESPONSE = 0xC1
 TOPOLOGY_CONFIRMATION_FRAMES = 2
+MAX_LIGHT_CHANNELS: Final = 0x0E
 
 
 class LightTopologyTracker:

@@ -29,6 +29,7 @@ from .devices.lighting import (
     CONTROL_REQUEST as LIGHT_CONTROL_REQUEST,
     CONTROL_RESPONSE as LIGHT_CONTROL_RESPONSE,
     LIGHT_DEVICE_ID,
+    MAX_LIGHT_CHANNELS,
     STATUS_REQUEST as LIGHT_STATUS_REQUEST,
     STATUS_RESPONSE as LIGHT_STATUS_RESPONSE,
     LightTopologyTracker,
@@ -322,6 +323,16 @@ class DeviceRegistry:
         if kind == "light" and addr == LIGHT_DEVICE_ID and cmd == LIGHT_STATUS_RESPONSE:
             topology_pending = False
             if len(payload) > 1:
+                if len(payload) - 1 > MAX_LIGHT_CHANNELS:
+                    self.record_candidate_packet(
+                        "invalid_light_channel_count",
+                        addr,
+                        sub_id,
+                        cmd,
+                        payload,
+                        raw_hex,
+                    )
+                    return []
                 low = sub_id & 0x0F
                 high = (sub_id >> 4) & 0x0F
                 is_group_reply = high > 0 and low == 0x0F

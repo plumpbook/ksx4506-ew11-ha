@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from enum import IntFlag
 
 
 def install_homeassistant_stubs() -> None:
@@ -23,6 +24,7 @@ def install_homeassistant_stubs() -> None:
     _install_dispatcher()
     _install_entity_registry()
     _install_entity_platform()
+    _install_exceptions()
     _install_fan()
     _install_light()
     _install_number()
@@ -126,9 +128,13 @@ def _install_const() -> None:
     class UnitOfTemperature:
         CELSIUS = "C"
 
+    class EntityCategory:
+        DIAGNOSTIC = "diagnostic"
+
     const.UnitOfEnergy = UnitOfEnergy
     const.UnitOfPower = UnitOfPower
     const.UnitOfTemperature = UnitOfTemperature
+    const.EntityCategory = EntityCategory
     sys.modules["homeassistant.const"] = const
 
 
@@ -302,7 +308,7 @@ def _install_valve() -> None:
     class ValveDeviceClass:
         GAS = "gas"
 
-    class ValveEntityFeature:
+    class ValveEntityFeature(IntFlag):
         OPEN = 1
         CLOSE = 2
         SET_POSITION = 4
@@ -315,6 +321,16 @@ def _install_valve() -> None:
     valve.ValveEntity = ValveEntity
     valve.ValveEntityFeature = ValveEntityFeature
     sys.modules["homeassistant.components.valve"] = valve
+
+
+def _install_exceptions() -> None:
+    exceptions = types.ModuleType("homeassistant.exceptions")
+
+    class HomeAssistantError(Exception):
+        pass
+
+    exceptions.HomeAssistantError = HomeAssistantError
+    sys.modules["homeassistant.exceptions"] = exceptions
 
 
 def _install_voluptuous() -> None:

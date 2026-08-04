@@ -36,7 +36,12 @@ def test_packet_quality_monitor_reports_rx_checksum_error():
     assert report["rx"]["last_error"]["command_type"] == "0x81"
     assert report["rx"]["last_error"]["received_checksum"] == "0x00/0x00"
     assert report["rx"]["last_error"]["expected_checksum"] == "0x6D/0xA0"
-    assert report["rx"]["last_error"]["raw_hex"] == "F70E11810200010000"
+    assert report["packet_samples_redacted"] is True
+    assert "raw_hex" not in report["rx"]["last_error"]
+
+    detailed = monitor.report(include_packet_samples=True)
+    assert detailed["packet_samples_redacted"] is False
+    assert detailed["rx"]["last_error"]["raw_hex"] == "F70E11810200010000"
 
 
 def test_packet_quality_state_recovers_after_recent_window_expires():
@@ -187,6 +192,7 @@ def test_packet_quality_records_tx_give_up_from_coordinator():
         def __init__(self):
             self.max_attempts = 1
             self._frame_waiters = []
+            self._transaction_lock = asyncio.Lock()
             self.sent = []
             self.codec = protocol.Ksx4506Codec()
             self.packet_quality = packet_quality.PacketQualityMonitor()
@@ -204,6 +210,26 @@ def test_packet_quality_records_tx_give_up_from_coordinator():
         ):
             self.sent.append((dev_id, sub_id, cmd, payload, guard))
             return True
+
+        async def _async_send_f7_command_unlocked(
+            self,
+            dev_id,
+            sub_id,
+            cmd,
+            payload,
+            *,
+            guard=False,
+        ):
+            return await self.async_send_f7_command(
+                dev_id, sub_id, cmd, payload, guard=guard
+            )
+
+        async def _async_send_f7_command_until_unlocked(self, *args, **kwargs):
+            method = types.MethodType(
+                coordinator_module.Ksx4506Coordinator._async_send_f7_command_until_unlocked,
+                self,
+            )
+            return await method(*args, **kwargs)
 
         def _publish_registry_state(self):
             self.published += 1
@@ -227,7 +253,7 @@ def test_packet_quality_records_tx_give_up_from_coordinator():
 
     assert result is None
     assert fake.published == 1
-    report = fake.packet_quality.report()
+    report = fake.packet_quality.report(include_packet_samples=True)
     assert report["state"] == "tx_giveups"
     assert report["tx"]["giveups"] == 1
     assert report["tx"]["control_giveups"] == 1

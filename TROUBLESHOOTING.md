@@ -5,8 +5,6 @@
 - 센서 상태값은 signature 수이며, 반복 횟수는 속성의 `total_seen` 확인
 - `candidate_packets`는 알려진 장치 ID지만 아직 등록하지 않은 sub id/payload입니다.
 - `unsupported_packets`는 지원하지 않는 device id 또는 command입니다.
-- checksum mode(sum8/xor8) 변경
-- STX/ETX(02/03) 값 확인
 
 ## 2) 상태 반영 지연
 - EW11 keepalive 켜기

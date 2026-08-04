@@ -24,18 +24,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = Ksx4506Coordinator(hass, effective_config(entry))
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    setup_complete = False
+    try:
+        await async_restore_registry_devices_from_ha(hass, entry, coordinator.registry)
+        await coordinator.async_start()
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        await _async_prune_legacy_registry_entries(hass, entry)
+        setup_complete = True
+    finally:
+        if not setup_complete:
+            await coordinator.async_stop()
+            hass.data[DOMAIN].pop(entry.entry_id, None)
     entry.async_on_unload(entry.add_update_listener(_async_update_entry))
-    await async_restore_registry_devices_from_ha(hass, entry, coordinator.registry)
-    await coordinator.async_start()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    await _async_prune_legacy_registry_entries(hass, entry)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    coordinator: Ksx4506Coordinator = hass.data[DOMAIN].pop(entry.entry_id)
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
+    coordinator: Ksx4506Coordinator = hass.data[DOMAIN][entry.entry_id]
     await coordinator.async_stop()
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    hass.data[DOMAIN].pop(entry.entry_id)
+    return True
 
 
 async def _async_update_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -5,6 +5,7 @@ from homeassistant.components.climate.const import ClimateEntityFeature, HVACMod
 from homeassistant.const import UnitOfTemperature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -123,7 +124,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode):
         if hvac_mode not in self._attr_hvac_modes:
-            return
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
         await async_send_thermostat_heat_control(
             self.coordinator,
             addr=self.addr,

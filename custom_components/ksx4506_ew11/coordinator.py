@@ -13,14 +13,20 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
+    CONF_CHECKSUM,
+    CONF_ETX,
     CONF_MAX_ATTEMPTS,
     CONF_PACKET_CAPTURE_ENABLED,
     CONF_PACKET_CAPTURE_FILTER,
     CONF_PACKET_CAPTURE_LIMIT,
+    CONF_STX,
+    DEFAULT_CHECKSUM,
+    DEFAULT_ETX,
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_PACKET_CAPTURE_ENABLED,
     DEFAULT_PACKET_CAPTURE_FILTER,
     DEFAULT_PACKET_CAPTURE_LIMIT,
+    DEFAULT_STX,
     DOMAIN,
     SIGNAL_DEVICE_ADDED,
     SIGNAL_DEVICE_REMOVED,
@@ -78,9 +84,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.registry = DeviceRegistry()
         self.packet_quality = PacketQualityMonitor()
         self.codec = Ksx4506Codec(
-            stx=int(config["stx"], 16),
-            etx=int(config["etx"], 16),
-            checksum_mode=config["checksum"],
+            stx=int(config.get(CONF_STX, DEFAULT_STX), 16),
+            etx=int(config.get(CONF_ETX, DEFAULT_ETX), 16),
+            checksum_mode=config.get(CONF_CHECKSUM, DEFAULT_CHECKSUM),
             packet_quality=self.packet_quality,
         )
         self._client = Ew11Client(
@@ -129,6 +135,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._last_changed_device_keys: frozenset[str] | None = None
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
+        self._transaction_lock = asyncio.Lock()
         self._meter_probe_task: asyncio.Task[None] | None = None
         self._known_device_probe_task: asyncio.Task[None] | None = None
 
@@ -173,19 +180,17 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _on_frame(self, frame: KsFrame) -> None:
         _LOGGER.debug(
-            "RX frame dev=0x%02X sub=0x%02X cmd=0x%02X len=%d raw=%s",
+            "RX frame dev=0x%02X sub=0x%02X cmd=0x%02X len=%d",
             frame.addr,
             frame.sub_id,
             frame.cmd,
             len(frame.payload),
-            frame.raw.hex(),
         )
         if frame.addr == COMMON_ENTRANCE_DEVICE_ID:
             log_message = format_common_entrance_packet_log(
                 frame.sub_id,
                 frame.cmd,
                 frame.payload,
-                frame.raw,
                 direction="RX",
             )
             if frame.cmd == CALL_EVENT:
@@ -263,8 +268,19 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
 
-    def packet_capture_report(self) -> dict[str, Any]:
-        packets = list(reversed(self.packet_capture))
+    def packet_capture_report(
+        self,
+        *,
+        include_packet_samples: bool = False,
+    ) -> dict[str, Any]:
+        packets = [
+            {
+                key: value
+                for key, value in packet.items()
+                if include_packet_samples or key not in {"payload_hex", "raw_hex"}
+            }
+            for packet in reversed(self.packet_capture)
+        ]
         classification_counts = {
             "candidate": 0,
             "ignored_request": 0,
@@ -298,6 +314,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             "filter": self.packet_capture_filter_text,
             "limit": self.packet_capture_limit,
             "count": len(packets),
+            "packet_samples_redacted": not include_packet_samples,
             "summary": (
                 f"supported={classification_counts.get('supported', 0)}, "
                 f"ignored_request={classification_counts.get('ignored_request', 0)}, "
@@ -330,11 +347,21 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             "packets": packets,
         }
 
-    def packet_quality_report(self) -> dict[str, Any]:
+    def packet_quality_report(
+        self,
+        *,
+        include_packet_samples: bool = False,
+    ) -> dict[str, Any]:
         quality = getattr(self, "packet_quality", None)
         if quality is None:
-            return empty_packet_quality_report()
-        return quality.report()
+            return empty_packet_quality_report(
+                include_packet_samples=include_packet_samples
+            )
+        return quality.report(include_packet_samples=include_packet_samples)
+
+    @property
+    def gas_unlocked(self) -> bool:
+        return bool(self._gas_unlock)
 
     def _notify_frame_waiters(self, frame: KsFrame) -> None:
         for matcher, fut in tuple(self._frame_waiters):
@@ -349,20 +376,54 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 fut.set_result(frame)
 
     async def async_send_command(self, addr: int, cmd: int, payload: bytes, *, guard: bool = False) -> bool:
+        async with self._transaction_lock:
+            return await self._async_send_command_unlocked(
+                addr,
+                cmd,
+                payload,
+                guard=guard,
+            )
+
+    async def _async_send_command_unlocked(
+        self,
+        addr: int,
+        cmd: int,
+        payload: bytes,
+        *,
+        guard: bool = False,
+    ) -> bool:
         if guard and not self._gas_unlock:
             _LOGGER.warning("Blocked guarded command addr=%s cmd=%s", addr, cmd)
             return False
         packet = self.codec.build(addr, cmd, payload)
         _LOGGER.debug(
-            "TX STX addr=0x%02X cmd=0x%02X payload=%s packet=%s",
+            "TX STX addr=0x%02X cmd=0x%02X payload_len=%d packet_len=%d",
             addr,
             cmd,
-            payload.hex(),
-            packet.hex(),
+            len(payload),
+            len(packet),
         )
         return await self._client.send_with_retry(packet)
 
     async def async_send_f7_command(
+        self,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        *,
+        guard: bool = False,
+    ) -> bool:
+        async with self._transaction_lock:
+            return await self._async_send_f7_command_unlocked(
+                dev_id,
+                sub_id,
+                cmd,
+                payload,
+                guard=guard,
+            )
+
+    async def _async_send_f7_command_unlocked(
         self,
         dev_id: int,
         sub_id: int,
@@ -381,12 +442,13 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         packet = self.codec.build_f7(dev_id, sub_id, cmd, payload)
         _LOGGER.debug(
-            "TX F7 dev=0x%02X sub=0x%02X cmd=0x%02X payload=%s packet=%s",
+            "TX F7 dev=0x%02X sub=0x%02X cmd=0x%02X "
+            "payload_len=%d packet_len=%d",
             dev_id,
             sub_id,
             cmd,
-            payload.hex(),
-            packet.hex(),
+            len(payload),
+            len(packet),
         )
         return await self._client.send_with_retry(packet)
 
@@ -402,6 +464,39 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         interval: float = 0.1,
         guard: bool = False,
     ) -> KsFrame | None:
+        async with self._transaction_lock:
+            return await self._async_send_f7_command_until_unlocked(
+                dev_id,
+                sub_id,
+                cmd,
+                payload,
+                matcher,
+                max_attempts=max_attempts,
+                interval=interval,
+                guard=guard,
+            )
+
+    async def _async_send_f7_command_until_unlocked(
+        self,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        matcher: Callable[[KsFrame], bool],
+        *,
+        max_attempts: int | None = None,
+        interval: float = 0.1,
+        guard: bool = False,
+    ) -> KsFrame | None:
+        if guard and not self._gas_unlock:
+            _LOGGER.warning(
+                "Blocked guarded F7 command dev=%s sub=%s cmd=%s",
+                dev_id,
+                sub_id,
+                cmd,
+            )
+            return None
+
         attempts = max(1, min(20, int(max_attempts or self.max_attempts)))
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[KsFrame] = loop.create_future()
@@ -427,23 +522,24 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 _LOGGER.debug(
                     "TX F7 control attempt dev=0x%02X sub=0x%02X cmd=0x%02X "
-                    "attempt=%d/%d interval=%.3fs payload=%s",
+                    "attempt=%d/%d interval=%.3fs payload_len=%d",
                     dev_id,
                     sub_id,
                     cmd,
                     attempt,
                     attempts,
                     interval,
-                    payload.hex(),
+                    len(payload),
                 )
 
-                await self.async_send_f7_command(
+                sent = await self._async_send_f7_command_unlocked(
                     dev_id,
                     sub_id,
                     cmd,
                     payload,
-                    guard=guard,
                 )
+                if not sent:
+                    continue
 
                 try:
                     matched = await asyncio.wait_for(asyncio.shield(fut), timeout=interval)
@@ -488,18 +584,16 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             is_state_request = (
                 cmd == _status_request_command(dev_id) and payload == b""
             )
-            packet_hex = self.codec.build_f7(dev_id, sub_id, cmd, payload).hex()
             if is_state_request:
                 _LOGGER.debug(
                     "TX F7 state request gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
-                    "attempts=%d payload=%s packet=%s ew11_state=%s "
+                    "attempts=%d payload_len=%d ew11_state=%s "
                     "seconds_since_last_rx=%s last_error=%s",
                     dev_id,
                     sub_id,
                     cmd,
                     attempts,
-                    payload.hex(),
-                    packet_hex,
+                    len(payload),
                     health.get("state"),
                     health.get("seconds_since_last_rx"),
                     health.get("last_error"),
@@ -507,14 +601,13 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 _LOGGER.warning(
                     "TX F7 control gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
-                    "attempts=%d payload=%s packet=%s ew11_state=%s "
+                    "attempts=%d payload_len=%d ew11_state=%s "
                     "seconds_since_last_rx=%s last_error=%s",
                     dev_id,
                     sub_id,
                     cmd,
                     attempts,
-                    payload.hex(),
-                    packet_hex,
+                    len(payload),
                     health.get("state"),
                     health.get("seconds_since_last_rx"),
                     health.get("last_error"),
@@ -537,6 +630,48 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         finally:
             with suppress(ValueError):
                 self._frame_waiters.remove(waiter)
+
+    async def async_send_f7_command_and_confirm(
+        self,
+        dev_id: int,
+        sub_id: int,
+        cmd: int,
+        payload: bytes,
+        response_matcher: Callable[[KsFrame], bool],
+        *,
+        status_sub_id: int,
+        confirmation_matcher: Callable[[KsFrame], bool],
+        max_attempts: int | None = None,
+        interval: float = 0.1,
+        confirmation_interval: float = 0.25,
+        guard: bool = False,
+    ) -> KsFrame | None:
+        async with self._transaction_lock:
+            if guard and not self._gas_unlock:
+                return None
+            matched = await self._async_send_f7_command_until_unlocked(
+                dev_id,
+                sub_id,
+                cmd,
+                payload,
+                response_matcher,
+                max_attempts=max_attempts,
+                interval=interval,
+                guard=guard,
+            )
+            if matched is not None and confirmation_matcher(matched):
+                return matched
+
+            await asyncio.sleep(0.12)
+            return await self._async_send_f7_command_until_unlocked(
+                dev_id,
+                status_sub_id,
+                _status_request_command(dev_id),
+                b"",
+                confirmation_matcher,
+                max_attempts=max_attempts,
+                interval=confirmation_interval,
+            )
 
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
         cmd = _status_request_command(dev_id)

@@ -10,8 +10,6 @@ from homeassistant.core import callback
 
 from .config import effective_config
 from .const import (
-    CONF_CHECKSUM,
-    CONF_ETX,
     CONF_EXPOSE_PACKET_SAMPLES,
     CONF_GAS_UNLOCK,
     CONF_HOST,
@@ -21,10 +19,7 @@ from .const import (
     CONF_PACKET_CAPTURE_LIMIT,
     CONF_PORT,
     CONF_RETRY,
-    CONF_STX,
     CONF_TIMEOUT,
-    DEFAULT_CHECKSUM,
-    DEFAULT_ETX,
     DEFAULT_EXPOSE_PACKET_SAMPLES,
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_PACKET_CAPTURE_ENABLED,
@@ -32,26 +27,9 @@ from .const import (
     DEFAULT_PACKET_CAPTURE_LIMIT,
     DEFAULT_PORT,
     DEFAULT_RETRY,
-    DEFAULT_STX,
     DEFAULT_TIMEOUT,
     DOMAIN,
 )
-
-
-def _validate_hex_byte(value: str) -> str:
-    if not isinstance(value, str):
-        raise vol.Invalid("hex byte must be a string")
-
-    cleaned = value.strip().replace("0x", "").replace("0X", "")
-    if len(cleaned) != 2:
-        raise vol.Invalid("hex byte must use exactly two hex digits")
-
-    try:
-        int(cleaned, 16)
-    except ValueError as exc:
-        raise vol.Invalid("hex byte must be valid hexadecimal") from exc
-
-    return cleaned.upper()
 
 
 def _validate_host(value: str) -> str:
@@ -101,8 +79,6 @@ def _validate_user_form_input(user_input: dict[str, Any]) -> dict[str, str]:
 
     for field, validator, error in (
         (CONF_HOST, _validate_host, "invalid_host"),
-        (CONF_STX, _validate_hex_byte, "invalid_hex_byte"),
-        (CONF_ETX, _validate_hex_byte, "invalid_hex_byte"),
         (
             CONF_PACKET_CAPTURE_FILTER,
             _validate_packet_capture_filter,
@@ -135,9 +111,6 @@ def _user_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
             CONF_TIMEOUT: DEFAULT_TIMEOUT,
             CONF_RETRY: DEFAULT_RETRY,
             CONF_MAX_ATTEMPTS: DEFAULT_MAX_ATTEMPTS,
-            CONF_CHECKSUM: DEFAULT_CHECKSUM,
-            CONF_STX: DEFAULT_STX,
-            CONF_ETX: DEFAULT_ETX,
             CONF_GAS_UNLOCK: False,
             CONF_EXPOSE_PACKET_SAMPLES: DEFAULT_EXPOSE_PACKET_SAMPLES,
             CONF_PACKET_CAPTURE_ENABLED: DEFAULT_PACKET_CAPTURE_ENABLED,
@@ -164,11 +137,6 @@ def _user_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
             vol.Coerce(int),
             vol.Range(min=1, max=20),
         ),
-        vol.Required(CONF_CHECKSUM, default=values[CONF_CHECKSUM]): vol.In(
-            ["sum8", "xor8"]
-        ),
-        vol.Required(CONF_STX, default=values[CONF_STX]): str,
-        vol.Required(CONF_ETX, default=values[CONF_ETX]): str,
         vol.Required(CONF_GAS_UNLOCK, default=values[CONF_GAS_UNLOCK]): bool,
         vol.Required(
             CONF_EXPOSE_PACKET_SAMPLES,

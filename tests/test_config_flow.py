@@ -19,6 +19,19 @@ def _schema_validator(data_schema, field):
     raise AssertionError(f"schema field not found: {field}")
 
 
+def _schema_fields(data_schema):
+    return {getattr(key, "key", key) for key in data_schema.schema}
+
+
+def test_user_flow_does_not_expose_unsupported_stx_settings():
+    result = asyncio.run(config_flow.Ksx4506ConfigFlow().async_step_user())
+
+    fields = _schema_fields(result["data_schema"])
+    assert const.CONF_CHECKSUM not in fields
+    assert const.CONF_STX not in fields
+    assert const.CONF_ETX not in fields
+
+
 def test_options_flow_packet_capture_filter_schema_is_frontend_serializable():
     entry = types.SimpleNamespace(
         data={

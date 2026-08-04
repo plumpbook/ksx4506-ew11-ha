@@ -3,6 +3,8 @@ import asyncio
 import sys
 import types
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ._integration_loader import load_integration_module  # noqa: E402
 from .ha_stubs import install_homeassistant_stubs  # noqa: E402
@@ -22,6 +24,7 @@ class _FakeCoordinator:
         matched_frames=None,
         max_attempts=10,
         ew11_state="receiving",
+        send_result=True,
     ):
         self.registry = _FakeRegistry(dev)
         self.sent = []
@@ -32,6 +35,7 @@ class _FakeCoordinator:
             self.matched_frames.append(matched_frame)
         self.max_attempts = max_attempts
         self.ew11_state = ew11_state
+        self.send_result = send_result
 
     def ew11_health_report(self):
         return {
@@ -43,11 +47,11 @@ class _FakeCoordinator:
 
     async def async_send_command(self, addr, cmd, payload, *, guard=False):
         self.sent.append((addr, cmd, payload, guard))
-        return True
+        return self.send_result
 
     async def async_send_f7_command(self, dev_id, sub_id, cmd, payload, *, guard=False):
         self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
-        return True
+        return self.send_result
 
     async def async_send_f7_command_until(
         self,
@@ -73,6 +77,40 @@ class _FakeCoordinator:
         self.state_requests.append((dev_id, sub_id))
         return True
 
+    async def async_send_f7_command_and_confirm(
+        self,
+        dev_id,
+        sub_id,
+        cmd,
+        payload,
+        response_matcher,
+        *,
+        status_sub_id,
+        confirmation_matcher,
+        max_attempts=None,
+        interval=0.1,
+        confirmation_interval=0.25,
+        guard=False,
+    ):
+        _ = (interval, confirmation_interval)
+        for _ in range(max_attempts or self.max_attempts):
+            self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
+            for index, frame in enumerate(self.matched_frames):
+                if response_matcher(frame):
+                    matched = self.matched_frames.pop(index)
+                    if confirmation_matcher(matched):
+                        return matched
+                    break
+            else:
+                continue
+            break
+
+        self.state_requests.append((dev_id, status_sub_id))
+        for index, frame in enumerate(self.matched_frames):
+            if confirmation_matcher(frame):
+                return self.matched_frames.pop(index)
+        return None
+
 
 def test_light_control_uses_suroup_module_channel_payload():
     install_homeassistant_stubs()
@@ -97,7 +135,8 @@ def test_light_control_uses_suroup_module_channel_payload():
     entity = light.KsxLight(coordinator, group1)
     assert entity._attr_device_info["name"] == "Light 0E-11 Channel 1"
 
-    asyncio.run(entity.async_turn_off())
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
@@ -122,7 +161,8 @@ def test_light_control_uses_suroup_module_channel_payload():
     entity = light.KsxLight(coordinator, group1_ch2)
     assert entity._attr_device_info["name"] == "Light 0E-11 Channel 2"
 
-    asyncio.run(entity.async_turn_off())
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x02\x00\x00", False),
@@ -146,7 +186,8 @@ def test_light_control_uses_suroup_module_channel_payload():
     coordinator = _FakeCoordinator(group2_ch1)
     entity = light.KsxLight(coordinator, group2_ch1)
 
-    asyncio.run(entity.async_turn_on())
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_on())
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x12, 0x41, b"\x01\x01\x00", False),
@@ -170,12 +211,55 @@ def test_light_control_uses_suroup_module_channel_payload():
     coordinator = _FakeCoordinator(group3)
     entity = light.KsxLight(coordinator, group3)
 
-    asyncio.run(entity.async_turn_off())
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x13, 0x41, b"\x01\x00\x00", False),
     ] * 10
     assert coordinator.state_requests == [(0x0E, 0x13)]
+
+
+def test_generic_fan_control_failure_is_reported_to_home_assistant():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    fan = load_integration_module("fan")
+
+    dev = discovery.DeviceState(
+        key="1001_fan",
+        addr=0x10,
+        sub_id=0x01,
+        kind="fan",
+        state={"on": False, "speed": 0},
+    )
+    entity = fan.KsxFan(_FakeCoordinator(dev, send_result=False), dev)
+
+    with pytest.raises(fan.HomeAssistantError, match="fan command"):
+        asyncio.run(entity.async_turn_on())
+
+
+def test_light_control_without_ack_or_state_is_reported_to_home_assistant():
+    install_homeassistant_stubs()
+    discovery = load_integration_module("discovery")
+    light = load_integration_module("light")
+
+    dev = discovery.DeviceState(
+        key="0E11_light_1",
+        addr=0x0E,
+        sub_id=0x11,
+        channel=1,
+        kind="light",
+        state={
+            "on": False,
+            "status_sub_id": 0x11,
+            "control_sub_id": 0x11,
+            "control_channel": 1,
+        },
+    )
+    entity = light.KsxLight(_FakeCoordinator(dev, max_attempts=1), dev)
+
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_on())
 
 
 def test_light_restores_last_state_when_status_packet_is_missing():
@@ -261,7 +345,8 @@ def test_light_control_uses_configured_max_attempts():
     coordinator = _FakeCoordinator(dev, max_attempts=3)
     entity = light.KsxLight(coordinator, dev)
 
-    asyncio.run(entity.async_turn_off())
+    with pytest.raises(light.HomeAssistantError, match="light command"):
+        asyncio.run(entity.async_turn_off())
 
     assert coordinator.sent_f7 == [
         (0x0E, 0x11, 0x41, b"\x01\x00\x00", False),
@@ -304,6 +389,24 @@ def test_thermostat_group_payload_exposes_zone_climates_and_controls_zone():
                 sub_id=0x11,
                 cmd=0xC3,
                 payload=bytes.fromhex("00 00 01 00 00 17 17"),
+            ),
+            types.SimpleNamespace(
+                addr=0x36,
+                sub_id=0x1F,
+                cmd=0x81,
+                payload=bytes.fromhex("00 02 00 00 00 19 17 18 18"),
+            ),
+            types.SimpleNamespace(
+                addr=0x36,
+                sub_id=0x11,
+                cmd=0xC3,
+                payload=bytes.fromhex("00 00 01 00 00 17 17"),
+            ),
+            types.SimpleNamespace(
+                addr=0x36,
+                sub_id=0x1F,
+                cmd=0x81,
+                payload=bytes.fromhex("00 02 00 00 00 19 17 18 18"),
             ),
         ],
     )
@@ -495,7 +598,8 @@ def test_outlet_individual_switch_controls_suroup_subid():
     assert entity._attr_device_info["identifiers"] == {("ksx4506_ew11", "3911_switch")}
     assert entity._attr_device_info["name"] == "Outlet 39-11"
 
-    asyncio.run(entity.async_turn_on())
+    with pytest.raises(switch.HomeAssistantError, match="outlet command"):
+        asyncio.run(entity.async_turn_on())
 
     assert coordinator.sent_f7 == [(0x39, 0x11, 0x41, b"\x11", False)] * 3
     assert coordinator.state_requests == [(0x39, 0x1F)]
@@ -558,7 +662,7 @@ def test_outlet_individual_switch_stops_when_status_matches():
     assert coordinator.state_requests == []
 
 
-def test_outlet_individual_switch_stops_when_control_ack_matches():
+def test_outlet_control_ack_without_state_confirmation_is_reported():
     install_homeassistant_stubs()
     discovery = load_integration_module("discovery")
     switch = load_integration_module("switch")
@@ -584,7 +688,8 @@ def test_outlet_individual_switch_stops_when_control_ack_matches():
     coordinator = _FakeCoordinator(dev, matched_frame=matched)
     entity = switch._switch_entities_for_device(coordinator, dev)[0]
 
-    asyncio.run(entity.async_turn_on())
+    with pytest.raises(switch.HomeAssistantError, match="outlet command"):
+        asyncio.run(entity.async_turn_on())
 
     assert coordinator.sent_f7 == [(0x39, 0x11, 0x41, b"\x11", False)]
     assert coordinator.state_requests == [(0x39, 0x1F)]

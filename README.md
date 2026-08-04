@@ -40,9 +40,6 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 | `timeout` | `3.0` | 연결 및 송신 타임아웃 |
 | `retry` | `2` | TCP 송신 재시도 횟수 |
 | `max_attempts` | `10` | 제어 명령 ACK/상태 확인 최대 시도 횟수 |
-| `checksum` | `sum8` | 체크섬 방식 |
-| `stx` | `02` | STX 프레임 시작 바이트 |
-| `etx` | `03` | ETX 프레임 종료 바이트 |
 | `gas_unlock` | `false` | 가스밸브 위험 동작 안전가드 해제 여부 |
 | `expose_packet_samples` | `false` | 미지원 패킷 진단에 raw/payload hex 샘플을 포함할지 여부 |
 | `packet_capture_enabled` | `false` | 최근 수신 패킷을 `Packet Capture` 센서 속성에 보관할지 여부 |
@@ -51,7 +48,7 @@ EW11 RS485-to-TCP 장치를 통해 KS X 4506 월패드 장치를 Home Assistant�
 
 등록 후 `timeout`, `retry`, `max_attempts`, `gas_unlock`, `expose_packet_samples`, `packet_capture_*` 옵션은 통합의 `구성` 또는 `Options` 화면에서 변경할 수 있습니다. 기존 EW11 설정을 바꾸기 위해 `통합 추가`를 다시 누르면 같은 EW11 host/port와 충돌할 수 있습니다.
 
-`host`, `port`, `checksum`, `stx`, `etx`는 연결/프레임 기준값이라 등록 후 옵션 화면에서는 변경하지 않습니다. 이 값이 바뀌면 기존 항목을 삭제한 뒤 다시 추가하세요.
+`host`, `port`는 연결 기준값이라 등록 후 옵션 화면에서는 변경하지 않습니다. 이 값이 바뀌면 기존 항목을 삭제한 뒤 다시 추가하세요.
 
 ## EW11 권장 설정
 
@@ -83,7 +80,7 @@ HACS에서 난수처럼 보이는 값이 표시되면 release가 아니라 기�
 
 아직 지원하지 않는 장치나 패킷은 진단 데이터로 제보할 수 있습니다. 진단 분류와 센서 속성의 의미는 [Packet Diagnostics](docs/packet-diagnostics.md)를 참고하세요.
 
-EW11이 연결된 것처럼 보이지만 장치 반응이 느리거나 간헐적으로 실패하면 `Packet Quality` 진단 센서를 먼저 확인하세요. 센서 상태값은 최근 10분의 RX 오류와 실제 제어 명령 포기만 반영하며, 시작 시 복원 장치 상태 확인 요청이 실패한 경우는 별도 누적 속성으로만 남깁니다. 과거 오류까지 포함한 분석은 `lifetime_state`, `recent`, `rx`, `tx`, `last_giveup` 속성을 함께 봅니다. `rx_resync_events`는 깨진 후보 프레임 안에서 다음 유효 F7 헤더를 찾아 복구한 횟수라 실제 checksum 실패와 분리해 봅니다.
+EW11이 연결된 것처럼 보이지만 장치 반응이 느리거나 간헐적으로 실패하면 엔티티 목록에서 기본 비활성인 `Packet Quality` 진단 센서를 켜서 확인하세요. 센서 상태값은 최근 10분의 RX 오류와 실제 제어 명령 포기만 반영하며, 시작 시 복원 장치 상태 확인 요청이 실패한 경우는 별도 누적 속성으로만 남깁니다. 과거 오류까지 포함한 분석은 `lifetime_state`, `recent`, `rx`, `tx`, `last_giveup` 속성을 함께 봅니다. `rx_resync_events`는 깨진 후보 프레임 안에서 다음 유효 F7 헤더를 찾아 복구한 횟수라 실제 checksum 실패와 분리해 봅니다.
 
 기본 제보에는 raw 패킷 샘플이 포함되지 않습니다. 먼저 안전한 기본 diagnostics로 제보하고, 장치 분석에 raw 샘플이 꼭 필요할 때만 `expose_packet_samples`를 잠시 켜세요.
 

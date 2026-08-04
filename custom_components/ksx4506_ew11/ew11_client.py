@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio  # noqa: ANYIO_OK
+from contextlib import suppress
+from dataclasses import dataclass
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -13,6 +15,14 @@ from .protocol import Ksx4506Codec, KsFrame
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_RX_STALE_AFTER: Final = 20.0
 DEFAULT_RX_RECONNECT_AFTER: Final = 120.0
+MAX_COMMAND_QUEUE_SIZE: Final = 64
+
+
+@dataclass(slots=True)
+class _QueuedCommand:
+    payload: bytes
+    future: asyncio.Future[bool]
+    deadline: float
 
 
 class Ew11Client:
@@ -43,6 +53,7 @@ class Ew11Client:
         self._writer: asyncio.StreamWriter | None = None
         self._task: asyncio.Task[None] | None = None
         self._worker_task: asyncio.Task[None] | None = None
+        self._connected_event = asyncio.Event()
         self._running = False
         self._connected = False
         self._connected_at: datetime | None = None
@@ -56,7 +67,10 @@ class Ew11Client:
             tuple[str, bool, bool, str | None, tuple[int, int, int]] | None
         ) = None
 
-        self._cmd_queue: asyncio.Queue[tuple[bytes, asyncio.Future[bool]]] = asyncio.Queue()
+        self._cmd_queue: asyncio.Queue[_QueuedCommand] = asyncio.Queue(
+            maxsize=MAX_COMMAND_QUEUE_SIZE
+        )
+        self._active_command: _QueuedCommand | None = None
 
     def set_health_listener(self, listener: Callable[[], None] | None) -> None:
         self._health_listener = listener
@@ -72,16 +86,28 @@ class Ew11Client:
     async def stop(self) -> None:
         self._running = False
 
-        if self._task:
-            self._task.cancel()
-        if self._worker_task:
-            self._worker_task.cancel()
+        tasks = [task for task in (self._task, self._worker_task) if task is not None]
+
+        active = self._active_command
+        if active is not None and not active.future.done():
+            active.future.set_result(False)
 
         # Unblock any pending send_with_retry waiters.
         while not self._cmd_queue.empty():
-            _, fut = self._cmd_queue.get_nowait()
-            if not fut.done():
-                fut.set_result(False)
+            command = self._cmd_queue.get_nowait()
+            if not command.future.done():
+                command.future.set_result(False)
+            self._cmd_queue.task_done()
+
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+
+        self._task = None
+        self._worker_task = None
+        self._active_command = None
 
         await self._close()
 
@@ -115,14 +141,36 @@ class Ew11Client:
         return report
 
     async def send_with_retry(self, payload: bytes) -> bool:
-        _LOGGER.debug("queue TX len=%d hex=%s", len(payload), payload.hex())
-        fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        await self._cmd_queue.put((payload, fut))
-        try:
-            return await asyncio.wait_for(fut, timeout=max(self._timeout * (self._retry + 2), 1.0))
-        except TimeoutError:
-            _LOGGER.warning("TX queue timed out len=%d hex=%s", len(payload), payload.hex())
+        if not self._running:
+            _LOGGER.warning("TX rejected because EW11 client is not running len=%d", len(payload))
             return False
+
+        _LOGGER.debug("queue TX len=%d", len(payload))
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[bool] = loop.create_future()
+        command = _QueuedCommand(
+            payload=payload,
+            future=fut,
+            deadline=loop.time() + self._command_timeout(),
+        )
+        try:
+            self._cmd_queue.put_nowait(command)
+        except asyncio.QueueFull:
+            _LOGGER.warning("TX queue is full; rejecting command len=%d", len(payload))
+            return False
+
+        try:
+            async with asyncio.timeout_at(command.deadline):
+                return await asyncio.shield(fut)
+        except TimeoutError:
+            if not fut.done():
+                fut.cancel()
+            _LOGGER.warning("TX queue timed out len=%d", len(payload))
+            return False
+        except asyncio.CancelledError:
+            if not fut.done():
+                fut.cancel()
+            raise
 
     async def _run_loop(self) -> None:
         backoff = 1
@@ -144,10 +192,11 @@ class Ew11Client:
                 self._mark_connected()
                 _LOGGER.info("EW11 connected")
 
-                while self._running:
+                reader = self._reader
+                while self._running and reader is not None:
                     try:
                         data = await asyncio.wait_for(
-                            self._reader.read(1024), timeout=self._timeout
+                            reader.read(1024), timeout=self._timeout
                         )
                     except (asyncio.TimeoutError, TimeoutError):
                         self._publish_health_change()
@@ -159,7 +208,7 @@ class Ew11Client:
                     if not data:
                         raise ConnectionError("EW11 connection closed")
 
-                    _LOGGER.debug("EW11 RX chunk len=%d hex=%s", len(data), data.hex())
+                    _LOGGER.debug("EW11 RX chunk len=%d", len(data))
                     frames = self._codec.feed(data)
                     if frames:
                         self._mark_rx()
@@ -183,42 +232,114 @@ class Ew11Client:
         connected_monotonic = self._connected_monotonic
         self._connected = False
         self._connected_monotonic = None
+        self._connected_event.clear()
         if was_connected and count_disconnect:
             self._connection_stats.record_disconnect(reason, connected_monotonic)
         self._publish_health_change()
-        if self._writer:
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except OSError as exc:
-                _LOGGER.debug("EW11 writer close wait failed: %r", exc)
+        writer = self._writer
         self._reader, self._writer = None, None
+        if writer:
+            writer.close()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), timeout=self._timeout)
+            except (OSError, TimeoutError) as exc:
+                _LOGGER.debug("EW11 writer close wait failed: %r", exc)
 
     async def _command_worker(self) -> None:
-        while self._running:
-            payload, fut = await self._cmd_queue.get()
-            ok = False
-            for attempt in range(self._retry + 1):
-                if not self._writer:
-                    _LOGGER.debug("TX waiting for writer (attempt=%d/%d)", attempt + 1, self._retry + 1)
-                    await asyncio.sleep(0.2)
-                    continue
+        while True:
+            command = await self._cmd_queue.get()
+            self._active_command = command
+            try:
+                ok = await self._send_queued_command(command)
+                if not command.future.done():
+                    command.future.set_result(ok)
+            finally:
+                self._active_command = None
+                self._cmd_queue.task_done()
+
+    async def _send_queued_command(self, command: _QueuedCommand) -> bool:
+        loop = asyncio.get_running_loop()
+        attempts = self._retry + 1
+        attempt = 0
+        while attempt < attempts:
+            if (
+                not self._running
+                or command.future.done()
+                or loop.time() >= command.deadline
+            ):
+                return False
+
+            writer = self._writer
+            if writer is None or (
+                callable(is_closing := getattr(writer, "is_closing", None))
+                and is_closing()
+            ):
+                remaining = command.deadline - loop.time()
+                if remaining <= 0:
+                    return False
                 try:
-                    self._writer.write(payload)
-                    await self._writer.drain()
-                    _LOGGER.debug("TX sent (attempt=%d/%d) hex=%s", attempt + 1, self._retry + 1, payload.hex())
-                    ok = True
-                    break
-                except OSError as exc:
-                    _LOGGER.debug("TX failed (attempt=%d/%d): %r", attempt + 1, self._retry + 1, exc)
-                    await asyncio.sleep(0.2)
-            if not ok:
-                _LOGGER.warning("TX failed after %d attempts hex=%s", self._retry + 1, payload.hex())
-            if not fut.done():
-                fut.set_result(ok)
+                    await asyncio.wait_for(
+                        self._connected_event.wait(),
+                        timeout=min(0.2, remaining),
+                    )
+                except TimeoutError:
+                    pass
+                continue
+
+            attempt += 1
+            try:
+                writer.write(command.payload)
+                remaining = command.deadline - loop.time()
+                if remaining <= 0:
+                    self._abort_writer(writer)
+                    return False
+                await asyncio.wait_for(
+                    writer.drain(),
+                    timeout=min(self._timeout, remaining),
+                )
+                _LOGGER.debug(
+                    "TX sent (attempt=%d/%d) len=%d",
+                    attempt,
+                    attempts,
+                    len(command.payload),
+                )
+                return True
+            except (OSError, TimeoutError) as exc:
+                _LOGGER.debug(
+                    "TX failed (attempt=%d/%d): %r",
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                self._abort_writer(writer)
+                await self._close(reason=repr(exc), count_disconnect=True)
+                if attempt < attempts:
+                    await asyncio.sleep(
+                        min(0.2, max(command.deadline - loop.time(), 0))
+                    )
+
+        _LOGGER.warning(
+            "TX failed after %d attempts len=%d",
+            attempts,
+            len(command.payload),
+        )
+        return False
+
+    def _command_timeout(self) -> float:
+        return max((self._retry + 1) * (self._timeout + 0.2) + 1.0, 1.0)
+
+    @staticmethod
+    def _abort_writer(writer: asyncio.StreamWriter) -> None:
+        transport = getattr(writer, "transport", None)
+        abort = getattr(transport, "abort", None)
+        if callable(abort):
+            abort()
+            return
+        writer.close()
 
     def _mark_connected(self) -> None:
         self._connected = True
+        self._connected_event.set()
         self._connection_stats.record_connected()
         self._connected_at = datetime.now(timezone.utc)
         self._connected_monotonic = time.monotonic()
