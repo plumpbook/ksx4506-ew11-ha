@@ -220,7 +220,7 @@ async def _assert_control_transactions_remain_serialized():
             sub_id,
             cmd,
             payload,
-            matcher,
+            _matcher,
             **_kwargs,
         ):
             self.calls.append((dev_id, sub_id, cmd, payload))
@@ -380,6 +380,7 @@ def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypat
             self.registry.restore_device_from_key("0E15_light_2")
             self.hass = object()
             self.data = None
+            self._last_published_device_states = {}
 
         def async_set_updated_data(self, data):
             self.data = data
@@ -398,6 +399,11 @@ def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypat
         fake,
         "_publish_registry_state",
         coordinator_module.Ksx4506Coordinator._publish_registry_state,
+    )
+    _bind_method(
+        fake,
+        "_semantic_state_changes",
+        coordinator_module.Ksx4506Coordinator._semantic_state_changes,
     )
     frame = protocol_module.KsFrame(
         addr=0x0E,
@@ -453,6 +459,7 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
             self.registry = coordinator_module.DeviceRegistry()
             self.hass = object()
             self.data = None
+            self._last_published_device_states = {}
 
         def async_set_updated_data(self, data):
             self.data = data
@@ -471,6 +478,11 @@ def test_common_entrance_call_info_log_does_not_expose_raw_packet(caplog):
         fake,
         "_publish_registry_state",
         coordinator_module.Ksx4506Coordinator._publish_registry_state,
+    )
+    _bind_method(
+        fake,
+        "_semantic_state_changes",
+        coordinator_module.Ksx4506Coordinator._semantic_state_changes,
     )
     frame = protocol_module.KsFrame(
         addr=0x40,

@@ -344,3 +344,45 @@ def test_unsupported_packets_sensor_reports_unique_signatures_as_state():
 
     assert entity.native_value == 2
     assert entity.extra_state_attributes["total_seen"] == 42
+
+
+def test_diagnostic_sensor_coalesces_frame_updates_within_one_second(monkeypatch):
+    install_homeassistant_stubs()
+    diagnostic_module = load_integration_module("diagnostic_sensors")
+    times = iter((100.0, 100.2, 101.1))
+    monkeypatch.setattr(diagnostic_module, "monotonic", lambda: next(times))
+    coordinator = types.SimpleNamespace(
+        _last_changed_device_keys=frozenset({"3911_switch"}),
+        ew11_health_report=lambda: {"state": "receiving"},
+    )
+    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+    entity = diagnostic_module.KsxEw11LinkSensor(coordinator, entry)
+    writes = []
+    entity.async_write_ha_state = lambda: writes.append("write")
+
+    entity._handle_coordinator_update()
+    entity._handle_coordinator_update()
+    entity._handle_coordinator_update()
+
+    assert writes == ["write", "write"]
+
+
+def test_diagnostic_sensor_publishes_global_health_update_immediately(monkeypatch):
+    install_homeassistant_stubs()
+    diagnostic_module = load_integration_module("diagnostic_sensors")
+    times = iter((100.0, 100.2))
+    monkeypatch.setattr(diagnostic_module, "monotonic", lambda: next(times))
+    coordinator = types.SimpleNamespace(
+        _last_changed_device_keys=frozenset({"3911_switch"}),
+        ew11_health_report=lambda: {"state": "receiving"},
+    )
+    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+    entity = diagnostic_module.KsxEw11LinkSensor(coordinator, entry)
+    writes = []
+    entity.async_write_ha_state = lambda: writes.append("write")
+
+    entity._handle_coordinator_update()
+    coordinator._last_changed_device_keys = None
+    entity._handle_coordinator_update()
+
+    assert writes == ["write", "write"]

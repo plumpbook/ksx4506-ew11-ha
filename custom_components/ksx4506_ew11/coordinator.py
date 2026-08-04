@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import deque
 from collections.abc import Callable
+from copy import deepcopy
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -46,7 +47,7 @@ from .devices.lighting import LIGHT_DEVICE_ID
 from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
 from .devices.outlet import OUTLET_DEVICE_ID
 from .devices.thermostat import THERMOSTAT_DEVICE_ID
-from .discovery import DeviceRegistry
+from .discovery import DeviceRegistry, DeviceState
 from .ew11_client import Ew11Client
 from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
@@ -134,6 +135,10 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             maxlen=self.packet_capture_limit
         )
         self._last_changed_device_keys: frozenset[str] | None = None
+        self._last_published_device_states: dict[
+            str,
+            tuple[dict[str, Any], bool],
+        ] = {}
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
         self._transaction_lock = asyncio.Lock()
         self._meter_probe_task: asyncio.Task[None] | None = None
@@ -152,6 +157,24 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(
             {key: device.state for key, device in self.registry.devices.items()}
         )
+
+    def _semantic_state_changes(
+        self,
+        changes: list[tuple[DeviceState, bool]],
+    ) -> list[tuple[DeviceState, bool]]:
+        semantic_changes: list[tuple[DeviceState, bool]] = []
+        for device, is_new in changes:
+            assumed_state = bool(device.state.get("state_assumed", False)) and (
+                device.last_raw_hex == device.state.get("state_assumed_raw_hex")
+            )
+            snapshot = (deepcopy(device.state), assumed_state)
+            if (
+                is_new
+                or self._last_published_device_states.get(device.key) != snapshot
+            ):
+                self._last_published_device_states[device.key] = snapshot
+                semantic_changes.append((device, is_new))
+        return semantic_changes
 
     async def async_start(self) -> None:
         await self._client.start()
@@ -207,12 +230,14 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 _LOGGER.debug(log_message)
         retired_before = self.registry.retired_device_keys.copy()
-        changes = self.registry.upsert_from_frame(
-            frame.addr,
-            frame.sub_id,
-            frame.cmd,
-            frame.payload,
-            frame.raw.hex(),
+        changes = self._semantic_state_changes(
+            self.registry.upsert_from_frame(
+                frame.addr,
+                frame.sub_id,
+                frame.cmd,
+                frame.payload,
+                frame.raw.hex(),
+            )
         )
         if getattr(self, "packet_capture_enabled", False):
             self._capture_packet(
@@ -227,11 +252,13 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             if is_new:
                 async_dispatcher_send(self.hass, SIGNAL_DEVICE_ADDED, dev.key)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_UPDATE, dev.key)
-        for dev_key in self.registry.retired_device_keys - retired_before:
+        retired_device_keys = self.registry.retired_device_keys - retired_before
+        for dev_key in retired_device_keys:
+            self._last_published_device_states.pop(dev_key, None)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_REMOVED, dev_key)
         self._publish_registry_state(
             {dev.key for dev, _is_new in changes}
-            | (self.registry.retired_device_keys - retired_before)
+            | retired_device_keys
         )
         self._notify_frame_waiters(frame)
 

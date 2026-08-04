@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import monotonic
+
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -12,8 +14,43 @@ from .coordinator import Ksx4506Coordinator
 from .device_metadata import DEVICE_MANUFACTURER, DEVICE_MODEL
 from .ew11_health import ew11_health_report_from_coordinator
 
+_FRAME_UPDATE_INTERVAL_SECONDS = 1.0
 
-class KsxEw11LinkSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
+
+class _KsxDiagnosticSensor(
+    CoordinatorEntity[Ksx4506Coordinator],
+    SensorEntity,
+):
+    def __init__(self, coordinator: Ksx4506Coordinator) -> None:
+        super().__init__(coordinator)
+        self._last_update_at: float | None = None
+
+    def _handle_coordinator_update(self) -> None:
+        now = monotonic()
+        changed_device_keys = getattr(
+            self.coordinator,
+            "_last_changed_device_keys",
+            None,
+        )
+        if (
+            changed_device_keys is not None
+            and self._last_update_at is not None
+            and now - self._last_update_at < _FRAME_UPDATE_INTERVAL_SECONDS
+        ):
+            return
+
+        self._last_update_at = now
+        update_handler = getattr(super(), "_handle_coordinator_update", None)
+        if update_handler is not None:
+            update_handler()
+            return
+
+        write_state = getattr(self, "async_write_ha_state", None)
+        if write_state is not None:
+            write_state()
+
+
+class KsxEw11LinkSensor(_KsxDiagnosticSensor):
     _attr_has_entity_name = True
     _attr_name = "EW11 Link"
     _attr_entity_registry_enabled_default = True
@@ -33,7 +70,7 @@ class KsxEw11LinkSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
         return ew11_health_report_from_coordinator(self.coordinator)
 
 
-class KsxUnsupportedPacketsSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
+class KsxUnsupportedPacketsSensor(_KsxDiagnosticSensor):
     _attr_has_entity_name = True
     _attr_name = "Unsupported Packets"
     _attr_entity_registry_enabled_default = True
@@ -62,7 +99,7 @@ class KsxUnsupportedPacketsSensor(CoordinatorEntity[Ksx4506Coordinator], SensorE
         )
 
 
-class KsxPacketCaptureSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
+class KsxPacketCaptureSensor(_KsxDiagnosticSensor):
     _attr_has_entity_name = True
     _attr_name = "Packet Capture"
     _attr_entity_registry_enabled_default = True
@@ -89,7 +126,7 @@ class KsxPacketCaptureSensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity
         )
 
 
-class KsxPacketQualitySensor(CoordinatorEntity[Ksx4506Coordinator], SensorEntity):
+class KsxPacketQualitySensor(_KsxDiagnosticSensor):
     _attr_has_entity_name = True
     _attr_name = "Packet Quality"
     _attr_entity_registry_enabled_default = False
