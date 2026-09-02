@@ -13,6 +13,57 @@ def test_ew11_client_reports_disconnected_before_start():
     asyncio.run(_assert_disconnected_before_start())
 
 
+def test_ew11_client_reports_not_running_command_failure():
+    asyncio.run(_assert_not_running_command_failure_is_reported())
+
+
+def test_ew11_client_notifies_each_command_result_change():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    async def on_frame(_frame):
+        return None
+
+    client = ew11_client.Ew11Client(
+        host="ew11.example.invalid",
+        port=8899,
+        timeout=3.0,
+        retry=2,
+        codec=protocol.Ksx4506Codec(),
+        on_frame=on_frame,
+    )
+    notifications = []
+    client.set_health_listener(lambda: notifications.append(True))
+
+    client._record_tx_result(status="not_running", attempts=0, error="first")
+    client._record_tx_result(status="queue_full", attempts=0, error="second")
+
+    assert len(notifications) == 2
+
+
+async def _assert_not_running_command_failure_is_reported():
+    ew11_client = load_integration_module("ew11_client")
+    protocol = load_integration_module("protocol")
+
+    async def on_frame(_frame):
+        return None
+
+    client = ew11_client.Ew11Client(
+        host="ew11.example.invalid",
+        port=8899,
+        timeout=3.0,
+        retry=2,
+        codec=protocol.Ksx4506Codec(),
+        on_frame=on_frame,
+    )
+
+    assert await client.send_with_retry(b"command") is False
+    report = client.health_report()
+
+    assert report["last_tx_status"] == "not_running"
+    assert report["last_tx_error"] == "EW11 client is not running"
+
+
 async def _assert_disconnected_before_start():
     ew11_client = load_integration_module("ew11_client")
     protocol = load_integration_module("protocol")

@@ -127,6 +127,32 @@ def test_state_request_giveups_do_not_degrade_packet_quality_state():
     assert report["tx"]["state_request_giveups"] == 1
 
 
+def test_control_giveup_reports_transport_failure_details():
+    install_homeassistant_stubs()
+    packet_quality = load_integration_module("packet_quality")
+
+    monitor = packet_quality.PacketQualityMonitor()
+    monitor.record_tx_giveup(
+        dev_id=0x10,
+        sub_id=0,
+        cmd=0x41,
+        payload=b"\x01",
+        attempts=2,
+        is_state_request=False,
+        health={
+            "state": "receiving",
+            "seconds_since_last_rx": 0.1,
+            "last_error": None,
+            "last_tx_status": "write_failed",
+            "last_tx_error": "ConnectionResetError()",
+        },
+    )
+
+    last_giveup = monitor.report()["tx"]["last_giveup"]
+    assert last_giveup["transport_status"] == "write_failed"
+    assert last_giveup["transport_error"] == "ConnectionResetError()"
+
+
 def test_codec_resyncs_when_bad_f7_frame_contains_next_valid_header():
     install_homeassistant_stubs()
     packet_quality = load_integration_module("packet_quality")

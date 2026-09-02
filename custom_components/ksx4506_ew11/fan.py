@@ -60,13 +60,22 @@ class KsxFan(KsxEntity, FanEntity):
         **kwargs: Any,
     ) -> None:
         speed = 1 if percentage is None else max(1, min(3, round(percentage / 33)))
-        if not await self.coordinator.async_send_command(
-            self.addr, CMD_SET_FAN, bytes([speed])
-        ):
-            raise HomeAssistantError("KSX fan command could not be sent")
+        matched = await self.coordinator.async_send_command_and_confirm(
+            self.addr,
+            CMD_SET_FAN,
+            bytes([speed]),
+            lambda frame: frame.addr == self.addr
+            and int(self.dev.state.get("speed", 0)) == speed,
+        )
+        if matched is None:
+            raise HomeAssistantError(self._command_failure_message("KSX fan command"))
 
     async def async_turn_off(self, **kwargs):
-        if not await self.coordinator.async_send_command(
-            self.addr, CMD_SET_FAN, b"\x00"
-        ):
-            raise HomeAssistantError("KSX fan command could not be sent")
+        matched = await self.coordinator.async_send_command_and_confirm(
+            self.addr,
+            CMD_SET_FAN,
+            b"\x00",
+            lambda frame: frame.addr == self.addr and self.is_on is False,
+        )
+        if matched is None:
+            raise HomeAssistantError(self._command_failure_message("KSX fan command"))

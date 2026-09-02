@@ -214,10 +214,16 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
                 turn_on=True,
             )
             return
-        if not await self.coordinator.async_send_command(
-            self.addr, CMD_SET_LIGHT, b"\x01"
-        ):
-            raise HomeAssistantError("KSX light command could not be sent")
+        matched = await self.coordinator.async_send_command_and_confirm(
+            self.addr,
+            CMD_SET_LIGHT,
+            b"\x01",
+            lambda frame: frame.addr == self.addr and self.is_on is True,
+        )
+        if matched is None:
+            raise HomeAssistantError(
+                self._command_failure_message("KSX light command")
+            )
 
     async def async_turn_off(self, **kwargs):
         if self.addr == LIGHT_DEVICE_ID:
@@ -228,7 +234,13 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
                 turn_on=False,
             )
             return
-        if not await self.coordinator.async_send_command(
-            self.addr, CMD_SET_LIGHT, b"\x00"
-        ):
-            raise HomeAssistantError("KSX light command could not be sent")
+        matched = await self.coordinator.async_send_command_and_confirm(
+            self.addr,
+            CMD_SET_LIGHT,
+            b"\x00",
+            lambda frame: frame.addr == self.addr and self.is_on is False,
+        )
+        if matched is None:
+            raise HomeAssistantError(
+                self._command_failure_message("KSX light command")
+            )

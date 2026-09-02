@@ -238,6 +238,8 @@ class PacketQualityMonitor:
             "ew11_state": health.get("state"),
             "seconds_since_last_rx": health.get("seconds_since_last_rx"),
             "last_error": health.get("last_error"),
+            "transport_status": health.get("last_tx_status"),
+            "transport_error": health.get("last_tx_error"),
         }
 
     def report(self, *, include_packet_samples: bool = False) -> dict[str, Any]:

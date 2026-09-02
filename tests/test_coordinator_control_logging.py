@@ -195,6 +195,58 @@ def test_send_f7_state_request_give_up_logs_at_debug_not_warning(caplog):
     assert report["tx"]["state_request_giveups"] == 1
 
 
+def test_generic_control_without_state_confirmation_records_giveup():
+    asyncio.run(_assert_generic_control_without_state_confirmation_records_giveup())
+
+
+async def _assert_generic_control_without_state_confirmation_records_giveup():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    packet_quality_module = load_integration_module("packet_quality")
+
+    class FakeClient:
+        async def send_with_retry(self, _payload):
+            return True
+
+        def health_report(self):
+            return {
+                "state": "receiving",
+                "seconds_since_last_rx": 0.1,
+                "last_error": None,
+            }
+
+    fake = types.SimpleNamespace(
+        _transaction_lock=asyncio.Lock(),
+        _frame_waiters=[],
+        _client=FakeClient(),
+        codec=types.SimpleNamespace(build=lambda _addr, _cmd, _payload: b"command"),
+        packet_quality=packet_quality_module.PacketQualityMonitor(),
+        _publish_registry_state=lambda: None,
+    )
+    fake._async_send_command_unlocked = types.MethodType(
+        coordinator_module.Ksx4506Coordinator._async_send_command_unlocked,
+        fake,
+    )
+    send_and_confirm = types.MethodType(
+        coordinator_module.Ksx4506Coordinator.async_send_command_and_confirm,
+        fake,
+    )
+
+    result = await send_and_confirm(
+        0x10,
+        0x41,
+        b"\x01",
+        lambda _frame: False,
+        confirmation_timeout=0,
+    )
+
+    assert result is None
+    report = fake.packet_quality.report()
+    assert report["tx"]["control_giveups"] == 1
+    assert report["tx"]["last_giveup"]["device_id"] == "0x10"
+    assert report["tx"]["last_giveup"]["command_type"] == "0x41"
+
+
 def test_control_transactions_remain_serialized_through_state_confirmation():
     asyncio.run(_assert_control_transactions_remain_serialized())
 

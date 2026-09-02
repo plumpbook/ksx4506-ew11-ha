@@ -62,9 +62,21 @@ class Ew11Client:
         self._last_rx_monotonic: float | None = None
         self._connection_stats = Ew11ConnectionStats()
         self._last_error: str | None = None
+        self._last_tx_at: datetime | None = None
+        self._last_tx_status: str | None = None
+        self._last_tx_attempts = 0
+        self._last_tx_error: str | None = None
         self._health_listener: Callable[[], None] | None = None
         self._last_health_signature: (
-            tuple[str, bool, bool, str | None, tuple[int, int, int]] | None
+            tuple[
+                str,
+                bool,
+                bool,
+                str | None,
+                tuple[int, int, int],
+                tuple[str | None, int, str | None],
+            ]
+            | None
         ) = None
 
         self._cmd_queue: asyncio.Queue[_QueuedCommand] = asyncio.Queue(
@@ -131,6 +143,10 @@ class Ew11Client:
             "seconds_since_last_rx": seconds_since_last_rx,
             "seconds_without_rx": rx_silence,
             "last_error": self._last_error,
+            "last_tx_at": _isoformat_or_none(self._last_tx_at),
+            "last_tx_status": self._last_tx_status,
+            "last_tx_attempts": self._last_tx_attempts,
+            "last_tx_error": self._last_tx_error,
         }
         report.update(
             self._connection_stats.report(
@@ -142,6 +158,11 @@ class Ew11Client:
 
     async def send_with_retry(self, payload: bytes) -> bool:
         if not self._running:
+            self._record_tx_result(
+                status="not_running",
+                attempts=0,
+                error="EW11 client is not running",
+            )
             _LOGGER.warning("TX rejected because EW11 client is not running len=%d", len(payload))
             return False
 
@@ -156,6 +177,11 @@ class Ew11Client:
         try:
             self._cmd_queue.put_nowait(command)
         except asyncio.QueueFull:
+            self._record_tx_result(
+                status="queue_full",
+                attempts=0,
+                error="EW11 command queue is full",
+            )
             _LOGGER.warning("TX queue is full; rejecting command len=%d", len(payload))
             return False
 
@@ -165,6 +191,11 @@ class Ew11Client:
         except TimeoutError:
             if not fut.done():
                 fut.cancel()
+            self._record_tx_result(
+                status="queue_timeout",
+                attempts=0,
+                error="EW11 command queue timed out",
+            )
             _LOGGER.warning("TX queue timed out len=%d", len(payload))
             return False
         except asyncio.CancelledError:
@@ -276,6 +307,11 @@ class Ew11Client:
             ):
                 remaining = command.deadline - loop.time()
                 if remaining <= 0:
+                    self._record_tx_result(
+                        status="connection_unavailable",
+                        attempts=attempt,
+                        error="EW11 connection was unavailable before the command deadline",
+                    )
                     return False
                 try:
                     await asyncio.wait_for(
@@ -292,6 +328,11 @@ class Ew11Client:
                 remaining = command.deadline - loop.time()
                 if remaining <= 0:
                     self._abort_writer(writer)
+                    self._record_tx_result(
+                        status="write_timeout",
+                        attempts=attempt,
+                        error="EW11 write deadline expired",
+                    )
                     return False
                 await asyncio.wait_for(
                     writer.drain(),
@@ -303,8 +344,18 @@ class Ew11Client:
                     attempts,
                     len(command.payload),
                 )
+                self._record_tx_result(
+                    status="sent",
+                    attempts=attempt,
+                    error=None,
+                )
                 return True
             except (OSError, TimeoutError) as exc:
+                self._record_tx_result(
+                    status="write_failed",
+                    attempts=attempt,
+                    error=repr(exc),
+                )
                 _LOGGER.debug(
                     "TX failed (attempt=%d/%d): %r",
                     attempt,
@@ -324,6 +375,19 @@ class Ew11Client:
             len(command.payload),
         )
         return False
+
+    def _record_tx_result(
+        self,
+        *,
+        status: str,
+        attempts: int,
+        error: str | None,
+    ) -> None:
+        self._last_tx_at = datetime.now(timezone.utc)
+        self._last_tx_status = status
+        self._last_tx_attempts = attempts
+        self._last_tx_error = error
+        self._publish_health_change()
 
     def _command_timeout(self) -> float:
         return max((self._retry + 1) * (self._timeout + 0.2) + 1.0, 1.0)
@@ -381,13 +445,27 @@ class Ew11Client:
             return "connected_no_rx"
         return "receiving"
 
-    def _health_signature(self) -> tuple[str, bool, bool, str | None, tuple[int, int, int]]:
+    def _health_signature(
+        self,
+    ) -> tuple[
+        str,
+        bool,
+        bool,
+        str | None,
+        tuple[int, int, int],
+        tuple[str | None, int, str | None],
+    ]:
         return (
             self._health_state(self._is_rx_stale()),
             self._connected,
             self._running,
             self._last_error,
             self._connection_stats.signature(),
+            (
+                self._last_tx_status,
+                self._last_tx_attempts,
+                self._last_tx_error,
+            ),
         )
 
     def _publish_health_change(self) -> None:

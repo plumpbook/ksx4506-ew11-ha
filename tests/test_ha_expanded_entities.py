@@ -49,6 +49,25 @@ class _FakeCoordinator:
         self.sent.append((addr, cmd, payload, guard))
         return self.send_result
 
+    async def async_send_command_and_confirm(
+        self,
+        addr,
+        cmd,
+        payload,
+        matcher,
+        *,
+        confirmation_timeout=1.0,
+        guard=False,
+    ):
+        _ = confirmation_timeout
+        self.sent.append((addr, cmd, payload, guard))
+        if not self.send_result:
+            return None
+        for index, frame in enumerate(self.matched_frames):
+            if matcher(frame):
+                return self.matched_frames.pop(index)
+        return None
+
     async def async_send_f7_command(self, dev_id, sub_id, cmd, payload, *, guard=False):
         self.sent_f7.append((dev_id, sub_id, cmd, payload, guard))
         return self.send_result
@@ -234,7 +253,7 @@ def test_generic_fan_control_failure_is_reported_to_home_assistant():
     )
     entity = fan.KsxFan(_FakeCoordinator(dev, send_result=False), dev)
 
-    with pytest.raises(fan.HomeAssistantError, match="fan command"):
+    with pytest.raises(fan.HomeAssistantError, match="state was not confirmed"):
         asyncio.run(entity.async_turn_on())
 
 

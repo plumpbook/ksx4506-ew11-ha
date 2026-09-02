@@ -121,3 +121,12 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
         return bool(self.dev.state.get("state_assumed", False)) and (
             self.dev.last_raw_hex == self.dev.state.get("state_assumed_raw_hex")
         )
+
+    def _command_failure_message(self, command_name: str) -> str:
+        report = ew11_health_report_from_coordinator(self.coordinator)
+        status = report.get("last_tx_status")
+        error = report.get("last_tx_error")
+        if status and status != "sent":
+            detail = f": {error}" if error else ""
+            return f"{command_name} transport failed ({status}){detail}"
+        return f"{command_name} state was not confirmed"

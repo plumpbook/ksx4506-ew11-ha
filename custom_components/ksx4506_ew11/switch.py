@@ -105,20 +105,28 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
         return bool(self.dev.state.get("on", False))
 
     async def async_turn_on(self, **kwargs):
-        if not await self.coordinator.async_send_command(
+        matched = await self.coordinator.async_send_command_and_confirm(
             self.addr,
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=True),
-        ):
-            raise HomeAssistantError("KSX switch command could not be sent")
+            lambda frame: frame.addr == self.addr and self.is_on is True,
+        )
+        if matched is None:
+            raise HomeAssistantError(
+                self._command_failure_message("KSX switch command")
+            )
 
     async def async_turn_off(self, **kwargs):
-        if not await self.coordinator.async_send_command(
+        matched = await self.coordinator.async_send_command_and_confirm(
             self.addr,
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=False),
-        ):
-            raise HomeAssistantError("KSX switch command could not be sent")
+            lambda frame: frame.addr == self.addr and self.is_on is False,
+        )
+        if matched is None:
+            raise HomeAssistantError(
+                self._command_failure_message("KSX switch command")
+            )
 
 
 class KsxOutletSwitch(KsxSwitch):

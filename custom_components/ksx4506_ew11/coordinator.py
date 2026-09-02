@@ -432,6 +432,69 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         return await self._client.send_with_retry(packet)
 
+    async def async_send_command_and_confirm(
+        self,
+        addr: int,
+        cmd: int,
+        payload: bytes,
+        matcher: Callable[[KsFrame], bool],
+        *,
+        confirmation_timeout: float = 1.0,
+        guard: bool = False,
+    ) -> KsFrame | None:
+        async with self._transaction_lock:
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future[KsFrame] = loop.create_future()
+            waiter = (matcher, fut)
+            self._frame_waiters.append(waiter)
+            try:
+                sent = await self._async_send_command_unlocked(
+                    addr,
+                    cmd,
+                    payload,
+                    guard=guard,
+                )
+                if sent:
+                    try:
+                        return await asyncio.wait_for(
+                            asyncio.shield(fut),
+                            timeout=max(0, confirmation_timeout),
+                        )
+                    except asyncio.TimeoutError:
+                        _LOGGER.debug(
+                            "TX STX control confirmation timed out "
+                            "addr=0x%02X cmd=0x%02X timeout=%.3fs",
+                            addr,
+                            cmd,
+                            confirmation_timeout,
+                        )
+
+                health = self._client.health_report()
+                _LOGGER.warning(
+                    "TX STX control was not confirmed addr=0x%02X cmd=0x%02X "
+                    "sent=%s ew11_state=%s last_tx_status=%s last_tx_error=%s",
+                    addr,
+                    cmd,
+                    sent,
+                    health.get("state"),
+                    health.get("last_tx_status"),
+                    health.get("last_tx_error"),
+                )
+                self.packet_quality.record_tx_giveup(
+                    dev_id=addr,
+                    sub_id=0,
+                    cmd=cmd,
+                    payload=payload,
+                    attempts=max(1, int(health.get("last_tx_attempts") or 0)),
+                    is_state_request=False,
+                    health=health,
+                )
+                self._publish_registry_state()
+                return None
+            finally:
+                with suppress(ValueError):
+                    self._frame_waiters.remove(waiter)
+
     async def async_send_f7_command(
         self,
         dev_id: int,
