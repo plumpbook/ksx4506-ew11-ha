@@ -290,6 +290,29 @@ def test_packet_quality_sensor_reports_coordinator_quality():
     assert include_samples == [False, False]
 
 
+def test_device_vitality_sensor_reports_protocol_endpoint_health():
+    install_homeassistant_stubs()
+    sensor_module = load_integration_module("sensor")
+
+    report = {
+        "state": "unresponsive",
+        "total": 2,
+        "healthy": 1,
+        "unresponsive": 1,
+        "devices": [{"endpoint": "0x39/0x11", "status": "unresponsive"}],
+    }
+    coordinator = types.SimpleNamespace(device_vitality_report=lambda: report)
+    entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
+
+    entity = sensor_module.KsxDeviceVitalitySensor(coordinator, entry)
+
+    assert entity.native_value == "unresponsive"
+    assert entity.extra_state_attributes["unresponsive"] == 1
+    assert entity.extra_state_attributes["devices"][0]["endpoint"] == "0x39/0x11"
+    assert entity._attr_unique_id == "ksx4506_entry-1_device_vitality"
+    assert entity._attr_entity_registry_enabled_default is True
+
+
 def test_ew11_link_sensor_reports_connection_health():
     install_homeassistant_stubs()
     sensor_module = load_integration_module("sensor")

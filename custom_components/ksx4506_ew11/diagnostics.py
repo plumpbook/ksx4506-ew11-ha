@@ -47,6 +47,20 @@ async def async_get_config_entry_diagnostics(
             ew11_health_report_from_coordinator(coordinator),
             TO_REDACT,
         ),
+        "device_vitality": (
+            coordinator.device_vitality_report()
+            if coordinator is not None
+            else {
+                "state": "unknown",
+                "total": 0,
+                "healthy": 0,
+                "unresponsive": 0,
+                "stale": 0,
+                "event_only": 0,
+                "unknown": 0,
+                "devices": [],
+            }
+        ),
         "packet_quality": _packet_quality_summary(
             coordinator,
             include_packet_samples=include_packet_samples,

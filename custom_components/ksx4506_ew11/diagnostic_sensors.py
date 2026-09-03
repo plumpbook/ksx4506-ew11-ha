@@ -153,6 +153,26 @@ class KsxPacketQualitySensor(_KsxDiagnosticSensor):
         )
 
 
+class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
+    _attr_has_entity_name = True
+    _attr_name = "RS485 Device Vitality"
+    _attr_entity_registry_enabled_default = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"ksx4506_{entry.entry_id}_device_vitality"
+        self._attr_device_info = _ew11_device_info(entry)
+
+    @property
+    def native_value(self):
+        return self.coordinator.device_vitality_report()["state"]
+
+    @property
+    def extra_state_attributes(self):
+        return self.coordinator.device_vitality_report()
+
+
 def _ew11_device_info(entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},

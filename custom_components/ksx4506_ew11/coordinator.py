@@ -47,6 +47,7 @@ from .devices.lighting import LIGHT_DEVICE_ID
 from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
 from .devices.outlet import OUTLET_DEVICE_ID
 from .devices.thermostat import THERMOSTAT_DEVICE_ID
+from .device_vitality import DeviceVitalityMonitor, DeviceVitalityReport
 from .discovery import DeviceRegistry, DeviceState
 from .ew11_client import Ew11Client
 from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
@@ -56,6 +57,7 @@ _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
 _F7_STATUS_REQUEST = 0x01
 _F7_STATUS_RESPONSE = 0x81
+_DEVICE_VITALITY_SCAN_INTERVAL = 300.0
 GENERIC_SENSOR_DEVICE_ID = 0x60
 REQUESTABLE_F7_DEVICE_IDS = {
     LIGHT_DEVICE_ID,
@@ -83,6 +85,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=30),
         )
         self.registry = DeviceRegistry()
+        self.device_vitality = DeviceVitalityMonitor()
         self.packet_quality = PacketQualityMonitor()
         self.codec = Ksx4506Codec(
             stx=int(config.get(CONF_STX, DEFAULT_STX), 16),
@@ -185,7 +188,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             or self._known_device_probe_task.done()
         ):
             self._known_device_probe_task = asyncio.create_task(
-                self.async_probe_known_device_states()
+                self.async_monitor_known_device_states()
             )
 
     async def async_stop(self) -> None:
@@ -209,6 +212,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             frame.cmd,
             len(frame.payload),
         )
+        vitality = getattr(self, "device_vitality", None)
+        if vitality is not None:
+            vitality.observe(frame)
         if frame.addr == COMMON_ENTRANCE_DEVICE_ID:
             log_message = format_common_entrance_packet_log(
                 frame.sub_id,
@@ -385,6 +391,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 include_packet_samples=include_packet_samples
             )
         return quality.report(include_packet_samples=include_packet_samples)
+
+    def device_vitality_report(self) -> DeviceVitalityReport:
+        return self.device_vitality.report(self.registry.devices.values())
 
     @property
     def gas_unlocked(self) -> bool:
@@ -773,6 +782,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         sub_id: int,
         *,
         interval: float = 0.25,
+        max_attempts: int | None = None,
     ) -> KsFrame | None:
         request_cmd = _status_request_command(dev_id)
         response_cmd = _status_response_command(dev_id)
@@ -791,7 +801,20 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             b"",
             matcher,
             interval=interval,
+            max_attempts=max_attempts,
         )
+
+    async def async_monitor_known_device_states(self) -> None:
+        try:
+            await asyncio.sleep(1.5)
+            while True:
+                await self.async_probe_known_device_states(
+                    delay=0,
+                    max_attempts=1,
+                )
+                await asyncio.sleep(_DEVICE_VITALITY_SCAN_INTERVAL)
+        except asyncio.CancelledError:
+            raise
 
     async def async_probe_meter_states(
         self,
@@ -821,6 +844,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         delay: float = 1.5,
         interval: float = 0.15,
+        max_attempts: int | None = None,
     ) -> None:
         try:
             if delay > 0:
@@ -830,7 +854,15 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dev_id,
                     sub_id,
                     interval=interval,
+                    max_attempts=max_attempts,
                 )
+                vitality = getattr(self, "device_vitality", None)
+                if vitality is not None:
+                    vitality.record_probe(
+                        dev_id,
+                        sub_id,
+                        success=matched is not None,
+                    )
                 _LOGGER.debug(
                     "Known device startup probe dev=0x%02X sub=0x%02X matched=%s",
                     dev_id,

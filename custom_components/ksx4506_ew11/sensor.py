@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .diagnostic_sensors import (
+    KsxDeviceVitalitySensor,
     KsxEw11LinkSensor,
     KsxPacketCaptureSensor,
     KsxPacketQualitySensor,
@@ -36,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     init_ents = [
         KsxEw11LinkSensor(coordinator, entry),
+        KsxDeviceVitalitySensor(coordinator, entry),
         KsxUnsupportedPacketsSensor(coordinator, entry),
         KsxPacketCaptureSensor(coordinator, entry),
         KsxPacketQualitySensor(coordinator, entry),

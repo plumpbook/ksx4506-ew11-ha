@@ -53,6 +53,18 @@ class _FakeCoordinator:
             report["tx"]["last_giveup"] = {}
         return report
 
+    def device_vitality_report(self):
+        return {
+            "state": "healthy",
+            "total": 1,
+            "healthy": 1,
+            "unresponsive": 0,
+            "stale": 0,
+            "event_only": 0,
+            "unknown": 0,
+            "devices": [{"endpoint": "0x39/0x11", "status": "healthy"}],
+        }
+
 
 def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     coordinator = _FakeCoordinator()
@@ -98,6 +110,8 @@ def test_config_entry_diagnostics_include_unsupported_packets_and_redact_host():
     assert data["unsupported_packets"]["candidate_packets"][0]["sub_id"] == "0xF1"
     assert data["ew11_connection"]["state"] == "stale"
     assert data["ew11_connection"]["seconds_since_last_rx"] == 180.0
+    assert data["device_vitality"]["state"] == "healthy"
+    assert data["device_vitality"]["devices"][0]["endpoint"] == "0x39/0x11"
     assert data["packet_quality"]["state"] == "rx_errors"
     assert data["packet_quality"]["rx"]["f7_checksum_errors"] == 1
     assert data["ew11_connection"]["host"] == "**REDACTED**"
