@@ -762,7 +762,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return matched
 
             await asyncio.sleep(0.12)
-            return await self._async_send_f7_command_until_unlocked(
+            confirmed = await self._async_send_f7_command_until_unlocked(
                 dev_id,
                 status_sub_id,
                 _status_request_command(dev_id),
@@ -771,6 +771,18 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 max_attempts=max_attempts,
                 interval=confirmation_interval,
             )
+            if confirmed is None:
+                vitality = getattr(self, "device_vitality", None)
+                if vitality is not None:
+                    vitality.record_command_failure(
+                        dev_id,
+                        status_sub_id,
+                        reason="control_not_confirmed",
+                    )
+                publish = getattr(self, "_publish_registry_state", None)
+                if publish is not None:
+                    publish()
+            return confirmed
 
     async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
         cmd = _status_request_command(dev_id)

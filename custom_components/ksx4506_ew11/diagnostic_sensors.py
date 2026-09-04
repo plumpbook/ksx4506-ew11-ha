@@ -170,7 +170,23 @@ class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
 
     @property
     def extra_state_attributes(self):
-        return self.coordinator.device_vitality_report()
+        report = self.coordinator.device_vitality_report()
+        problem_devices = [
+            device
+            for device in report["devices"]
+            if device["status"] != "healthy"
+        ]
+        return {
+            "total": report["total"],
+            "healthy": report["healthy"],
+            "unresponsive": report["unresponsive"],
+            "stale": report["stale"],
+            "event_only": report["event_only"],
+            "unknown": report["unknown"],
+            "problem_count": len(problem_devices),
+            "stale_after_seconds": report["stale_after_seconds"],
+            "problem_devices": problem_devices,
+        }
 
 
 def _ew11_device_info(entry: ConfigEntry) -> DeviceInfo:

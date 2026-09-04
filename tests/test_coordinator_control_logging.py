@@ -147,6 +147,54 @@ def test_send_f7_command_until_give_up_log_omits_packet_samples(caplog):
     assert "seconds_since_last_rx=42.0" in messages
 
 
+def test_control_confirmation_failure_marks_endpoint_vitality_immediately():
+    install_homeassistant_stubs()
+    coordinator_module = load_integration_module("coordinator")
+    failures = []
+    publications = []
+
+    class FakeCoordinator:
+        def __init__(self):
+            self._transaction_lock = asyncio.Lock()
+            self.device_vitality = types.SimpleNamespace(
+                record_command_failure=lambda addr, sub_id, *, reason: failures.append(
+                    (addr, sub_id, reason)
+                )
+            )
+
+        async def _async_send_f7_command_until_unlocked(self, *_args, **_kwargs):
+            return None
+
+        def _publish_registry_state(self):
+            publications.append(True)
+
+    fake = FakeCoordinator()
+    send_and_confirm = _bind_method(
+        fake,
+        "async_send_f7_command_and_confirm",
+        coordinator_module.Ksx4506Coordinator.async_send_f7_command_and_confirm,
+    )
+
+    result = asyncio.run(
+        send_and_confirm(
+            0x0E,
+            0x11,
+            0x41,
+            b"\x01\x00\x00",
+            lambda _frame: False,
+            status_sub_id=0x11,
+            confirmation_matcher=lambda _frame: False,
+            max_attempts=1,
+            interval=0,
+            confirmation_interval=0,
+        )
+    )
+
+    assert result is None
+    assert failures == [(0x0E, 0x11, "control_not_confirmed")]
+    assert publications == [True]
+
+
 def test_send_f7_state_request_give_up_logs_at_debug_not_warning(caplog):
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")

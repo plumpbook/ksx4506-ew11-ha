@@ -53,6 +53,9 @@ class DeviceVitalityEntry(TypedDict):
     seconds_since_response: float | None
     last_probe_at: str | None
     last_probe_success: bool | None
+    last_failure_at: str | None
+    last_failure_reason: str | None
+    consecutive_failures: int
 
 
 class VitalityCounts(TypedDict):
@@ -79,6 +82,9 @@ class _EndpointVitality:
     last_event_at: datetime | None = None
     last_probe_at: datetime | None = None
     last_probe_success: bool | None = None
+    last_failure_at: datetime | None = None
+    last_failure_reason: str | None = None
+    consecutive_failures: int = 0
 
 
 class DeviceVitalityMonitor:
@@ -105,6 +111,7 @@ class DeviceVitalityMonitor:
         if frame.cmd in response_commands:
             endpoint.response_count += 1
             endpoint.last_response_at = self._now()
+            endpoint.consecutive_failures = 0
         elif frame.cmd in event_commands:
             endpoint.event_count += 1
             endpoint.last_event_at = self._now()
@@ -115,6 +122,30 @@ class DeviceVitalityMonitor:
         endpoint = self._endpoint(addr, sub_id)
         endpoint.last_probe_at = self._now()
         endpoint.last_probe_success = success
+        if success:
+            endpoint.consecutive_failures = 0
+            return
+        self._record_failure(endpoint, reason="state_probe_not_confirmed")
+
+    def record_command_failure(
+        self,
+        addr: int,
+        sub_id: int,
+        *,
+        reason: str,
+    ) -> None:
+        """Mark an endpoint unhealthy immediately after a control failure."""
+        self._record_failure(self._endpoint(addr, sub_id), reason=reason)
+
+    def _record_failure(
+        self,
+        endpoint: _EndpointVitality,
+        *,
+        reason: str,
+    ) -> None:
+        endpoint.last_failure_at = self._now()
+        endpoint.last_failure_reason = reason
+        endpoint.consecutive_failures += 1
 
     def report(self, devices: Iterable[VitalityDevice]) -> DeviceVitalityReport:
         now = self._now()
@@ -166,8 +197,9 @@ class DeviceVitalityMonitor:
         failed_latest_probe = (
             endpoint.last_probe_success is False and not response_after_probe
         )
+        unresolved_failure = endpoint.consecutive_failures > 0
 
-        if failed_latest_probe:
+        if failed_latest_probe or unresolved_failure:
             status: VitalityStatus = "unresponsive"
         elif endpoint.last_probe_success is True:
             status = "healthy"
@@ -196,6 +228,9 @@ class DeviceVitalityMonitor:
             "seconds_since_response": seconds_since_response,
             "last_probe_at": _isoformat(endpoint.last_probe_at),
             "last_probe_success": endpoint.last_probe_success,
+            "last_failure_at": _isoformat(endpoint.last_failure_at),
+            "last_failure_reason": endpoint.last_failure_reason,
+            "consecutive_failures": endpoint.consecutive_failures,
         }
 
     @staticmethod

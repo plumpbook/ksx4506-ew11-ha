@@ -92,6 +92,33 @@ def test_later_response_recovers_failed_probe():
     assert report["devices"][0]["status"] == "healthy"
 
 
+def test_command_failure_is_visible_until_the_endpoint_responds():
+    module = load_integration_module("device_vitality")
+    current = NOW
+    monitor = module.DeviceVitalityMonitor(now=lambda: current)
+    device = _device(key="0E11_light_1", addr=0x0E, sub_id=0x11)
+
+    monitor.record_command_failure(
+        0x0E,
+        0x11,
+        reason="control_not_confirmed",
+    )
+    failed = monitor.report([device])["devices"][0]
+
+    assert failed["status"] == "unresponsive"
+    assert failed["consecutive_failures"] == 1
+    assert failed["last_failure_reason"] == "control_not_confirmed"
+    assert failed["last_failure_at"] == NOW.isoformat()
+
+    current += timedelta(seconds=1)
+    monitor.observe(_frame(addr=0x0E, sub_id=0x11, cmd=0x81))
+    recovered = monitor.report([device])["devices"][0]
+
+    assert recovered["status"] == "healthy"
+    assert recovered["consecutive_failures"] == 0
+    assert recovered["last_failure_reason"] == "control_not_confirmed"
+
+
 def test_old_response_becomes_stale_without_a_new_probe():
     module = load_integration_module("device_vitality")
     current = NOW

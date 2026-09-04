@@ -299,7 +299,14 @@ def test_device_vitality_sensor_reports_protocol_endpoint_health():
         "total": 2,
         "healthy": 1,
         "unresponsive": 1,
-        "devices": [{"endpoint": "0x39/0x11", "status": "unresponsive"}],
+        "unknown": 0,
+        "stale": 0,
+        "event_only": 0,
+        "stale_after_seconds": 300.0,
+        "devices": [
+            {"endpoint": "0x39/0x11", "status": "unresponsive"},
+            {"endpoint": "0x39/0x12", "status": "healthy"},
+        ],
     }
     coordinator = types.SimpleNamespace(device_vitality_report=lambda: report)
     entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
@@ -308,7 +315,11 @@ def test_device_vitality_sensor_reports_protocol_endpoint_health():
 
     assert entity.native_value == "unresponsive"
     assert entity.extra_state_attributes["unresponsive"] == 1
-    assert entity.extra_state_attributes["devices"][0]["endpoint"] == "0x39/0x11"
+    assert entity.extra_state_attributes["problem_count"] == 1
+    assert entity.extra_state_attributes["problem_devices"] == [
+        {"endpoint": "0x39/0x11", "status": "unresponsive"}
+    ]
+    assert "devices" not in entity.extra_state_attributes
     assert entity._attr_unique_id == "ksx4506_entry-1_device_vitality"
     assert entity._attr_entity_registry_enabled_default is True
 
