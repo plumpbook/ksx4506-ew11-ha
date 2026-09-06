@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
+from .cleanup_candidates import CleanupCandidateReport, CleanupCandidateTracker
 from .devices.common_entrance import (
     CALL_EVENT as COMMON_ENTRANCE_CALL_EVENT,
     COMMON_ENTRANCE_DEVICE_ID,
@@ -67,6 +68,7 @@ from .devices.thermostat import (
     THERMOSTAT_DEVICE_ID,
     decode_thermostat_state,
 )
+from .discovery_confirmation import DiscoveryConfirmationTracker
 
 # Device ID mapping from suroup/ezville reference.
 DEVICE_ID_MAP = {
@@ -229,7 +231,12 @@ class DeviceRegistry:
         }
         self._unsupported_seen_seq = 0
         self._light_topology = LightTopologyTracker()
+        self._discovery_confirmation = DiscoveryConfirmationTracker()
+        self._cleanup_candidates = CleanupCandidateTracker()
         self.retired_device_keys: set[str] = set()
+
+    def cleanup_candidate_report(self) -> CleanupCandidateReport:
+        return self._cleanup_candidates.report()
 
     def restore_device_from_key(
         self,
@@ -271,6 +278,16 @@ class DeviceRegistry:
         return dev, is_new
 
     def upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
+        changes = self._upsert_from_frame(addr, sub_id, cmd, payload, raw_hex)
+        new_keys = {device.key for device, is_new in changes if is_new}
+        if not new_keys or self._discovery_confirmation.confirm(new_keys):
+            return changes
+
+        for key in new_keys:
+            self.devices.pop(key, None)
+        return [(device, is_new) for device, is_new in changes if not is_new]
+
+    def _upsert_from_frame(self, addr: int, sub_id: int, cmd: int, payload: bytes, raw_hex: str) -> list[tuple[DeviceState, bool]]:
         self._set_packet_classification("supported")
         if addr not in DEVICE_ID_MAP:
             self.record_unsupported_packet(
@@ -351,6 +368,7 @@ class DeviceRegistry:
                         key = f"{key}_{channel}"
 
                     self.retired_device_keys.discard(key)
+                    self._cleanup_candidates.clear(key)
                     is_new = key not in self.devices
                     if is_new:
                         self.devices[key] = DeviceState(
@@ -403,9 +421,6 @@ class DeviceRegistry:
                         )
                         topology_pending = confirmed_count is None
                         for ch, state_byte in enumerate(payload[1:], start=1):
-                            key = f"{addr:02X}{sub_id:02X}_{kind}_{ch}"
-                            if confirmed_count is None and key not in self.devices:
-                                continue
                             upsert_light(
                                 entity_sub_id=sub_id,
                                 channel=ch,
@@ -423,8 +438,10 @@ class DeviceRegistry:
                                     and dev.channel is not None
                                     and dev.channel > confirmed_count
                                 ):
-                                    self.retired_device_keys.add(key)
-                                    del self.devices[key]
+                                    self._cleanup_candidates.record(
+                                        key,
+                                        reason="confirmed_topology_shrink",
+                                    )
                 elif 0x01 <= low <= 0x0E:
                     upsert_light(
                         entity_sub_id=sub_id,

@@ -308,7 +308,21 @@ def test_device_vitality_sensor_reports_protocol_endpoint_health():
             {"endpoint": "0x39/0x12", "status": "healthy"},
         ],
     }
-    coordinator = types.SimpleNamespace(device_vitality_report=lambda: report)
+    coordinator = types.SimpleNamespace(
+        device_vitality_report=lambda: report,
+        registry=types.SimpleNamespace(
+            cleanup_candidate_report=lambda: {
+                "count": 1,
+                "candidates": [
+                    {
+                        "device_key": "0E15_light_2",
+                        "reason": "confirmed_topology_shrink",
+                        "action": "review_required",
+                    }
+                ],
+            }
+        ),
+    )
     entry = types.SimpleNamespace(entry_id="entry-1", title="EW11 example")
 
     entity = sensor_module.KsxDeviceVitalitySensor(coordinator, entry)
@@ -316,6 +330,8 @@ def test_device_vitality_sensor_reports_protocol_endpoint_health():
     assert entity.native_value == "unresponsive"
     assert entity.extra_state_attributes["unresponsive"] == 1
     assert entity.extra_state_attributes["problem_count"] == 1
+    assert entity.extra_state_attributes["cleanup_candidate_count"] == 1
+    assert entity.extra_state_attributes["cleanup_candidates"][0]["device_key"] == "0E15_light_2"
     assert entity.extra_state_attributes["problem_devices"] == [
         {"endpoint": "0x39/0x11", "status": "unresponsive"}
     ]

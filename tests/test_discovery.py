@@ -8,9 +8,14 @@ _module = load_integration_module("discovery")
 DeviceRegistry = _module.DeviceRegistry
 
 
+def confirm_new_devices(registry, addr, sub_id, cmd, payload, raw_hex="f7..."):
+    assert registry.upsert_from_frame(addr, sub_id, cmd, payload, raw_hex) == []
+    return registry.upsert_from_frame(addr, sub_id, cmd, payload, raw_hex)
+
+
 def test_group_light_payload_expands_channels_with_standard_control_subids():
     reg = DeviceRegistry()
-    changes = reg.upsert_from_frame(0x0E, 0x1F, 0x81, bytes([0x00, 0x01, 0x00, 0x01]), "f7...")
+    changes = confirm_new_devices(reg, 0x0E, 0x1F, 0x81, bytes([0x00, 0x01, 0x00, 0x01]))
 
     assert len(changes) == 3
     keys = sorted(k for k in reg.devices.keys())
@@ -29,7 +34,7 @@ def test_group_light_payload_expands_channels_with_standard_control_subids():
 def test_light_status_byte_dimming_decode():
     reg = DeviceRegistry()
     # [err=0x00, state=0xA3] => dim step 10, dimmable, ON
-    reg.upsert_from_frame(0x0E, 0x01, 0x81, bytes([0x00, 0xA3]), "f7...")
+    confirm_new_devices(reg, 0x0E, 0x01, 0x81, bytes([0x00, 0xA3]))
     d = reg.devices["0E01_light"]
     assert d.state["on"] is True
     assert d.state["dimmable"] is True
@@ -131,7 +136,7 @@ def test_suroup_light_module_adds_channel_after_confirmed_growth():
     assert sorted(reg.devices) == ["0E13_light_1", "0E13_light_2"]
 
 
-def test_restored_suroup_light_channel_retires_after_confirmed_shrink():
+def test_restored_suroup_light_channel_becomes_cleanup_candidate_after_shrink():
     reg = DeviceRegistry()
     reg.restore_device_from_key("0E15_light_1")
     reg.restore_device_from_key("0E15_light_2")
@@ -145,8 +150,35 @@ def test_restored_suroup_light_channel_retires_after_confirmed_shrink():
             "f7...",
         )
 
-    assert sorted(reg.devices) == ["0E15_light_1"]
-    assert reg.retired_device_keys == {"0E15_light_2"}
+    assert sorted(reg.devices) == ["0E15_light_1", "0E15_light_2"]
+    assert reg.retired_device_keys == set()
+    assert reg.cleanup_candidate_report() == {
+        "count": 1,
+        "candidates": [
+            {
+                "device_key": "0E15_light_2",
+                "reason": "confirmed_topology_shrink",
+                "action": "review_required",
+            }
+        ],
+    }
+
+
+def test_cleanup_candidate_is_cleared_when_channel_returns():
+    reg = DeviceRegistry()
+    reg.restore_device_from_key("0E15_light_1")
+    reg.restore_device_from_key("0E15_light_2")
+
+    for payload in ("00 01", "00 01", "00 01 00", "00 01 00"):
+        reg.upsert_from_frame(
+            0x0E,
+            0x15,
+            0x81,
+            bytes.fromhex(payload),
+            "f7...",
+        )
+
+    assert reg.cleanup_candidate_report() == {"count": 0, "candidates": []}
 
 
 def test_restore_suroup_light_device_from_known_key():
@@ -191,7 +223,7 @@ def test_light_control_response_does_not_create_channels():
 def test_gas_standard_status_decodes_closed_as_off():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x12, 0x01, 0x81, bytes.fromhex("00 02"), "f7...")
+    confirm_new_devices(reg, 0x12, 0x01, 0x81, bytes.fromhex("00 02"))
 
     d = reg.devices["1201_gas_valve"]
     assert d.state["on"] is False
@@ -202,7 +234,7 @@ def test_gas_standard_status_decodes_closed_as_off():
 def test_outlet_standard_status_decodes_supply_and_power():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x39, 0x01, 0x81, bytes.fromhex("00 91 36 78"), "f7...")
+    confirm_new_devices(reg, 0x39, 0x01, 0x81, bytes.fromhex("00 91 36 78"))
 
     d = reg.devices["3901_switch"]
     assert d.state["on"] is True
@@ -213,12 +245,12 @@ def test_outlet_standard_status_decodes_supply_and_power():
 def test_group_outlet_status_expands_to_individual_control_subids():
     reg = DeviceRegistry()
 
-    changes = reg.upsert_from_frame(
+    changes = confirm_new_devices(
+        reg,
         0x39,
         0x1F,
         0x81,
         bytes.fromhex("00 10 00 79 00 00 26"),
-        "f7...",
     )
 
     assert len(changes) == 2
@@ -257,7 +289,7 @@ def test_restore_grouped_outlet_device_from_known_key():
 def test_outlet_threshold_response_decodes_cutoff_threshold():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x39, 0x01, 0xB1, bytes.fromhex("00 01 31"), "f7...")
+    confirm_new_devices(reg, 0x39, 0x01, 0xB1, bytes.fromhex("00 01 31"))
 
     d = reg.devices["3901_switch"]
     assert d.state["threshold_w"] == 13.1
@@ -310,7 +342,7 @@ def test_polling_requests_for_stateful_devices_are_ignored():
 def test_entrance_panel_status_decodes_without_switch_entity():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x33, 0x01, 0x81, bytes.fromhex("00 24 00"), "f7...")
+    confirm_new_devices(reg, 0x33, 0x01, 0x81, bytes.fromhex("00 24 00"))
 
     d = reg.devices["3301_entrance_panel"]
     assert d.kind == "entrance_panel"
@@ -349,7 +381,8 @@ def test_entrance_panel_elevator_event_updates_existing_device():
 def test_common_entrance_call_packet_is_not_misclassified_as_light():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(
+    confirm_new_devices(
+        reg,
         0x40,
         0x02,
         0x10,
@@ -366,7 +399,7 @@ def test_common_entrance_call_packet_is_not_misclassified_as_light():
 def test_common_entrance_status_response_decodes_as_sensor_family():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x40, 0x02, 0x82, bytes.fromhex("00 00"), "f7...")
+    confirm_new_devices(reg, 0x40, 0x02, 0x82, bytes.fromhex("00 00"))
 
     d = reg.devices["4002_common_entrance"]
     assert d.kind == "common_entrance"
@@ -382,7 +415,7 @@ def test_common_entrance_polling_requests_do_not_change_sensor_state():
     assert reg.devices == {}
     assert reg.unsupported_packet_report()["total_seen"] == 0
 
-    reg.upsert_from_frame(0x40, 0x02, 0x82, bytes.fromhex("00 00"), "f7...")
+    confirm_new_devices(reg, 0x40, 0x02, 0x82, bytes.fromhex("00 00"))
 
     d = reg.devices["4002_common_entrance"]
     assert d.state["event"] == "status_response"
@@ -392,7 +425,7 @@ def test_generic_sensor_polling_request_does_not_change_sensor_state():
     reg = DeviceRegistry()
 
     assert reg.upsert_from_frame(0x60, 0x01, 0x01, bytes.fromhex("00 06 66"), "f760010103000666f4bc") == []
-    reg.upsert_from_frame(0x60, 0x01, 0x81, bytes.fromhex("00"), "f7600181010016f0")
+    confirm_new_devices(reg, 0x60, 0x01, 0x81, bytes.fromhex("00"), "f7600181010016f0")
 
     d = reg.devices["6001_sensor"]
     assert d.state["value_hex"] == "00"
@@ -583,7 +616,7 @@ def test_repeated_unsupported_packets_are_counted_by_signature():
 def test_meter_status_is_sensor_with_parsed_value():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x30, 0x01, 0x81, bytes.fromhex("00 00 12 34 12 34 56"), "f7...")
+    confirm_new_devices(reg, 0x30, 0x01, 0x81, bytes.fromhex("00 00 12 34 12 34 56"))
 
     d = reg.devices["3001_sensor"]
     assert d.kind == "sensor"
@@ -596,7 +629,8 @@ def test_meter_status_is_sensor_with_parsed_value():
 def test_meter_whole_status_expands_to_individual_meter_devices():
     reg = DeviceRegistry()
 
-    changes = reg.upsert_from_frame(
+    changes = confirm_new_devices(
+        reg,
         0x30,
         0x0F,
         0x81,
@@ -606,7 +640,6 @@ def test_meter_whole_status_expands_to_individual_meter_devices():
             " 00 00 45 00 01 23"
             " 00 06 55 03 48 16"
         ),
-        "f7...",
     )
 
     assert len(changes) == 3
@@ -628,7 +661,7 @@ def test_meter_whole_status_expands_to_individual_meter_devices():
 def test_thermostat_group_status_preserves_tail_zone_for_entity():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(0x36, 0x1F, 0x81, bytes.fromhex("00 03 00 00 00 17 17 18 18"), "f7...")
+    confirm_new_devices(reg, 0x36, 0x1F, 0x81, bytes.fromhex("00 03 00 00 00 17 17 18 18"))
 
     d = reg.devices["361F_climate"]
     assert d.state["target_temp"] == 24
@@ -639,12 +672,12 @@ def test_thermostat_group_status_preserves_tail_zone_for_entity():
 def test_thermostat_individual_ack_updates_existing_group_zone():
     reg = DeviceRegistry()
 
-    reg.upsert_from_frame(
+    confirm_new_devices(
+        reg,
         0x36,
         0x1F,
         0x81,
         bytes.fromhex("00 03 00 00 00 17 17 18 18"),
-        "f7...",
     )
     changes = reg.upsert_from_frame(
         0x36,

@@ -171,6 +171,7 @@ class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
     @property
     def extra_state_attributes(self):
         report = self.coordinator.device_vitality_report()
+        cleanup = self.coordinator.registry.cleanup_candidate_report()
         problem_devices = [
             device
             for device in report["devices"]
@@ -186,6 +187,8 @@ class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
             "problem_count": len(problem_devices),
             "stale_after_seconds": report["stale_after_seconds"],
             "problem_devices": problem_devices,
+            "cleanup_candidate_count": cleanup["count"],
+            "cleanup_candidates": cleanup["candidates"],
         }
 
 

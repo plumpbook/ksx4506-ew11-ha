@@ -70,6 +70,7 @@ def test_coordinator_skips_device_update_for_repeated_identical_frame(monkeypatc
 
     asyncio.run(on_frame(frame))
     asyncio.run(on_frame(frame))
+    asyncio.run(on_frame(frame))
 
     updates = [
         dev_key

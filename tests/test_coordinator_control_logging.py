@@ -460,7 +460,7 @@ def test_coordinator_publishes_registry_state_on_ew11_health_change():
     asyncio.run(_assert_coordinator_publishes_registry_state_on_ew11_health_change())
 
 
-def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypatch):
+def test_coordinator_keeps_cleanup_candidate_after_confirmed_topology(monkeypatch):
     install_homeassistant_stubs()
     const_module = load_integration_module("const")
     coordinator_module = load_integration_module("coordinator")
@@ -520,7 +520,10 @@ def test_coordinator_dispatches_removed_light_after_confirmed_topology(monkeypat
     assert (
         const_module.SIGNAL_DEVICE_REMOVED,
         "0E15_light_2",
-    ) in dispatched
+    ) not in dispatched
+    assert fake.registry.cleanup_candidate_report()["candidates"][0][
+        "device_key"
+    ] == "0E15_light_2"
 
 
 async def _assert_coordinator_publishes_registry_state_on_ew11_health_change():
