@@ -11,8 +11,9 @@ from .const import CONF_EXPOSE_PACKET_SAMPLES, CONF_HOST, DOMAIN
 from .coordinator import Ksx4506Coordinator
 from .ew11_health import ew11_health_report_from_coordinator
 from .packet_quality import empty_packet_quality_report
+from .power_recovery import CONF_RECOVERY_POWER_SWITCH
 
-TO_REDACT = {CONF_HOST}
+TO_REDACT = {CONF_HOST, CONF_RECOVERY_POWER_SWITCH}
 
 
 async def async_get_config_entry_diagnostics(
@@ -43,6 +44,10 @@ async def async_get_config_entry_diagnostics(
             "data": async_redact_data(config, TO_REDACT),
         },
         "known_devices": _known_device_summary(coordinator),
+        "control_recovery": (
+            coordinator.recovery.report()
+            if coordinator is not None and hasattr(coordinator, "recovery") else {}
+        ),
         "ew11_connection": async_redact_data(
             ew11_health_report_from_coordinator(coordinator),
             TO_REDACT,

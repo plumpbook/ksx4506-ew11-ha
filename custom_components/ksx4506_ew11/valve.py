@@ -84,7 +84,7 @@ class KsxGasValve(KsxEntity, ValveEntity):
 
     @property
     def extra_state_attributes(self):
-        return {
+        return super().extra_state_attributes | {
             key: value
             for key, value in self.dev.state.items()
             if key in {"error", "open", "closed", "moving", "buzzer", "leak"}
@@ -103,7 +103,11 @@ class KsxGasValve(KsxEntity, ValveEntity):
             build_gas_close_payload(),
             self._close_response_matcher,
             status_sub_id=self.sub_id,
-            confirmation_matcher=_gas_frame_is_closed,
+            recovery_key=self._recovery_key,
+            confirmation_matcher=lambda frame: (
+                frame.addr == self.addr and frame.sub_id == self.sub_id
+                and _gas_frame_is_closed(frame)
+            ),
             interval=0.5,
             confirmation_interval=0.5,
             guard=True,

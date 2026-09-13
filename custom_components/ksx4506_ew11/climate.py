@@ -80,6 +80,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
         super().__init__(coordinator, dev)
         self._channel = channel
         if channel is not None:
+            self._recovery_key = f"{self.dev_key}_ch{channel}"
             self._attr_name = "Climate"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}"
             self._set_ksx_device_info(
@@ -106,7 +107,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
 
     @property
     def extra_state_attributes(self):
-        return {
+        return super().extra_state_attributes | {
             key: value
             for key, value in self._state.items()
             if key in {"channel", "away", "schedule", "hot_water", "error"}
@@ -120,6 +121,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
             status_sub_id=self.sub_id,
             channel=self._channel,
             temperature=temp,
+            recovery_key=self._recovery_key,
         )
 
     async def async_set_hvac_mode(self, hvac_mode):
@@ -131,6 +133,7 @@ class KsxClimate(KsxEntity, ClimateEntity):
             status_sub_id=self.sub_id,
             channel=self._channel,
             turn_on=hvac_mode == HVACMode.HEAT,
+            recovery_key=self._recovery_key,
         )
 
     @property

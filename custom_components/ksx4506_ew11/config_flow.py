@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+import re
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -9,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 
 from .config import effective_config
+from .power_recovery import CONF_RECOVERY_POWER_SWITCH
 from .const import (
     CONF_EXPOSE_PACKET_SAMPLES,
     CONF_GAS_UNLOCK,
@@ -94,6 +96,11 @@ def _validate_user_form_input(user_input: dict[str, Any]) -> dict[str, str]:
 
 
 def _validate_options_input(user_input: dict[str, Any]) -> dict[str, str]:
+    power_switch = user_input.get(CONF_RECOVERY_POWER_SWITCH, "").strip()
+    if power_switch and re.fullmatch(r"switch\.[a-z0-9_]+", power_switch) is None:
+        return {CONF_RECOVERY_POWER_SWITCH: "invalid_power_switch"}
+    if CONF_RECOVERY_POWER_SWITCH in user_input:
+        user_input[CONF_RECOVERY_POWER_SWITCH] = power_switch
     try:
         user_input[CONF_PACKET_CAPTURE_FILTER] = _validate_packet_capture_filter(
             user_input[CONF_PACKET_CAPTURE_FILTER]
@@ -164,6 +171,10 @@ def _user_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
 def _options_schema(config: Mapping[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
+            vol.Optional(
+                CONF_RECOVERY_POWER_SWITCH,
+                default=config.get(CONF_RECOVERY_POWER_SWITCH, ""),
+            ): str,
             vol.Required(
                 CONF_TIMEOUT,
                 default=config.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),

@@ -36,6 +36,10 @@ class Ksx4506Codec:
         self._buf: bytearray = bytearray()
         self._f7_logger = F7PacketLogger()
 
+    def reset_stream(self) -> None:
+        """Drop partial bytes when the TCP stream changes, preserving counters."""
+        self._buf.clear()
+
     def feed(self, data: bytes) -> list[KsFrame]:
         self._buf.extend(data)
         _LOGGER.debug("codec.feed bytes=%d", len(data))

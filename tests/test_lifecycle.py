@@ -63,7 +63,7 @@ def test_setup_failure_stops_and_removes_coordinator(monkeypatch):
     class FakeCoordinator:
         instances = []
 
-        def __init__(self, _hass, _config):
+        def __init__(self, _hass, _config, *, entry=None):
             self.registry = object()
             self.started = False
             self.stopped = False

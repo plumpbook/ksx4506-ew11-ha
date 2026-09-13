@@ -110,6 +110,7 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=True),
             lambda frame: frame.addr == self.addr and self.is_on is True,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(
@@ -122,6 +123,7 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
             GENERIC_SWITCH_COMMAND,
             build_generic_switch_payload(turn_on=False),
             lambda frame: frame.addr == self.addr and self.is_on is False,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(
@@ -146,7 +148,7 @@ class KsxOutletSwitch(KsxSwitch):
 
     @property
     def assumed_state(self) -> bool:
-        return self._on_state_is_assumed
+        return self._on_state_is_assumed or self._control_unconfirmed
 
     async def async_turn_on(self, **kwargs):
         await self._async_set_outlet(True)
@@ -170,6 +172,7 @@ class KsxOutletSwitch(KsxSwitch):
                 turn_on=turn_on,
             ),
             status_sub_id=status_sub,
+            recovery_key=self.dev_key,
             confirmation_matcher=self._status_confirmation_matcher(
                 target_sub=target_sub,
                 status_sub=status_sub,
@@ -247,6 +250,7 @@ class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
         super().__init__(coordinator, dev)
         self._channel = channel
         if channel is not None:
+            self._recovery_key = f"{self.dev_key}_ch{channel}"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_heat"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
@@ -280,6 +284,7 @@ class KsxThermostatHeatSwitch(KsxEntity, SwitchEntity):
             status_sub_id=self.sub_id,
             channel=self._channel,
             turn_on=turn_on,
+            recovery_key=self._recovery_key,
         )
 
     @property

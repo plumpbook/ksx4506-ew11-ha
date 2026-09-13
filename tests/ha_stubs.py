@@ -330,6 +330,7 @@ def _install_exceptions() -> None:
         pass
 
     exceptions.HomeAssistantError = HomeAssistantError
+    exceptions.ConfigEntryNotReady = type("ConfigEntryNotReady", (HomeAssistantError,), {})
     sys.modules["homeassistant.exceptions"] = exceptions
 
 
@@ -396,6 +397,7 @@ def _install_voluptuous() -> None:
     voluptuous.Invalid = Invalid
     voluptuous.Range = Range
     voluptuous.Required = Required
+    voluptuous.Optional = Required
     voluptuous.Schema = Schema
     sys.modules["voluptuous"] = voluptuous
 

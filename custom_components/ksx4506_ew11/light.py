@@ -102,7 +102,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
 
     @property
     def assumed_state(self) -> bool:
-        return self._on_state_is_assumed
+        return self._on_state_is_assumed or self._control_unconfirmed
 
     def _target_sub_id(self) -> int:
         return int(self.dev.state.get("control_sub_id", self.sub_id))
@@ -186,6 +186,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
                 turn_on=turn_on,
             ),
             status_sub_id=status_sub,
+            recovery_key=self.dev_key,
             confirmation_matcher=self._state_confirmation_matcher(
                 status_sub=status_sub,
                 turn_on=turn_on,
@@ -219,6 +220,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
             CMD_SET_LIGHT,
             b"\x01",
             lambda frame: frame.addr == self.addr and self.is_on is True,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(
@@ -239,6 +241,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
             CMD_SET_LIGHT,
             b"\x00",
             lambda frame: frame.addr == self.addr and self.is_on is False,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(

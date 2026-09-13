@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -52,6 +53,8 @@ from .discovery import DeviceRegistry, DeviceState
 from .ew11_client import Ew11Client
 from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
+from .recovery import CommandRecovery, HubRecoveryPolicy
+from .hub_recovery import HubRecovery
 
 _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
@@ -77,12 +80,14 @@ STATUS_RESPONSE_COMMAND_BY_DEVICE_ID = {
 
 
 class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
-    def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
+    def __init__(self, hass: HomeAssistant, config: dict[str, Any], *,
+                 entry: ConfigEntry | None = None) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=30),
+            config_entry=entry,
         )
         self.registry = DeviceRegistry()
         self.device_vitality = DeviceVitalityMonitor()
@@ -146,6 +151,11 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._transaction_lock = asyncio.Lock()
         self._meter_probe_task: asyncio.Task[None] | None = None
         self._known_device_probe_task: asyncio.Task[None] | None = None
+        self.recovery = CommandRecovery(self._publish_registry_state)
+        self.hub_recovery = HubRecoveryPolicy()
+        self._recovery_task: asyncio.Task[None] | None = None
+        self._power_cycle: Callable[[], Awaitable[bool]] | None = None
+        self.recovery_notification_id = f"ew11_recovery_{id(self)}"
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
@@ -180,7 +190,10 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return semantic_changes
 
     async def async_start(self) -> None:
+        self.recovery.resume()
         await self._client.start()
+        if self._recovery_task is None or self._recovery_task.done():
+            self._recovery_task = asyncio.create_task(HubRecovery(self).run())
         if self._meter_probe_task is None or self._meter_probe_task.done():
             self._meter_probe_task = asyncio.create_task(self.async_probe_meter_states())
         if (
@@ -192,6 +205,12 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
     async def async_stop(self) -> None:
+        if self._recovery_task is not None:
+            self._recovery_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._recovery_task
+            self._recovery_task = None
+        await self.recovery.stop()
         if self._known_device_probe_task:
             self._known_device_probe_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -215,6 +234,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         vitality = getattr(self, "device_vitality", None)
         if vitality is not None:
             vitality.observe(frame)
+        recovery = getattr(self, "recovery", None)
         if frame.addr == COMMON_ENTRANCE_DEVICE_ID:
             log_message = format_common_entrance_packet_log(
                 frame.sub_id,
@@ -262,8 +282,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         for dev_key in retired_device_keys:
             self._last_published_device_states.pop(dev_key, None)
             async_dispatcher_send(self.hass, SIGNAL_DEVICE_REMOVED, dev_key)
+        recovery_changed = recovery is not None and recovery.observe(frame)
         self._publish_registry_state(
-            {dev.key for dev, _is_new in changes}
+            None if recovery_changed else {dev.key for dev, _is_new in changes}
             | retired_device_keys
         )
         self._notify_frame_waiters(frame)
@@ -393,7 +414,21 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return quality.report(include_packet_samples=include_packet_samples)
 
     def device_vitality_report(self) -> DeviceVitalityReport:
-        return self.device_vitality.report(self.registry.devices.values())
+        report = self.device_vitality.report(self.registry.devices.values())
+        recovery = getattr(self, "recovery", None)
+        if recovery is not None:
+            failed = {status.endpoint for status in recovery.status.values()
+                      if status.state == "failed"}
+            for device in report["devices"]:
+                endpoint = (int(device["device_id"], 16), int(device["sub_id"], 16))
+                if endpoint in failed and device["status"] != "unresponsive":
+                    report[device["status"]] -= 1
+                    report["unresponsive"] += 1
+                    device["status"] = "unresponsive"
+                    device["last_failure_reason"] = "control_not_confirmed"
+            if failed:
+                report["state"] = "unresponsive"
+        return report
 
     @property
     def gas_unlocked(self) -> bool:
@@ -442,6 +477,25 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return await self._client.send_with_retry(packet)
 
     async def async_send_command_and_confirm(
+        self, addr: int, cmd: int, payload: bytes,
+        matcher: Callable[[KsFrame], bool], *,
+        confirmation_timeout: float = 1.0, guard: bool = False,
+        recovery_key: str | None = None,
+    ) -> KsFrame | None:
+        async def operation() -> KsFrame | None:
+            return await Ksx4506Coordinator._async_send_command_and_confirm_once(
+                self, addr, cmd, payload, matcher,
+                confirmation_timeout=confirmation_timeout, guard=guard,
+            )
+        recovery = getattr(self, "recovery", None)
+        if recovery is None:
+            return await operation()
+        return await recovery.execute(
+            recovery_key or f"{addr:02X}_stx", (addr, 0), matcher,
+            operation, retry=not guard,
+        )
+
+    async def _async_send_command_and_confirm_once(
         self,
         addr: int,
         cmd: int,
@@ -731,6 +785,39 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._frame_waiters.remove(waiter)
 
     async def async_send_f7_command_and_confirm(
+        self, dev_id: int, sub_id: int, cmd: int, payload: bytes,
+        response_matcher: Callable[[KsFrame], bool], *, status_sub_id: int,
+        confirmation_matcher: Callable[[KsFrame], bool],
+        max_attempts: int | None = None, interval: float = 0.1,
+        confirmation_interval: float = 0.25, guard: bool = False,
+        recovery_key: str | None = None,
+    ) -> KsFrame | None:
+        recovery = getattr(self, "recovery", None)
+        round_attempts = max_attempts
+        if recovery is not None and not guard and dev_id != GAS_DEVICE_ID:
+            round_attempts = min(max_attempts or self.max_attempts, 3)
+        async def operation() -> KsFrame | None:
+            return await Ksx4506Coordinator._async_send_f7_command_and_confirm_once(
+                self, dev_id, sub_id, cmd, payload, response_matcher,
+                status_sub_id=status_sub_id, confirmation_matcher=confirmation_matcher,
+                max_attempts=round_attempts, interval=interval,
+                confirmation_interval=confirmation_interval, guard=guard,
+            )
+
+        async def probe() -> KsFrame | None:
+            return await self.async_request_f7_state_until(
+                dev_id, status_sub_id, max_attempts=1, interval=0.5,
+            )
+
+        if recovery is None:
+            return await operation()
+        return await recovery.execute(
+            recovery_key or f"{dev_id:02X}{sub_id:02X}",
+            (dev_id, status_sub_id), confirmation_matcher, operation, probe,
+            retry=not guard and dev_id != GAS_DEVICE_ID,
+        )
+
+    async def _async_send_f7_command_and_confirm_once(
         self,
         dev_id: int,
         sub_id: int,

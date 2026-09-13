@@ -189,6 +189,14 @@ class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
             "problem_devices": problem_devices,
             "cleanup_candidate_count": cleanup["count"],
             "cleanup_candidates": cleanup["candidates"],
+            "control_problems": (
+                self.coordinator.recovery.report()
+                if hasattr(self.coordinator, "recovery") else {}
+            ),
+            "recovery_state": (
+                self.coordinator.hub_recovery.state
+                if hasattr(self.coordinator, "hub_recovery") else "idle"
+            ),
         }
 
 

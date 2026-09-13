@@ -32,6 +32,7 @@ class _FakeCoordinator:
         *,
         status_sub_id,
         confirmation_matcher,
+        recovery_key=None,
         interval,
         confirmation_interval,
         guard=False,

@@ -158,6 +158,43 @@ def test_client_exchanges_frames_over_loopback_tcp(caplog):
     assert "f70e11810200016a04" not in messages
 
 
+def test_invalid_continuous_bytes_cannot_bypass_reconnect_deadline(monkeypatch):
+    async def scenario():
+        module = load_integration_module("ew11_client")
+        codec = load_integration_module("protocol").Ksx4506Codec()
+        closed = asyncio.Event()
+
+        class Reader:
+            async def read(self, size):
+                return b"invalid"
+
+        class Writer:
+            def close(self):
+                closed.set()
+
+            async def wait_closed(self):
+                return None
+
+        async def connect(host, port):
+            return Reader(), Writer()
+
+        async def on_frame(frame):
+            raise AssertionError("Noise must not produce a valid frame")
+
+        monkeypatch.setattr(module.asyncio, "open_connection", connect)
+        client = module.Ew11Client("ew11.example.invalid", 8899, 0.1, 0, codec, on_frame)
+        monkeypatch.setattr(client, "_should_reconnect_for_rx_silence", lambda: True)
+        await client.start()
+        try:
+            await asyncio.wait_for(closed.wait(), 1)
+            assert client.health_report()["state"] == "disconnected"
+            assert client.health_report()["last_rx_at"] is None
+        finally:
+            await client.stop()
+
+    asyncio.run(scenario())
+
+
 async def _assert_connection_stays_open_when_rx_is_stale(monkeypatch):
     ew11_client = load_integration_module("ew11_client")
     protocol = load_integration_module("protocol")

@@ -66,6 +66,7 @@ class KsxFan(KsxEntity, FanEntity):
             bytes([speed]),
             lambda frame: frame.addr == self.addr
             and int(self.dev.state.get("speed", 0)) == speed,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(self._command_failure_message("KSX fan command"))
@@ -76,6 +77,7 @@ class KsxFan(KsxEntity, FanEntity):
             CMD_SET_FAN,
             b"\x00",
             lambda frame: frame.addr == self.addr and self.is_on is False,
+            recovery_key=self._recovery_key,
         )
         if matched is None:
             raise HomeAssistantError(self._command_failure_message("KSX fan command"))

@@ -25,6 +25,7 @@ async def async_send_thermostat_heat_control(
     status_sub_id: int,
     channel: int | None,
     turn_on: bool,
+    recovery_key: str | None = None,
 ) -> None:
     target_sub_id = thermostat_target_sub_id(status_sub_id, channel)
     frame = build_thermostat_heat_request(target_sub_id, turn_on=turn_on)
@@ -49,6 +50,7 @@ async def async_send_thermostat_heat_control(
         ),
         interval=0.5,
         confirmation_interval=0.5,
+        recovery_key=recovery_key,
     )
     if matched is None:
         raise HomeAssistantError("KSX thermostat heat state was not confirmed")
@@ -61,6 +63,7 @@ async def async_send_thermostat_temperature_control(
     status_sub_id: int,
     channel: int | None,
     temperature: float,
+    recovery_key: str | None = None,
 ) -> None:
     target_sub_id = thermostat_target_sub_id(status_sub_id, channel)
     frame = build_thermostat_temperature_request(
@@ -88,6 +91,7 @@ async def async_send_thermostat_temperature_control(
         ),
         interval=0.5,
         confirmation_interval=0.5,
+        recovery_key=recovery_key,
     )
     if matched is None:
         raise HomeAssistantError(

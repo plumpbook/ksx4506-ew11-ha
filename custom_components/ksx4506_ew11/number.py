@@ -10,12 +10,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, SIGNAL_DEVICE_ADDED
 from .device_metadata import format_device_name
 from .devices.thermostat import (
-    TEMPERATURE_CONTROL_REQUEST,
     THERMOSTAT_DEVICE_ID,
-    build_thermostat_temperature_request,
-    thermostat_target_sub_id,
 )
 from .entity_base import KsxEntity
+from .thermostat_control import async_send_thermostat_temperature_control
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -91,6 +89,7 @@ class KsxThermostatTargetTemperatureNumber(KsxEntity, NumberEntity):
         super().__init__(coordinator, dev)
         self._channel = channel
         if channel is not None:
+            self._recovery_key = f"{self.dev_key}_ch{channel}"
             self._attr_unique_id = f"ksx4506_{self.dev_key}_ch{channel}_target_temperature"
             self._set_ksx_device_info(
                 device_key=f"{self.dev_key}_ch{channel}",
@@ -109,15 +108,9 @@ class KsxThermostatTargetTemperatureNumber(KsxEntity, NumberEntity):
         return self._state.get("target_temp")
 
     async def async_set_native_value(self, value: float) -> None:
-        frame = build_thermostat_temperature_request(
-            thermostat_target_sub_id(self.sub_id, self._channel),
-            temperature=value,
-        )
-        await self.coordinator.async_send_f7_command(
-            self.addr,
-            frame.sub_id,
-            TEMPERATURE_CONTROL_REQUEST,
-            frame.data,
+        await async_send_thermostat_temperature_control(
+            self.coordinator, addr=self.addr, status_sub_id=self.sub_id,
+            channel=self._channel, temperature=value, recovery_key=self._recovery_key,
         )
 
     @property

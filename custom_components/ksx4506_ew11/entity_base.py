@@ -25,6 +25,7 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
         super().__init__(coordinator)
         self._device_state = dev
         self.dev_key = dev.key
+        self._recovery_key = dev.key
         self.addr = dev.addr
         self.sub_id = dev.sub_id
         self.channel = dev.channel
@@ -67,6 +68,18 @@ class KsxEntity(CoordinatorEntity[Ksx4506Coordinator]):
             self.dev_key,
             self._device_state,
         )
+
+    @property
+    def extra_state_attributes(self):
+        recovery = getattr(self.coordinator, "recovery", None)
+        return recovery.attributes(self._recovery_key) if recovery is not None else {}
+
+    @property
+    def _control_unconfirmed(self) -> bool:
+        recovery = getattr(self.coordinator, "recovery", None)
+        return recovery is not None and recovery.attributes(self._recovery_key)["control_status"] in {
+            "failed", "recovering", "pending",
+        }
 
     def _handle_coordinator_update(self) -> None:
         changed_device_keys = getattr(

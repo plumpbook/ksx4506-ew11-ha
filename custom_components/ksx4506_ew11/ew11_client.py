@@ -220,6 +220,7 @@ class Ew11Client:
                         f"EW11 connect timed out after {self._timeout:.1f}s"
                     ) from exc
                 backoff = 1
+                self._codec.reset_stream()
                 self._mark_connected()
                 _LOGGER.info("EW11 connected")
 
@@ -245,6 +246,9 @@ class Ew11Client:
                         self._mark_rx()
                     for frame in frames:
                         await self._on_frame(frame)
+                    self._publish_health_change()
+                    if self._should_reconnect_for_rx_silence():
+                        raise ConnectionError("EW11 received no valid frames before RX deadline")
 
             except Exception as exc:  # noqa: BROAD_EXCEPT_OK
                 reason = repr(exc)
@@ -253,6 +257,12 @@ class Ew11Client:
                 await self._close(reason=reason, count_disconnect=True)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 15)
+
+    async def async_reconnect(self) -> None:
+        """Discard old queued writes and parser fragments before a new connection."""
+        await self.stop()
+        self._codec.reset_stream()
+        await self.start()
 
     async def _close(
         self,

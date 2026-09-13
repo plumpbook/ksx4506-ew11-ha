@@ -57,6 +57,7 @@ class _FakeCoordinator:
         matcher,
         *,
         confirmation_timeout=1.0,
+        recovery_key=None,
         guard=False,
     ):
         _ = confirmation_timeout
@@ -106,6 +107,7 @@ class _FakeCoordinator:
         *,
         status_sub_id,
         confirmation_matcher,
+        recovery_key=None,
         max_attempts=None,
         interval=0.1,
         confirmation_interval=0.25,
