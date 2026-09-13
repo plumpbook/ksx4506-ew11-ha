@@ -9,12 +9,12 @@ from .ha_stubs import install_homeassistant_stubs
 
 
 @pytest.mark.parametrize("connected,probed_zero,responders,expected", [
-    (True, True, 0, 1),
+    (True, True, 0, 0),
     (False, True, 0, 0),
     (True, False, 0, 0),
     (True, True, 1, 0),
 ])
-def test_power_requires_reconnected_bridge_and_confirmed_bus_wide_silence(
+def test_watchdog_never_cycles_power_even_with_confirmed_bus_wide_silence(
     monkeypatch, connected, probed_zero, responders, expected,
 ):
     async def scenario():
@@ -57,12 +57,6 @@ def test_power_requires_reconnected_bridge_and_confirmed_bus_wide_silence(
             _publish_registry_state=lambda: None, hass=None, recovery_notification_id="test",
         )
         watchdog = module.HubRecovery(coordinator)
-        watchdog.probed_zero = probed_zero
-
-        async def probe():
-            return True
-
-        monkeypatch.setattr(watchdog, "_probe", probe)
         await watchdog.tick()
         await watchdog.tick()
         assert operations.count("power") == expected

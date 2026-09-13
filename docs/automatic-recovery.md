@@ -24,39 +24,20 @@ independent measurement of the physical lamp or relay.
   restart. New controls during that recovery window return an error; they are
   not silently queued for later.
 
-## Hub recovery
+## Hub monitoring, not automatic restart
 
-The watchdog checks every 15 seconds. A failing link or at least two independent
-failing protocol endpoints must persist for 30 seconds before a TCP reconnect.
-Multiple channels at one address count as **one** endpoint. Reconnection has a
-five-minute cooldown. Continuous invalid bytes cannot postpone the client's
-valid-frame receive deadline indefinitely; partial parser bytes are discarded
-when a new TCP connection is established.
+The watchdog checks every 15 seconds and reports individual device failures in
+one HA notification per integration entry. It never power-cycles the shared
+wallpad or forces a hub reconnect. Native transport reconnection after a lost
+connection and bounded command retries still apply. Continuous invalid bytes
+cannot postpone the client's valid-frame receive deadline indefinitely.
 
-After reconnect, a bounded sweep queries known devices without changing outputs.
-Power recovery is considered only after another 120 seconds, with no recent
-device responses and a completed sweep of at least two targets returning no
-responses. A disconnected bridge/network alone is insufficient for power cycling.
-
-## Optional dedicated power switch
-
-The integration option `recovery_power_switch` is empty by default. To opt in,
-enter the entity ID of a **dedicated wallpad/bridge power switch**, for example
-`switch.wallpad_power`. It must use another integration, be available, and
-already be on. Do not use a shared circuit, a safety-critical appliance's power
-switch, or an EW11-controlled outlet.
-
-Power is turned off for five seconds, then restored. There is at most one attempt
-per incident and one per 24 hours. The attempt is saved before sending power-off;
-the cooldown survives HA reloads/restarts. An interrupted cycle retains a pending
-power-on record and attempts restoration when the same configured target is
-loaded again. Changing/removing that option after an interrupted cycle requires
-manually checking power; the integration will not operate a different target.
-
-These limits cannot fix a failed relay, wiring fault, protocol mismatch, or an
-unreachable power switch. A failed restoration remains pending and requires
-operator attention; no software can guarantee power restoration through a broken
-network.
+See [device health alerts](device-alerts.md) for thresholds, exclusions, and
+manual restart guidance. The previous `recovery_power_switch` option no longer
+enables automatic cycling. Existing pending power-on journals are still honored
+for the same configured target so an interrupted older cycle can restore power.
+Do not use an EW11 outlet or a shared/safety-critical power circuit for a manual
+wallpad restart. All connected controls may be interrupted during that restart.
 
 ## Monitoring
 
