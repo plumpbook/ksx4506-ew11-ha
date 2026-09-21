@@ -14,6 +14,7 @@ from .registry_cleanup import (
 )
 from .registry_bootstrap import async_restore_registry_devices_from_ha
 from .power_recovery import CONF_RECOVERY_POWER_SWITCH, async_configure_power_recovery
+from .discovery_setup import async_prepare_discovery, async_stop_discovery, start_discovery
 
 __all__ = (
     "_async_prune_legacy_outlet_group_registry_entries",
@@ -22,13 +23,12 @@ __all__ = (
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    await _async_prune_legacy_registry_entries(hass, entry)
-
     coordinator = Ksx4506Coordinator(hass, effective_config(entry), entry=entry)
     coordinator.recovery_notification_id = f"ew11_recovery_{entry.entry_id}"
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     setup_complete = False
     try:
+        await async_prepare_discovery(hass, entry, coordinator)
         if effective_config(entry).get(CONF_RECOVERY_POWER_SWITCH):
             try:
                 await async_configure_power_recovery(hass, entry, coordinator)
@@ -36,12 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 raise ConfigEntryNotReady("Recovery power restoration is not ready") from exc
         await async_restore_registry_devices_from_ha(hass, entry, coordinator.registry)
         await coordinator.async_start()
+        start_discovery(hass, entry)
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        await _async_prune_legacy_registry_entries(hass, entry)
         setup_complete = True
     finally:
         if not setup_complete:
             await coordinator.async_stop()
+            await async_stop_discovery(hass, entry)
             hass.data[DOMAIN].pop(entry.entry_id, None)
     entry.async_on_unload(entry.add_update_listener(_async_update_entry))
     return True
@@ -52,6 +53,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     coordinator: Ksx4506Coordinator = hass.data[DOMAIN][entry.entry_id]
     await coordinator.async_stop()
+    await async_stop_discovery(hass, entry)
     hass.data[DOMAIN].pop(entry.entry_id)
     return True
 

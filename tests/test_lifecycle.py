@@ -59,6 +59,7 @@ def test_unload_failure_preserves_running_coordinator():
 def test_setup_failure_stops_and_removes_coordinator(monkeypatch):
     install_homeassistant_stubs()
     init_module = load_integration_module("__init__")
+    events = []
 
     class FakeCoordinator:
         instances = []
@@ -70,17 +71,26 @@ def test_setup_failure_stops_and_removes_coordinator(monkeypatch):
             self.instances.append(self)
 
         async def async_start(self):
+            events.append("connect")
             self.started = True
 
         async def async_stop(self):
             self.stopped = True
 
-    async def no_op(*_args):
-        return None
+    async def prepare(*_args):
+        events.append("guard")
+
+    async def restore(*_args):
+        events.append("restore")
+
+    async def forbidden_prune(*_args):
+        raise AssertionError("Setup must never auto-delete existing registry entries")
 
     monkeypatch.setattr(init_module, "Ksx4506Coordinator", FakeCoordinator)
-    monkeypatch.setattr(init_module, "_async_prune_legacy_registry_entries", no_op)
-    monkeypatch.setattr(init_module, "async_restore_registry_devices_from_ha", no_op)
+    monkeypatch.setattr(init_module, "_async_prune_legacy_registry_entries", forbidden_prune)
+    monkeypatch.setattr(init_module, "async_restore_registry_devices_from_ha", restore)
+    monkeypatch.setattr(init_module, "async_prepare_discovery", prepare)
+    monkeypatch.setattr(init_module, "start_discovery", lambda *_args: events.append("maintenance"))
     hass = types.SimpleNamespace(
         data={},
         config_entries=_FakeConfigEntries(fail_forward=True),
@@ -91,5 +101,6 @@ def test_setup_failure_stops_and_removes_coordinator(monkeypatch):
 
     coordinator = FakeCoordinator.instances[-1]
     assert coordinator.started is True
+    assert events == ["guard", "restore", "connect", "maintenance"]
     assert coordinator.stopped is True
     assert "entry" not in hass.data.get(init_module.DOMAIN, {})

@@ -1,0 +1,22 @@
+review_discovery:
+  name: Review discovery candidate
+  description: Approve a verified new candidate or reject it for 24 hours. Never deletes registered devices.
+  fields:
+    entry_id:
+      name: Integration entry
+      required: true
+      selector:
+        config_entry:
+          integration: ksx4506_ew11
+    endpoint:
+      name: Endpoint
+      description: Hexadecimal address shown in discovery diagnostics, for example 0E/1F.
+      required: true
+      selector:
+        text:
+    approve:
+      name: Approve
+      description: Approves only the currently observed device list. Changed topology requires another review.
+      required: true
+      selector:
+        boolean:

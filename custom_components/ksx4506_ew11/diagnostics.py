@@ -12,6 +12,7 @@ from .coordinator import Ksx4506Coordinator
 from .ew11_health import ew11_health_report_from_coordinator
 from .packet_quality import empty_packet_quality_report
 from .power_recovery import CONF_RECOVERY_POWER_SWITCH
+from .guarded_registry import GuardedRegistry
 
 TO_REDACT = {CONF_HOST, CONF_RECOVERY_POWER_SWITCH}
 
@@ -44,6 +45,19 @@ async def async_get_config_entry_diagnostics(
             "data": async_redact_data(config, TO_REDACT),
         },
         "known_devices": _known_device_summary(coordinator),
+        "discovery_guard": (
+            {
+                "policy_version": 1,
+                "candidates": coordinator.registry.guard.report(),
+                "blocked_until": coordinator.registry.guard.blocked_until.copy(),
+                "packet_samples_redacted": not include_packet_samples,
+                "evidence": coordinator.registry.guard.evidence.report(include_packet_samples),
+                "registered_devices_auto_delete": False,
+                "registered_review": _registered_review(hass, entry, coordinator.registry),
+            }
+            if coordinator is not None and isinstance(coordinator.registry, GuardedRegistry)
+            else {}
+        ),
         "control_recovery": (
             coordinator.recovery.report()
             if coordinator is not None and hasattr(coordinator, "recovery") else {}
@@ -74,6 +88,13 @@ async def async_get_config_entry_diagnostics(
         "report_url": "https://github.com/plumpbook/ksx4506-ew11-ha/issues/new?template=unsupported_packet.yml",
     }
     return _redact_host_occurrences(diagnostics, entry.data.get(CONF_HOST))
+
+
+def _registered_review(hass: HomeAssistant, entry: ConfigEntry, registry: GuardedRegistry):
+    from .registration_review import registered_review
+    verified = {key for event in registry.guard.evidence.events
+                if event.action in {"admitted_by_user", "admitted_by_probe"} for key in event.keys}
+    return registered_review(hass, entry.entry_id, verified)
 
 
 def _redact_title(title: str, host: Any) -> str:
