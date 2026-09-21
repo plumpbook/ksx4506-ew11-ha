@@ -20,6 +20,11 @@ def device_review_links(hass: HomeAssistant, entry_id: str) -> Mapping[str, str]
             continue
         members = [e for e in er.async_entries_for_device(entities, device.id)
                    if e.config_entry_id == entry_id]
+        if len(device.config_entries) > 1:
+            owned_ids = {e.unique_id for e in members if e.platform == DOMAIN}
+            keys = [key for key in keys if f"ksx4506_{key}" in owned_ids]
+            if not keys:
+                continue
         primary = next((e for e in members if e.entity_category is None), None)
         name = device.name_by_user or (primary.name if primary else None) or device.name or keys[0]
         area_id = (primary.area_id if primary else None) or device.area_id

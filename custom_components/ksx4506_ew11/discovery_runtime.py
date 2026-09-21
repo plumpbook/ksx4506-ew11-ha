@@ -178,7 +178,10 @@ class DiscoveryRuntime:
         if legacy:
             lines += ["", f"별도 실체 확인이 필요한 이름·영역 미지정 기기: {len(legacy)}개",
                       "이름·영역 미지정만으로 가짜 기기라고 판단하지 않습니다.", ""]
-            lines += [f"- {links[c['device_keys'][0]]}" for c in legacy]
+            for candidate in legacy:
+                shortcut = next((links[key] for key in candidate['device_keys'] if key in links),
+                                candidate['device_keys'][0] + ' · 연결 기기 확인 필요')
+                lines.append(f"- {shortcut}")
         lines += ["", "무응답은 삭제 근거가 아닙니다. 기존 기기는 자동 삭제하지 않습니다.",
                   "진단 다운로드의 discovery_guard에서 근거를 확인할 수 있습니다.",
                   "실제 새 기기가 확인되면 review_discovery 동작으로 승인하거나 거부할 수 있습니다.",

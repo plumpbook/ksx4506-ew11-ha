@@ -12,6 +12,7 @@ from homeassistant.helpers import area_registry as ar, device_registry as dr, en
 from custom_components.ksx4506_ew11.const import DOMAIN
 from custom_components.ksx4506_ew11.coordinator import Ksx4506Coordinator
 from custom_components.ksx4506_ew11.discovery_runtime import DiscoveryRuntime
+from custom_components.ksx4506_ew11.review_links import device_review_links
 
 
 async def main() -> None:
@@ -83,6 +84,19 @@ async def main() -> None:
             moved = pn._async_get_or_create_notifications(hass)[runtime.notification_id]["message"]
             assert moved != renamed and "드레스룸" in moved
             assert set(re.findall(r"\]\((/config/devices/device/[^)]+)\)", moved)) == expected
+
+            # Given a merged device also associated with another EW11 entry.
+            er.async_get(hass).async_get_or_create(
+                "light", DOMAIN, f"ksx4506_{key}", config_entry=entries[0], device_id=real.id,
+            )
+            devices.async_get_or_create(
+                config_entry_id=entries[1].entry_id,
+                identifiers={(DOMAIN, key), (DOMAIN, "0EFF_light_1")},
+            )
+            # When resolving shortcuts, only entity-backed keys belong to this entry.
+            shared = device_review_links(hass, owner)
+            assert key in shared
+            assert "0EFF_light_1" not in shared
 
             # When the registry item disappears while a review key remains.
             devices.async_remove_device(real.id)
