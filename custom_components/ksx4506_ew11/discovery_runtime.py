@@ -16,6 +16,7 @@ from .discovery_evidence import EvidenceEvent, EvidenceSnapshot
 from .discovery_guard import DiscoveryGuard
 from .guarded_registry import GuardedRegistry
 from .registration_review import registered_review
+from .review_links import device_review_links
 
 if TYPE_CHECKING:
     from .coordinator import Ksx4506Coordinator
@@ -165,23 +166,26 @@ class DiscoveryRuntime:
         verified = {key for event in self.guard.evidence.events
                     if event.action in {"admitted_by_user", "admitted_by_probe"} for key in event.keys}
         legacy = registered_review(self.coordinator.hass, self.entry_id, verified)
-        summary = tuple(sorted([f"{r['endpoint']}:{','.join(r['keys'])}:{r['action']}" for r in rows]
-                               + [f"existing:{c['device_key']}" for c in existing]
-                               + [f"legacy:{c['device_id']}" for c in legacy]))
-        if summary == self.previous_summary:
+        if not rows and not existing and not legacy and not self.previous_summary:
             return
+        links = device_review_links(self.coordinator.hass, self.entry_id)
         lines = [f"등록 검증 대기 {len(rows)}개 통신 지점 · 기존 기기 검토 {len(existing)}개", ""]
         lines += [f"- {r['endpoint']}: {', '.join(r['keys'])} — "
                   + ("수동 확인 필요" if r["action"] == "review_required" else "상태 조회 검증 중")
                   for r in rows[:20]]
-        lines += [f"- 기존 기기 {c['device_key']}: 삭제하지 않고 보존" for c in existing[:20]]
+        lines += [f"- {links.get(c['device_key'], c['device_key'] + ' · 기기 등록 정보 없음')}"
+                  "\n  채널 구성 재확인 필요 · 삭제하지 않고 보존" for c in existing]
         if legacy:
             lines += ["", f"별도 실체 확인이 필요한 이름·영역 미지정 기기: {len(legacy)}개",
-                      "이는 가짜 기기 판정이 아닙니다. 진단의 registered_review에서 목록을 확인하세요."]
+                      "이름·영역 미지정만으로 가짜 기기라고 판단하지 않습니다.", ""]
+            lines += [f"- {links[c['device_keys'][0]]}" for c in legacy]
         lines += ["", "무응답은 삭제 근거가 아닙니다. 기존 기기는 자동 삭제하지 않습니다.",
                   "진단 다운로드의 discovery_guard에서 근거를 확인할 수 있습니다.",
                   "실제 새 기기가 확인되면 review_discovery 동작으로 승인하거나 거부할 수 있습니다.",
                   f"[EW11 확인](/config/integrations/integration/{DOMAIN})"]
+        summary = tuple(lines)
+        if summary == self.previous_summary:
+            return
         persistent_notification.async_create(
             self.coordinator.hass, "\n".join(lines), title="EW11 등록 검토",
             notification_id=self.notification_id,

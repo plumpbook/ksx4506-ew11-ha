@@ -79,6 +79,11 @@ protection, even after evidence retention expires.
 ## Reviewing a new candidate
 
 One grouped persistent notification reports pending and existing review items.
+Each existing review item shows its current HA name/area and a **device detail**
+shortcut. The full existing review list is included, not just the first 20.
+Links are resolved within the current integration entry, refreshed after renames,
+moves or removals on the normal maintenance tick, and never perform deletion or
+control. Unregistered candidates and missing device records have no device link.
 Download integration diagnostics and inspect `discovery_guard`:
 `candidates`, `registered_review`, `evidence`, and `blocked_until`.
 
