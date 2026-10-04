@@ -51,6 +51,7 @@ from .devices.thermostat import THERMOSTAT_DEVICE_ID
 from .device_vitality import DeviceVitalityMonitor, DeviceVitalityReport
 from .discovery import DeviceRegistry, DeviceState
 from .ew11_client import Ew11Client
+from .ew11_health import inspection_monitoring_report
 from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
 from .recovery import CommandRecovery, HubRecoveryPolicy
@@ -156,7 +157,11 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hub_recovery = HubRecoveryPolicy()
         self._recovery_task: asyncio.Task[None] | None = None
         self._power_cycle: Callable[[], Awaitable[bool]] | None = None
-        self.recovery_notification_id = f"ew11_recovery_{id(self)}"
+        self.link_inspection = inspection_monitoring_report("starting")
+        self.recovery_notification_id = (
+            f"ew11_recovery_{entry.entry_id}" if entry is not None
+            else f"ew11_recovery_{id(self)}"
+        )
 
     async def _async_update_data(self):
         return {k: v.state for k, v in self.registry.devices.items()}
@@ -191,6 +196,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return semantic_changes
 
     async def async_start(self) -> None:
+        if self._recovery_task is None or self._recovery_task.done():
+            self.link_inspection = inspection_monitoring_report("starting")
+            self._publish_registry_state()
         self.recovery.resume()
         await self._client.start()
         if self._recovery_task is None or self._recovery_task.done():
@@ -206,6 +214,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
     async def async_stop(self) -> None:
+        self.link_inspection = inspection_monitoring_report("stopped")
+        self._publish_registry_state()
         if self._recovery_task is not None:
             self._recovery_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -223,6 +233,12 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._meter_probe_task
             self._meter_probe_task = None
         await self._client.stop()
+        # The watchdog has already exited; it cannot publish another tick.
+        # Its finally block preserves unresolved evidence before closing the notice.
+        if getattr(self, "config_entry", None) is not None:
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_dismiss(self.hass, self.recovery_notification_id)
 
     async def _on_frame(self, frame: KsFrame) -> None:
         _LOGGER.debug(

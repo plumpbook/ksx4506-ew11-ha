@@ -54,3 +54,50 @@ their health remains unverified rather than assumed healthy.
 
 Development and isolated HA tests do not authorize a production release or a
 live power cycle. Keep real-device interruptions separately approved.
+
+## Shared communication inspection
+
+The existing **EW11 Link** entity keeps its unique ID and transport state values.
+Its attributes add `inspection_state`, `inspection_needed`, `inspection_summary`,
+the reason, failure duration, recovery attempts and failed endpoint count. The
+same per-entry HA notification displays "통신 복구 안 됨 · EW11·네트워크 점검 필요".
+It gives manual EW11 restart guidance after checking power, network, cabling and
+RS-485. It cannot establish that an EW11 hardware reboot is required.
+
+Receive-age decisions use `seconds_since_valid_rx`, a monotonic elapsed time
+across TCP connections. Reconnection alone never restarts that receive clock.
+`last_rx_at` and the existing wall-clock age remain display metadata; moving the
+system clock forward or backward does not create or clear shared-link evidence.
+
+A new inspection notice requires a three-minute startup grace and either:
+
+- At least three actual connection/transport failures without valid receive,
+  continuing for three minutes, with at least two subsequent connection attempts.
+  Accepting TCP without a valid frame does not erase this evidence.
+- At least two independently addressed, previously responsive endpoints with
+  three failed confirmation queries each under the existing alert policy, no
+  valid frame in the past three minutes, and another three minutes of sustained
+  shared failure including at least one subsequent connection attempt.
+
+Quiet traffic, an event-only device, a single downstream address, a failed
+control alone, and discarded/checksum/partial-frame input do not establish shared
+transport failure. Parser/query-triggered reconnections are excluded from actual
+transport-failure counts. No additional probes, reconnects or device commands
+are introduced by this inspection policy. Individual device alerts still apply.
+
+Valid receive clears shared-link inspection evidence; it does not clear unrelated
+failed controls or prove physical device operation. Removing a shared-failure
+condition or stopping monitoring is described separately from confirmed receive.
+Reload grace never labels an old notice as recovered. Unchanged notices stay
+quiet. Link-only notice updates use a five-minute cooldown, preserved across
+reloads; sensor attributes remain current during that delay. Independent device
+membership changes can still update the existing notice. Notification IDs are
+stable per configuration entry. Legacy notices created with process-specific IDs
+are not deleted automatically and can be dismissed manually after an approved update.
+
+The actual coordinator stop/unload path publishes `stopped` with
+`inspection_needed=False` and closes its own active notification after the
+watchdog has saved unresolved evidence. Closing a notice is monitoring cleanup,
+not a recovery verdict. Start/reload publishes `starting` immediately, before
+the first monitor tick, and uses a fresh grace period. The saved unresolved
+incident and cooldown are retained for later reassessment.

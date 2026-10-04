@@ -63,11 +63,17 @@ class Ew11Client:
         self._unvalidated_rx = False
         self._assembly_expired = False
         self._response_failures = 0
+        self._transport_failures_since_rx = 0
+        self._transport_fault_since: float | None = None
+        self._transport_fault_at: datetime | None = None
+        self._transport_fault_attempts = 0
         self._connected = False
         self._connected_at: datetime | None = None
         self._connected_monotonic: float | None = None
         self._last_rx_at: datetime | None = None
         self._last_rx_monotonic: float | None = None
+        # Last valid receive across TCP sessions; wall timestamps are display only.
+        self._last_valid_rx_monotonic: float | None = None
         self._connection_stats = Ew11ConnectionStats()
         self._last_error: str | None = None
         self._last_tx_at: datetime | None = None
@@ -161,6 +167,16 @@ class Ew11Client:
             "reconnect_delay_seconds": self._reconnect_delay,
             "consecutive_connection_failures": self._connection_failures,
             "response_failures_since_rx": self._response_failures,
+            "transport_failures_since_rx": self._transport_failures_since_rx,
+            "transport_fault_started_at": _isoformat_or_none(self._transport_fault_at),
+            "seconds_since_transport_fault": (
+                round(time.monotonic() - self._transport_fault_since, 1)
+                if self._transport_fault_since is not None else None
+            ),
+            "connect_attempts_since_transport_fault": (
+                self._connection_stats.signature()[0] - self._transport_fault_attempts
+                if self._transport_fault_since is not None else 0
+            ),
             "rx_fault_evidence": (
                 "assembly_timeout" if self._assembly_expired
                 else "unvalidated_bytes" if self._unvalidated_rx
@@ -170,6 +186,10 @@ class Ew11Client:
             "last_connect_at": _isoformat_or_none(self._connected_at),
             "last_rx_at": _isoformat_or_none(self._last_rx_at),
             "seconds_since_last_rx": seconds_since_last_rx,
+            "seconds_since_valid_rx": (
+                round(time.monotonic() - self._last_valid_rx_monotonic, 1)
+                if self._last_valid_rx_monotonic is not None else None
+            ),
             "seconds_without_rx": rx_silence,
             "last_error": self._last_error,
             "last_tx_at": _isoformat_or_none(self._last_tx_at),
@@ -235,6 +255,7 @@ class Ew11Client:
     async def _run_loop(self) -> None:
         backoff = 1
         while self._running:
+            rx_recovery = False
             try:
                 _LOGGER.info("Connecting EW11 %s:%s", self._host, self._port)
                 self._connection_stats.record_attempt()
@@ -263,6 +284,7 @@ class Ew11Client:
                         self._publish_health_change()
                         if self._should_reconnect_for_rx_silence():
                             silence = self._rx_silence_seconds()
+                            rx_recovery = True
                             raise ConnectionError(f"EW11 RX stale for {silence:.1f}s")
                         continue
 
@@ -277,9 +299,13 @@ class Ew11Client:
                     await self._dispatch_frames(frames)
                     self._publish_health_change()
                     if self._should_reconnect_for_rx_silence():
+                        rx_recovery = True
                         raise ConnectionError("EW11 received no valid frames before RX deadline")
 
             except Exception as exc:  # noqa: BROAD_EXCEPT_OK
+                # A query timeout or malformed input is not a failed TCP connection.
+                if not rx_recovery and isinstance(exc, (OSError, TimeoutError)):
+                    self._record_transport_failure()
                 if (
                     self._connected_monotonic is not None
                     and self._last_rx_monotonic is not None
@@ -323,6 +349,13 @@ class Ew11Client:
     def record_response_timeout(self) -> None:
         """Record an exhausted response request, never a one-way command."""
         self._response_failures += 1
+
+    def _record_transport_failure(self) -> None:
+        if self._transport_fault_since is None:
+            self._transport_fault_since = time.monotonic()
+            self._transport_fault_at = datetime.now(timezone.utc)
+            self._transport_fault_attempts = self._connection_stats.signature()[0]
+        self._transport_failures_since_rx += 1
 
     async def _close(
         self,
@@ -487,9 +520,14 @@ class Ew11Client:
     def _mark_rx(self) -> None:
         self._last_rx_at = datetime.now(timezone.utc)
         self._last_rx_monotonic = time.monotonic()
+        self._last_valid_rx_monotonic = self._last_rx_monotonic
         self._unvalidated_rx = False
         self._assembly_expired = False
         self._response_failures = 0
+        self._transport_failures_since_rx = 0
+        self._transport_fault_since = None
+        self._transport_fault_at = None
+        self._transport_fault_attempts = 0
         self._publish_health_change()
 
     def _is_rx_stale(self) -> bool:

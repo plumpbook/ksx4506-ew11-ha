@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio  # noqa: ANYIO_OK - HA serial transactions use its asyncio loop
 from datetime import datetime
 import time
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from time import monotonic
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
@@ -12,6 +13,7 @@ from homeassistant.helpers.storage import Store
 
 from .alert_policy import AlertPolicy, Endpoint
 from .const import DOMAIN
+from .ew11_health import LinkInspectionPolicy, ew11_health_report_from_coordinator
 
 if TYPE_CHECKING:
     from .coordinator import Ksx4506Coordinator
@@ -21,6 +23,8 @@ class AlertStorage(TypedDict):
     known: dict[str, float]
     problems: NotRequired[dict[str, str]]
     controls: NotRequired[list[str]]
+    link_problem: NotRequired[str | None]
+    last_link_notice_at: NotRequired[float]
 
 
 class DeviceAlerts:
@@ -29,11 +33,16 @@ class DeviceAlerts:
         self.hass = coordinator.hass
         self.entry_id = entry_id
         self.policy = AlertPolicy(started=time.time())
+        self.inspection = LinkInspectionPolicy(started=monotonic())
         self.store = Store[AlertStorage](self.hass, 1, f"{DOMAIN}.{entry_id}.device_alerts")
         self.previous: dict[str, str] = {}
         self.controls: set[str] = set()
         self.announced = False
+        self._announced_inspection_needed = False
         self.saved_at = time.time()
+        self.link_problem: str | None = None
+        self.last_link_notice_at = 0.0
+        self._link_notice_after = 0.0
 
     async def async_load(self) -> None:
         saved = await self.store.async_load()
@@ -41,11 +50,18 @@ class DeviceAlerts:
             self.policy.known = saved["known"]
             self.previous = saved.get("problems", {})
             self.controls = set(saved.get("controls", []))
+            self.link_problem = saved.get("link_problem")
+            self.last_link_notice_at = saved.get("last_link_notice_at", 0.0)
+            if self.last_link_notice_at:
+                remaining = min(300, max(0, 300 - (time.time() - self.last_link_notice_at)))
+                self._link_notice_after = monotonic() + remaining
 
     async def async_save(self) -> None:
         await self.store.async_save({"known": self.policy.known.copy(),
                                      "problems": self.previous.copy(),
-                                     "controls": sorted(self.controls)})
+                                     "controls": sorted(self.controls),
+                                     "link_problem": self.link_problem,
+                                     "last_link_notice_at": self.last_link_notice_at})
         self.saved_at = time.time()
 
     def _labels(self) -> dict[str, str]:
@@ -96,6 +112,8 @@ class DeviceAlerts:
     async def async_tick(self) -> None:
         previous = self.previous.copy()
         previous_controls = self.controls.copy()
+        previous_link = self.link_problem
+        previous_notice = self.last_link_notice_at
         labels = self._labels()
         endpoints = self._endpoints(labels)
         scan = self.policy.scan(endpoints, now=time.time())
@@ -143,36 +161,81 @@ class DeviceAlerts:
             if key in labels and (key in self.controls or key not in fresh):
                 problems.setdefault(key, text)
         self.controls.intersection_update(labels)
-        self._notify(problems, labels)
+        inspection = self.inspection.evaluate(
+            ew11_health_report_from_coordinator(self.coordinator), now=monotonic(),
+            failed_endpoints=sum(alert.reason == "no_response" for alert in scan.alerts),
+        )
+        self.coordinator.link_inspection = inspection
+        self._notify(problems, labels, inspection)
         if (previous != self.previous or previous_controls != self.controls
+                or previous_link != self.link_problem or previous_notice != self.last_link_notice_at
                 or time.time() - self.saved_at >= 300):
             await self.async_save()
 
-    def _notify(self, problems: dict[str, str], labels: dict[str, str]) -> None:
-        if problems == self.previous and (self.announced or not problems):
+    def _notify(
+        self, problems: dict[str, str], labels: dict[str, str],
+        inspection: dict[str, Any] | None = None,
+    ) -> None:
+        inspection = inspection or {}
+        inspection_needed = bool(inspection.get("inspection_needed"))
+        link_problem = inspection.get("inspection_reason") if inspection.get("inspection_needed") else None
+        # Startup grace is not evidence that an old incident has recovered.
+        if inspection.get("inspection_state") == "starting":
+            link_problem = self.link_problem
+            if not problems and problems == self.previous:
+                return
+        if (problems == self.previous and link_problem == self.link_problem
+                and inspection_needed == self._announced_inspection_needed) and (
+            self.announced or not (problems or link_problem)
+        ):
             return
+        if link_problem and problems == self.previous and monotonic() < self._link_notice_after:
+            inspection["notification_cooldown_remaining_seconds"] = round(
+                self._link_notice_after - monotonic(), 1,
+            )
+            return
+        link_removed = self.link_problem is not None and link_problem is None
         removed = self.previous.keys() - problems.keys()
         recovered = [labels[key] for key in sorted(removed) if key in labels]
         excluded = len(removed - labels.keys())
         lines = [f"- {text}" for _, text in sorted(problems.items())]
+        if link_problem:
+            if inspection.get("inspection_needed"):
+                lines += ["", inspection["inspection_summary"],
+                          f"지속 {inspection['inspection_failure_duration_seconds']:.0f}초 · "
+                          f"재연결 시도 {inspection['inspection_recovery_attempts']}회 · "
+                          f"상태 응답 확인 실패 {inspection['inspection_failed_endpoints']}곳",
+                          inspection["manual_restart_consideration"]]
+            else:
+                lines += ["", "이전 통신 장애 · 시작 후 재확인 중"]
+        elif link_removed:
+            lines += ["", "통신 감시 중지 · 복구 판정 아님" if
+                      inspection.get("inspection_state") == "stopped" else
+                      "최근 정상 패킷 수신으로 통신 점검 조건 해소" if
+                      inspection.get("inspection_recent_valid_rx") else
+                      "공유 통신 점검 조건 변경 · 실제 기기 동작 재확인 필요"]
         if recovered:
             lines += ["", "응답/제어 상태 재확인: " + ", ".join(recovered)]
         if excluded:
             lines += ["", f"삭제·비활성화 등으로 감시 제외: {excluded}개 (복구 판정 아님)"]
-        if problems:
+        if problems or link_problem:
             lines += ["", "전체 패킷이 수신 중이어도 개별 기기는 응답하지 않을 수 있습니다.",
                       "자동 재시작은 하지 않았습니다. 연결과 기기 전원을 먼저 확인하세요.",
-                      "여러 기기가 함께 멈췄다면 월패드 재시작을 검토하세요. "
-                      "재시작 중에는 연결된 모든 기기의 제어가 중단됩니다. "
-                      "필요할 때만 전용 전원 스위치를 직접 조작하세요."]
+                      "재시작을 직접 선택하면 연결된 모든 기기의 제어가 중단될 수 있습니다."]
         else:
             lines += ["", "현재 감시 대상에 남은 감지 장애가 없습니다. "
                       "실제 기기 동작 성공을 보증하는 것은 아닙니다."]
         lines += ["", f"[EW11 기기 확인](/config/integrations/integration/{DOMAIN})"]
         persistent_notification.async_create(
             self.hass, "\n".join(lines),
-            title=f"EW11 확인 필요 · {len(problems)}개 기기" if problems else "EW11 감시 상태 갱신",
+            title=("EW11·네트워크 점검 필요" if link_problem and inspection_needed else
+                   f"EW11 확인 필요 · {len(problems)}개 기기" if problems else "EW11 감시 상태 갱신"),
             notification_id=self.coordinator.recovery_notification_id,
         )
         self.previous = problems.copy()
+        self.link_problem = link_problem
+        if link_problem and inspection_needed:
+            self.last_link_notice_at = time.time()
+            self._link_notice_after = monotonic() + 300
         self.announced = True
+        self._announced_inspection_needed = inspection_needed
