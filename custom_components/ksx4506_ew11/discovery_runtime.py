@@ -13,7 +13,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .discovery_evidence import EvidenceEvent, EvidenceSnapshot
-from .discovery_guard import DiscoveryGuard
+from .discovery_guard import DiscoveryGuard, MIN_OBSERVATIONS, MIN_SPAN
 from .guarded_registry import GuardedRegistry
 from .registration_review import registered_review
 from .review_links import device_review_links
@@ -161,7 +161,9 @@ class DiscoveryRuntime:
         self.last_error_signature = signature
 
     def _notify(self) -> None:
-        rows = self.guard.report()
+        rows = [row for row in self.guard.report()
+                if row["observations"] >= MIN_OBSERVATIONS
+                and self.guard.now() - row["first_seen"] >= MIN_SPAN]
         existing = self.coordinator.registry.cleanup_candidate_report()["candidates"]
         verified = {key for event in self.guard.evidence.events
                     if event.action in {"admitted_by_user", "admitted_by_probe"} for key in event.keys}
@@ -169,7 +171,7 @@ class DiscoveryRuntime:
         if not rows and not existing and not legacy and not self.previous_summary:
             return
         links = device_review_links(self.coordinator.hass, self.entry_id)
-        lines = [f"등록 검증 대기 {len(rows)}개 통신 지점 · 기존 기기 검토 {len(existing)}개", ""]
+        lines = [f"사용자 승인 대기 {len(rows)}개 통신 지점 · 기존 기기 검토 {len(existing)}개", ""]
         lines += [f"- {r['endpoint']}: {', '.join(r['keys'])} — "
                   + ("수동 확인 필요" if r["action"] == "review_required" else "상태 조회 검증 중")
                   for r in rows[:20]]

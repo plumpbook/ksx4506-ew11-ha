@@ -179,7 +179,7 @@ def test_codec_resyncs_when_bad_f7_frame_contains_next_valid_header():
     assert report["rx"]["last_resync"]["reason"] == "checksum_mismatch_with_embedded_header"
 
 
-def test_codec_resyncs_from_false_stx_prefix_to_valid_f7_header():
+def test_codec_resyncs_from_complete_invalid_stx_prefix_to_valid_f7_header():
     install_homeassistant_stubs()
     packet_quality = load_integration_module("packet_quality")
     protocol = load_integration_module("protocol")
@@ -188,7 +188,8 @@ def test_codec_resyncs_from_false_stx_prefix_to_valid_f7_header():
     codec = protocol.Ksx4506Codec(packet_quality=monitor)
     raw = bytes.fromhex("02 80 2E F7 39 5F 01 00 90 20")
 
-    frames = codec.feed(raw)
+    assert codec.feed(raw) == []
+    frames = codec.feed(b"\x00" * 253)
 
     assert [(frame.addr, frame.sub_id, frame.cmd) for frame in frames] == [
         (0x39, 0x5F, 0x01)
@@ -197,7 +198,7 @@ def test_codec_resyncs_from_false_stx_prefix_to_valid_f7_header():
     assert report["state"] == "ok"
     assert report["rx"]["stx_frame_errors"] == 0
     assert report["rx"]["stx_resync_events"] == 1
-    assert report["rx"]["last_resync"]["reason"] == "incomplete_before_next_header"
+    assert report["rx"]["last_resync"]["reason"] == "missing_etx_before_next_header"
 
 
 def test_packet_quality_records_tx_give_up_from_coordinator():

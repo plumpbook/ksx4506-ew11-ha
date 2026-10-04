@@ -105,3 +105,31 @@ def test_existing_device_receives_updates_while_new_channel_is_blocked():
     # Then
     assert set(registry.devices) == {"0E11_light_1"}
     assert registry.devices["0E11_light_1"].state["on"] is True
+
+
+@pytest.mark.parametrize("addr,sub,payload", [
+    (0x12, 1, b""), (0x12, 1, b"\x00"), (0x12, 1, b"\x00\x80"),
+    (0x0E, 0x9F, b"\x00\x0c"), (0x0E, 0x9F, b"\x00\xf1"),
+])
+def test_invalid_state_payload_never_becomes_new_candidate(addr, sub, payload):
+    clock, guard, registry = make_registry()
+    codec = load_integration_module("protocol").Ksx4506Codec()
+    packet = codec.build_f7(addr, sub, 0x81, payload)
+    assert len(codec.feed(packet)) == 1  # Valid wire checksum alone is insufficient.
+    for _ in range(5):
+        registry.upsert_from_frame(addr, sub, 0x81, payload, packet.hex())
+        clock.value += 300
+    assert not registry.devices
+    assert not guard.pending
+    assert guard.evidence.events[-1].action == "invalid_candidate_payload"
+
+
+def test_valid_dimming_state_still_requires_user_approval():
+    clock, guard, registry = make_registry()
+    for _ in range(3):
+        registry.upsert_from_frame(14, 0x9F, 0x81, b"\x00\xf3", "synthetic")
+        clock.value += 300
+    assert not registry.devices
+    assert guard.review("0E/9F", True)
+    registry.upsert_from_frame(14, 0x9F, 0x81, b"\x00\xf3", "synthetic")
+    assert registry.devices["0E9F_light_1"].state["brightness_step"] == 15

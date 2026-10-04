@@ -55,6 +55,7 @@ from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
 from .recovery import CommandRecovery, HubRecoveryPolicy
 from .hub_recovery import HubRecovery
+from .response_validation import valid_response_payload
 
 _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
@@ -738,6 +739,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cmd == _status_request_command(dev_id) and payload == b""
             )
             if is_state_request:
+                record_timeout = getattr(self._client, "record_response_timeout", None)
+                if callable(record_timeout):
+                    record_timeout()
                 _LOGGER.debug(
                     "TX F7 state request gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
                     "attempts=%d payload_len=%d ew11_state=%s "
@@ -891,6 +895,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 frame.addr == dev_id
                 and frame.sub_id == sub_id
                 and frame.cmd == response_cmd
+                and valid_response_payload(frame.addr, frame.cmd, frame.payload)
             )
 
         return await self.async_send_f7_command_until(

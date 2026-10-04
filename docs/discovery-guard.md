@@ -8,13 +8,17 @@ API, additional server, or additional diagnostic sensor is used.
 ## New identities
 
 - A decoded new identity remains a candidate, not an HA device/entity.
-- Automatic admission needs at least three observations spaced at least 60
-  seconds apart, spanning at least 10 minutes, plus two matching state-query
-  observations. The latest successful query must be within 10 minutes.
+- Every new identity requires explicit user approval. Admission also needs at
+  least three observations spaced at least 60 seconds apart, spanning at least
+  10 minutes. Matching state queries strengthen the evidence but never replace
+  approval. HA's separate "enable new entities" setting does not bypass this gate.
 - The proposed set of device/channel keys must remain consistent. Changing or
   disappearing topology resets the proof, including any user approval.
-- Group-address replies alone cannot prove individual physical channel identity;
-  these and non-status discoveries require review rather than automatic admission.
+- Group-address replies alone cannot prove individual physical channel identity.
+- Empty replies cannot establish a new identity. Gas and lighting status evidence
+  must also satisfy their KS X payload lengths and reserved-bit rules. These
+  checks gate new identities and query matches; existing registered identities
+  remain protected and their decoder behavior is preserved.
 - Candidate queries are read-only status requests: at most two candidates per
   minute, at least 10 minutes between attempts per endpoint, one attempt per
   query, and a two-second deadline. No on/off, temperature, valve, or power-cycle
@@ -78,7 +82,10 @@ protection, even after evidence retention expires.
 
 ## Reviewing a new candidate
 
-One grouped persistent notification reports pending and existing review items.
+One grouped persistent notification reports stable candidates awaiting user
+approval and existing review items. A single burst does not create an approval
+notification: candidates first need the spaced observations above. Diagnostics
+still include these preliminary candidates for investigation.
 Each existing review item shows its current HA name/area and a **device detail**
 shortcut. The full existing review list is included, not just the first 20.
 Links are resolved within the current integration entry, refreshed after renames,

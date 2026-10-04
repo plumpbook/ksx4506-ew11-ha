@@ -29,8 +29,39 @@ independent measurement of the physical lamp or relay.
 The watchdog checks every 15 seconds and reports individual device failures in
 one HA notification per integration entry. It never power-cycles the shared
 wallpad or forces a hub reconnect. Native transport reconnection after a lost
-connection and bounded command retries still apply. Continuous invalid bytes
-cannot postpone the client's valid-frame receive deadline indefinitely.
+connection and bounded command retries still apply.
+
+## TCP recovery and partial frames
+
+- A closed connection, failed connection attempt or failed write reconnects the
+  socket. Consecutive failures wait 1, 2, 4, 8, 16, 32 and then at most 60 seconds
+  between attempts. Merely accepting TCP and closing it again does not reset this
+  backoff. An established connection that has received valid frames and lasted
+  at least two minutes resets it on the next failure.
+- Silence alone never closes a socket. After at least 120 seconds without a valid
+  frame, recovery additionally requires discarded input, an expired fragment, or at least
+  three exhausted state-query requests since the last valid receive. One-way
+  commands do not count as failed response requests. This preserves quiet links
+  while allowing noise or unanswered queries to trigger socket recovery.
+  A pending fragment defers this decision during its 30-second assembly window;
+  a partial TCP read is never itself fault evidence. Confirmed assembly expiry
+  cannot be deferred again by a stream of new incomplete headers. Any valid frame
+  clears the receive fault evidence.
+- Stop and explicit reconnect share a lifecycle lock. A stop requested during
+  reconnect cleanup prevents replacement tasks from starting. Unloading the
+  integration stops recovery; it cannot silently restart the client.
+- F7 and STX payloads may contain header bytes, including a complete nested frame.
+  The parser waits for the declared outer length and verifies its checksum before
+  interpreting those bytes. It never promotes an embedded payload frame during
+  an idle read. An incomplete fragment expires after 30 seconds and is discarded
+  in full, with an `assembly_timeout` packet-quality event. A damaged length can
+  therefore lose buffered successors until the fragment completes or expires;
+  this conservative tradeoff prevents ambiguous data from becoming device state.
+
+These operations reconnect the TCP stream only. They do not reboot EW11 hardware
+or restart Home Assistant. An automated hardware reboot needs a documented
+interface verified for the installed EW11 model and firmware. No guessed web
+endpoint, Telnet command or extra reboot packet is used.
 
 See [device health alerts](device-alerts.md) for thresholds, exclusions, and
 manual restart guidance. The previous `recovery_power_switch` option no longer
@@ -47,6 +78,9 @@ No additional diagnostic entities are created. Controlled entities expose
 an unresolved channel failure keeps its endpoint unresponsive even when sibling
 channels report states. An HA persistent notification also identifies the
 diagnostic surface to inspect. A receiving link must not hide that failure.
+Connection diagnostics also report the current reconnect delay, consecutive
+connection failures, failed response requests since valid receive, and the
+evidence used to distinguish silence from a transport fault.
 
 Local tests include real loopback TCP exchanges with a simulated wallpad. These
 do not replace a controlled real-EW11 smoke test before a production release.

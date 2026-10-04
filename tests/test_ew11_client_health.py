@@ -289,6 +289,15 @@ async def _assert_health_change_notifications_without_rx_frames(monkeypatch):
         on_frame=on_frame,
     )
     client.set_health_listener(on_health_change)
+    # Silence alone is no longer a fault; exhausted expected responses are.
+    original_mark_connected = client._mark_connected
+
+    def connected_with_failed_queries():
+        original_mark_connected()
+        for _ in range(3):
+            client.record_response_timeout()
+
+    monkeypatch.setattr(client, "_mark_connected", connected_with_failed_queries)
 
     await client.start()
     try:
@@ -621,6 +630,14 @@ async def _assert_connection_closes_when_rx_reconnect_threshold_is_exceeded(monk
         codec=protocol.Ksx4506Codec(),
         on_frame=on_frame,
     )
+    original_mark_connected = client._mark_connected
+
+    def connected_with_failed_queries():
+        original_mark_connected()
+        for _ in range(3):
+            client.record_response_timeout()
+
+    monkeypatch.setattr(client, "_mark_connected", connected_with_failed_queries)
 
     await client.start()
     try:

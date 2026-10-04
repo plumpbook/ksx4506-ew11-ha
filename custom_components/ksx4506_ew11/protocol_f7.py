@@ -19,6 +19,7 @@ class F7CodecHost(Protocol):
 
     def _next_header_pos(self, start: int = 1) -> int: ...
 
+
     def _parse_buffer_head(self) -> KsFrame | None: ...
 
     def _valid_embedded_f7_pos(self, limit: int) -> int: ...
@@ -79,19 +80,6 @@ def parse_f7_frame(codec: F7CodecHost) -> KsFrame | None:
         return None
 
     if len(codec._buf) < total:
-        n = codec._next_header_pos(1)
-        if n > 0:
-            if codec._packet_quality is not None:
-                codec._packet_quality.record_f7_resync(
-                    reason="incomplete_before_next_header",
-                    frame_raw=bytes(codec._buf[:n]),
-                    dev_id=dev_id,
-                    sub_id=sub_id,
-                    cmd=cmd,
-                    length=length,
-                )
-            del codec._buf[:n]
-            return codec._parse_buffer_head()
         return None
 
     frame_raw = bytes(codec._buf[:total])

@@ -15,6 +15,7 @@ from .protocol import Ksx4506Codec, KsFrame
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_RX_STALE_AFTER: Final = 20.0
 DEFAULT_RX_RECONNECT_AFTER: Final = 120.0
+MAX_RECONNECT_BACKOFF: Final = 60.0
 MAX_COMMAND_QUEUE_SIZE: Final = 64
 
 
@@ -55,6 +56,13 @@ class Ew11Client:
         self._worker_task: asyncio.Task[None] | None = None
         self._connected_event = asyncio.Event()
         self._running = False
+        self._lifecycle_lock = asyncio.Lock()
+        self._stop_generation = 0
+        self._reconnect_delay = 0.0
+        self._connection_failures = 0
+        self._unvalidated_rx = False
+        self._assembly_expired = False
+        self._response_failures = 0
         self._connected = False
         self._connected_at: datetime | None = None
         self._connected_monotonic: float | None = None
@@ -88,6 +96,12 @@ class Ew11Client:
         self._health_listener = listener
 
     async def start(self) -> None:
+        generation = self._stop_generation
+        async with self._lifecycle_lock:
+            if generation == self._stop_generation:
+                self._start_locked()
+
+    def _start_locked(self) -> None:
         if self._running:
             return
         self._running = True
@@ -96,7 +110,13 @@ class Ew11Client:
         self._worker_task = asyncio.create_task(self._command_worker())
 
     async def stop(self) -> None:
+        self._stop_generation += 1
+        async with self._lifecycle_lock:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
         self._running = False
+        self._reconnect_delay = 0.0
 
         tasks = [task for task in (self._task, self._worker_task) if task is not None]
 
@@ -138,6 +158,15 @@ class Ew11Client:
             "retry": self._retry,
             "rx_stale_after": self._rx_stale_after,
             "rx_reconnect_after": self._rx_reconnect_after,
+            "reconnect_delay_seconds": self._reconnect_delay,
+            "consecutive_connection_failures": self._connection_failures,
+            "response_failures_since_rx": self._response_failures,
+            "rx_fault_evidence": (
+                "assembly_timeout" if self._assembly_expired
+                else "unvalidated_bytes" if self._unvalidated_rx
+                else "response_timeouts" if self._response_failures >= 3
+                else "none"
+            ),
             "last_connect_at": _isoformat_or_none(self._connected_at),
             "last_rx_at": _isoformat_or_none(self._last_rx_at),
             "seconds_since_last_rx": seconds_since_last_rx,
@@ -219,7 +248,6 @@ class Ew11Client:
                     raise TimeoutError(
                         f"EW11 connect timed out after {self._timeout:.1f}s"
                     ) from exc
-                backoff = 1
                 self._codec.reset_stream()
                 self._mark_connected()
                 _LOGGER.info("EW11 connected")
@@ -231,6 +259,7 @@ class Ew11Client:
                             reader.read(1024), timeout=self._timeout
                         )
                     except (asyncio.TimeoutError, TimeoutError):
+                        self._expire_partial_frame()
                         self._publish_health_change()
                         if self._should_reconnect_for_rx_silence():
                             silence = self._rx_silence_seconds()
@@ -241,28 +270,59 @@ class Ew11Client:
                         raise ConnectionError("EW11 connection closed")
 
                     _LOGGER.debug("EW11 RX chunk len=%d", len(data))
+                    self._expire_partial_frame()
                     frames = self._codec.feed(data)
-                    if frames:
-                        self._mark_rx()
-                    for frame in frames:
-                        await self._on_frame(frame)
+                    if not frames and not self._codec.has_pending_frame:
+                        self._unvalidated_rx = True
+                    await self._dispatch_frames(frames)
                     self._publish_health_change()
                     if self._should_reconnect_for_rx_silence():
                         raise ConnectionError("EW11 received no valid frames before RX deadline")
 
             except Exception as exc:  # noqa: BROAD_EXCEPT_OK
+                if (
+                    self._connected_monotonic is not None
+                    and self._last_rx_monotonic is not None
+                    and time.monotonic() - self._connected_monotonic
+                    >= DEFAULT_RX_RECONNECT_AFTER
+                ):
+                    backoff = 1
+                    self._connection_failures = 0
                 reason = repr(exc)
                 self._last_error = reason
+                self._connection_failures += 1
+                self._reconnect_delay = float(backoff)
                 _LOGGER.warning("EW11 loop error (%s:%s): %r", self._host, self._port, exc)
                 await self._close(reason=reason, count_disconnect=True)
                 await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 15)
+                self._reconnect_delay = 0.0
+                backoff = min(backoff * 2, MAX_RECONNECT_BACKOFF)
+
+    async def _dispatch_frames(self, frames: list[KsFrame]) -> None:
+        if frames:
+            self._mark_rx()
+        for frame in frames:
+            await self._on_frame(frame)
+
+    def _expire_partial_frame(self) -> None:
+        if self._codec.expire_partial_frame():
+            self._unvalidated_rx = True
+            self._assembly_expired = True
 
     async def async_reconnect(self) -> None:
         """Discard old queued writes and parser fragments before a new connection."""
-        await self.stop()
-        self._codec.reset_stream()
-        await self.start()
+        generation = self._stop_generation
+        async with self._lifecycle_lock:
+            if not self._running or generation != self._stop_generation:
+                return
+            await self._stop_locked()
+            self._codec.reset_stream()
+            if generation == self._stop_generation:
+                self._start_locked()
+
+    def record_response_timeout(self) -> None:
+        """Record an exhausted response request, never a one-way command."""
+        self._response_failures += 1
 
     async def _close(
         self,
@@ -418,12 +478,18 @@ class Ew11Client:
         self._connected_at = datetime.now(timezone.utc)
         self._connected_monotonic = time.monotonic()
         self._last_rx_monotonic = None
+        self._unvalidated_rx = False
+        self._assembly_expired = False
+        self._response_failures = 0
         self._last_error = None
         self._publish_health_change()
 
     def _mark_rx(self) -> None:
         self._last_rx_at = datetime.now(timezone.utc)
         self._last_rx_monotonic = time.monotonic()
+        self._unvalidated_rx = False
+        self._assembly_expired = False
+        self._response_failures = 0
         self._publish_health_change()
 
     def _is_rx_stale(self) -> bool:
@@ -432,7 +498,12 @@ class Ew11Client:
 
     def _should_reconnect_for_rx_silence(self) -> bool:
         silence = self._rx_silence_seconds()
-        return silence is not None and silence >= self._rx_reconnect_after
+        return (
+            silence is not None
+            and silence >= self._rx_reconnect_after
+            and (self._unvalidated_rx or self._response_failures >= 3)
+            and (not self._codec.has_pending_frame or self._assembly_expired)
+        )
 
     def _rx_silence_seconds(self) -> float | None:
         if self._last_rx_monotonic is not None:

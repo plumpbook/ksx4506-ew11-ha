@@ -31,7 +31,7 @@ def test_short_burst_must_not_register_devices():
     assert guard.report()[0]["action"] == "review_required"
 
 
-def test_direct_device_needs_time_and_two_matching_probes():
+def test_direct_device_needs_user_approval_even_after_two_matching_probes():
     # Given
     clock, guard, registry = make_registry()
     def observe():
@@ -45,10 +45,15 @@ def test_direct_device_needs_time_and_two_matching_probes():
     # When
     clock.value += 300
     changes = observe()
+    assert changes == []
+    assert registry.devices == {}
+    assert guard.report()[0]["action"] == "review_required"
+    assert guard.review("0E/11", True)
+    changes = observe()
     # Then
     assert [(d.key, new) for d, new in changes] == [("0E11_light_1", True)]
     assert not guard.pending
-    assert guard.evidence.events[-1].action == "admitted_by_probe"
+    assert guard.evidence.events[-1].action == "admitted_by_user"
 
 
 def test_time_and_passive_repetition_alone_cannot_admit():

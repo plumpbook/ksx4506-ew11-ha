@@ -19,18 +19,19 @@ class StxCodecHost(Protocol):
 
     def _next_header_pos(self, start: int = 1) -> int: ...
 
+
     def _parse_buffer_head(self) -> KsFrame | None: ...
 
     def calc_checksum(self, values: Iterable[int]) -> int: ...
 
 
 def parse_stx_frame(codec: StxCodecHost) -> KsFrame | None:
-    if len(codec._buf) < 7:
+    if len(codec._buf) < 6:
         return None
 
     length = codec._buf[3]
     total = 1 + 1 + 1 + 1 + length + 1 + 1
-    if total < 7 or total > 512:
+    if total < 6 or total > 512:
         n = codec._next_header_pos(1)
         if n > 0:
             if codec._packet_quality is not None:
@@ -53,18 +54,6 @@ def parse_stx_frame(codec: StxCodecHost) -> KsFrame | None:
         return None
 
     if len(codec._buf) < total:
-        n = codec._next_header_pos(1)
-        if n > 0:
-            if codec._packet_quality is not None:
-                codec._packet_quality.record_stx_resync(
-                    reason="incomplete_before_next_header",
-                    frame_raw=bytes(codec._buf[:n]),
-                    addr=codec._buf[1] if len(codec._buf) > 1 else None,
-                    cmd=codec._buf[2] if len(codec._buf) > 2 else None,
-                    length=length,
-                )
-            del codec._buf[:n]
-            return codec._parse_buffer_head()
         return None
 
     frame_raw = bytes(codec._buf[:total])

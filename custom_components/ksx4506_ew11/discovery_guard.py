@@ -89,11 +89,8 @@ class DiscoveryGuard:
         if spaced:
             self.record(observation, "candidate_observed")
         stable = candidate.count >= MIN_OBSERVATIONS and now - candidate.first >= MIN_SPAN
-        verified = candidate.approved or (observation.automatic and candidate.probes >= 2)
-        fresh_probe = candidate.last_probe is not None and now - candidate.last_probe <= MIN_SPAN
-        if (stable and verified and self.verification_enabled and self.link_healthy()
-                and (candidate.approved or fresh_probe)):
-            self.record(observation, "admitted_by_user" if candidate.approved else "admitted_by_probe")
+        if (stable and candidate.approved and self.verification_enabled and self.link_healthy()):
+            self.record(observation, "admitted_by_user")
             self.pending.pop(endpoint)
             return True
         return False
@@ -165,5 +162,5 @@ class DiscoveryGuard:
         return [CandidateRow(endpoint=key, keys=list(c.observation.keys),
                              observations=c.count, successful_probes=c.probes,
                              first_seen=c.first, last_seen=c.last,
-                             action="verification_pending" if c.observation.automatic else "review_required")
+                             action="review_required")
                 for key, c in sorted(self.pending.items())]

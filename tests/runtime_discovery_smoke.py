@@ -93,6 +93,13 @@ async def main() -> None:
             clock[0] += 60
             await coordinator.async_request_f7_state_until(14, 19, max_attempts=1)
             await hass.async_block_till_done()
+            assert not added
+            await hass.services.async_call(DOMAIN, "review_discovery", {
+                "entry_id": entry.entry_id, "endpoint": "0E/13", "approve": True,
+            }, blocking=True)
+            await runtime.async_tick()
+            await coordinator.async_request_f7_state_until(14, 19, max_attempts=1)
+            await hass.async_block_till_done()
             assert added == ["0E13_light_1"], added
             # The grouped response remains untrusted even while other devices work.
             assert "0E4F_light_1" not in coordinator.registry.devices
@@ -133,7 +140,7 @@ async def main() -> None:
             reloaded = hass.data[DATA_KEY][entry.entry_id]
             assert not reloaded.guard.pending
             assert "0E/4F" in reloaded.guard.blocked_until
-            assert any(e.action == "admitted_by_probe" for e in reloaded.guard.evidence.events)
+            assert any(e.action == "admitted_by_user" for e in reloaded.guard.evidence.events)
             assert any(e.raw_hex for e in reloaded.guard.evidence.events)
             start_discovery(hass, entry)
             assert reloaded.task is not None

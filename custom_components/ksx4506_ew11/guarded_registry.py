@@ -1,6 +1,7 @@
 """Apply admission at the HA boundary, leaving protocol decoding independent."""
 from .discovery import DeviceRegistry, DeviceState
 from .discovery_guard import DiscoveryGuard, Observation
+from .response_validation import valid_response_payload
 
 
 class GuardedRegistry(DeviceRegistry):
@@ -22,11 +23,19 @@ class GuardedRegistry(DeviceRegistry):
                      if z["channel"] not in before_zones.get(d.key, set())}
         endpoint = f"{addr:02X}/{sub_id:02X}"
         status = cmd == (0x82 if addr == 0x40 else 0x81)
+        valid_evidence = valid_response_payload(addr, cmd, payload)
         # Group-only replies do not independently identify physical channels.
         automatic = status and sub_id & 0x0F != 0x0F
         observation = Observation(endpoint, tuple(sorted(new_keys | new_zones)), raw_hex, automatic)
         if changes and (new_keys or new_zones or status):
-            admitted = self.guard.observe(observation)
+            if valid_evidence:
+                admitted = self.guard.observe(observation)
+            else:
+                admitted = False
+                if new_keys or new_zones:
+                    self.guard.record(observation, "invalid_candidate_payload")
+                    self.record_unsupported_packet("invalid_candidate_payload", addr, sub_id,
+                                                   cmd, payload, raw_hex)
             if not admitted:
                 for key in new_keys:
                     self.devices.pop(key, None)

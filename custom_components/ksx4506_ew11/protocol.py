@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import logging
+import time
 
 from .frame import Frame
 from .packet_quality import PacketQualityMonitor
@@ -19,7 +20,7 @@ class Ksx4506Codec:
 
     Supports two framing styles seen in the field:
     1) STX/ETX + addr/cmd/len/payload/checksum
-    2) legacy F7-stream (frame starts with 0xF7, next 0xF7 starts next frame)
+    2) F7 + device/sub-address/command/length/payload/XOR/additive checksum
     """
 
     def __init__(
@@ -28,19 +29,29 @@ class Ksx4506Codec:
         etx: int = 0x03,
         checksum_mode: str = "sum8",
         packet_quality: PacketQualityMonitor | None = None,
+        frame_assembly_timeout: float = 30.0,
     ) -> None:
         self._stx: int = stx
         self._etx: int = etx
         self._checksum_mode: str = checksum_mode
         self._packet_quality: PacketQualityMonitor | None = packet_quality
         self._buf: bytearray = bytearray()
+        self._fragment_started: float | None = None
+        self._frame_assembly_timeout = max(frame_assembly_timeout, 30.0)
         self._f7_logger = F7PacketLogger()
 
     def reset_stream(self) -> None:
         """Drop partial bytes when the TCP stream changes, preserving counters."""
         self._buf.clear()
+        self._fragment_started = None
+
+    @property
+    def has_pending_frame(self) -> bool:
+        """Bytes still awaiting outer length/checksum are not rejected input."""
+        return bool(self._buf)
 
     def feed(self, data: bytes) -> list[KsFrame]:
+        self.expire_partial_frame()
         self._buf.extend(data)
         _LOGGER.debug("codec.feed bytes=%d", len(data))
         out: list[KsFrame] = []
@@ -62,6 +73,7 @@ class Ksx4506Codec:
                 break
 
             head = self._buf[0]
+            buffered = len(self._buf)
             if head == self._stx:
                 frame = self._parse_stx_frame()
             elif head == 0xF7:
@@ -71,13 +83,35 @@ class Ksx4506Codec:
                 continue
 
             if frame is None:
-                if self._buf and self._buf[0] in (self._stx, 0xF7):
+                if len(self._buf) == buffered:
                     break
                 continue
 
             out.append(frame)
+            self._fragment_started = None
 
+        if self._buf and self._fragment_started is None:
+            self._fragment_started = time.monotonic()
+        elif not self._buf:
+            self._fragment_started = None
         return out
+
+    def expire_partial_frame(self) -> bool:
+        """Discard an expired fragment wholesale; payload is never a reply."""
+        if (
+            self._fragment_started is None
+            or time.monotonic() - self._fragment_started < self._frame_assembly_timeout
+        ):
+            return False
+        if self._packet_quality is not None and self._buf:
+            record = (
+                self._packet_quality.record_f7_frame_error
+                if self._buf[0] == 0xF7
+                else self._packet_quality.record_stx_frame_error
+            )
+            record(reason="assembly_timeout", frame_raw=bytes(self._buf))
+        self.reset_stream()
+        return True
 
     def _find_header(self, header: int) -> int:
         try:
