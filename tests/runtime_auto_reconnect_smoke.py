@@ -14,6 +14,7 @@ from custom_components.ksx4506_ew11.const import DOMAIN
 from custom_components.ksx4506_ew11.coordinator import Ksx4506Coordinator
 from custom_components.ksx4506_ew11.device_alerts import DeviceAlerts
 from custom_components.ksx4506_ew11.diagnostic_sensors import KsxEw11LinkSensor
+from custom_components.ksx4506_ew11.recovery import CommandStatus
 
 
 async def main() -> None:
@@ -75,7 +76,10 @@ async def main() -> None:
                 await alerts.async_tick()
                 coordinator._client.async_reconnect.assert_awaited_once()
                 assert sensor.extra_state_attributes["auto_reconnect_state"] == "awaiting_confirmed_responses"
+                assert sensor.extra_state_attributes["fault_category"] == "shared_response_outage"
                 notification = pn._async_get_or_create_notifications(hass)[coordinator.recovery_notification_id]
+                assert notification["title"] == "여러 주소 응답 점검 필요"
+                assert "공통 중단" in notification["message"]
                 assert "소켓 재연결을 1회 요청" in notification["message"]
                 await alerts.async_save()
                 reloaded = DeviceAlerts(coordinator, entry.entry_id)
@@ -93,9 +97,27 @@ async def main() -> None:
                 clock[0] = 2002
                 await reloaded.async_tick()
                 assert sensor.extra_state_attributes["auto_reconnect_state"] == "last_attempt_verified"
+                for stamp in (2032, 2062):
+                    clock[0] = stamp
+                    await reloaded.async_tick()
+                assert sensor.extra_state_attributes["fault_category"] == "endpoint_no_response"
+                assert sensor.extra_state_attributes["fault_peer_confirmed"] is True
+                assert "다른 주소 응답 확인" in pn._async_get_or_create_notifications(hass)[
+                    coordinator.recovery_notification_id]["message"]
                 assert sensor.extra_state_attributes["auto_reconnect_verified_at"] == (
                     datetime.fromtimestamp(2002, timezone.utc).isoformat()
                 )
+                responses["0x60/0x01"] = 2063
+                clock[0] = 2063
+                await reloaded.async_tick()
+                coordinator.recovery.status["0x0E/0x11"] = CommandStatus(
+                    (0x0E, 0x11), lambda frame: False,
+                    state="failed", reason="state_not_confirmed",
+                )
+                await reloaded.async_tick()
+                assert sensor.extra_state_attributes["fault_category"] == "control_unconfirmed"
+                assert pn._async_get_or_create_notifications(hass)[
+                    coordinator.recovery_notification_id]["title"] == "제어 결과 점검 필요 · 1개 기기"
                 coordinator._power_cycle.assert_not_awaited()
             print("real HA auto reconnect: complete outage, busy guard, one socket reset, "
                   "reload lockout, two-response verification, no power cycle: passed")

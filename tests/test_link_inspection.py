@@ -115,6 +115,8 @@ def test_request_traffic_does_not_hide_complete_confirmed_response_outage():
     )
     assert report["inspection_needed"]
     assert report["inspection_reason"] == "multiple_endpoints_no_response"
+    assert "월패드·RS485 경로" in report["inspection_summary"]
+    assert "원인을 확정" in report["manual_restart_consideration"]
 
 
 @pytest.mark.parametrize("fault", ["connect", "rx_recovery"])

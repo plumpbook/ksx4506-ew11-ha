@@ -38,6 +38,13 @@ cleared until two distinct device addresses produce valid state responses after
 the attempt. Partial device failures never trigger it. No wallpad or EW11 power
 cycle is performed.
 
+The EW11 Link sensor and the notification label TCP disconnection, multiple
+address response loss, individual address response loss, and unconfirmed control
+results separately. These labels describe observed evidence, not the failed
+physical component. A partial response failure never requests a hub-wide socket
+reconnect. See [device health alerts](device-alerts.md) for the displayed
+categories and peer-response evidence.
+
 After three missed probes, the watchdog checks a failed endpoint at most once
 every five minutes. The existing EW11 Link sensor exposes the incident start,
 attempt and response-verification timestamps. Request traffic alone does not

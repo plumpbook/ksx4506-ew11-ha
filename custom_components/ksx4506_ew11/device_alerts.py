@@ -15,7 +15,7 @@ from homeassistant.helpers.storage import Store
 from .alert_policy import AlertPolicy, Endpoint
 from .auto_reconnect import AutoReconnectPolicy
 from .const import DOMAIN
-from .ew11_health import LinkInspectionPolicy, ew11_health_report_from_coordinator
+from .ew11_health import LinkInspectionPolicy, classify_faults, ew11_health_report_from_coordinator
 
 if TYPE_CHECKING:
     from .coordinator import Ksx4506Coordinator
@@ -54,6 +54,7 @@ class DeviceAlerts:
         self._link_notice_after = 0.0
         self.auto_action_result: str | None = None
         self._announced_auto_attempt_at: str | None = None
+        self._announced_fault_category: str | None = None
 
     async def async_load(self) -> None:
         saved = await self.store.async_load()
@@ -62,6 +63,11 @@ class DeviceAlerts:
             self.previous = saved.get("problems", {})
             self.controls = set(saved.get("controls", []))
             self.link_problem = saved.get("link_problem")
+            self._announced_fault_category = (
+                "tcp_disconnected" if self.link_problem == "repeated_transport_failure"
+                else "shared_response_outage" if self.link_problem == "multiple_endpoints_no_response"
+                else None
+            )
             self.last_link_notice_at = saved.get("last_link_notice_at", 0.0)
             self.auto_reconnect = AutoReconnectPolicy(
                 incident_started_at=saved.get("auto_incident_started_at"),
@@ -210,14 +216,20 @@ class DeviceAlerts:
                 else:
                     self.auto_action_result = "socket_reconnect_requested"
                     _LOGGER.warning("EW11 automatic socket reconnect requested after complete response outage")
+        health = ew11_health_report_from_coordinator(self.coordinator)
         inspection = self.inspection.evaluate(
-            ew11_health_report_from_coordinator(self.coordinator), now=monotonic(),
+            health, now=monotonic(),
             failed_endpoints=len(failed), known_endpoints=len(known_queryable),
             responsive_endpoints=sum(
                 last >= now - 180 for _, last in known_queryable
             ),
         )
         inspection.update(self.auto_reconnect.attributes())
+        inspection.update(classify_faults(
+            health, known_endpoints=known_queryable, failed_endpoints=failed,
+            control_failures=len(self.controls), now=now,
+            inspection_state=inspection["inspection_state"],
+        ))
         inspection["auto_reconnect_action_result"] = self.auto_action_result
         self.coordinator.link_inspection = inspection
         self._notify(problems, labels, inspection)
@@ -238,14 +250,20 @@ class DeviceAlerts:
         inspection = inspection or {}
         inspection_needed = bool(inspection.get("inspection_needed"))
         auto_attempt_at = inspection.get("auto_reconnect_attempted_at")
+        fault_category = inspection.get("fault_category")
         link_problem = inspection.get("inspection_reason") if inspection.get("inspection_needed") else None
         # Startup grace is not evidence that an old incident has recovered.
         if inspection.get("inspection_state") == "starting":
             link_problem = self.link_problem
             if not problems and problems == self.previous:
                 return
+        if (not problems and link_problem is None and not self.previous
+                and self.link_problem is None and auto_attempt_at is None
+                and self._announced_auto_attempt_at is None):
+            return
         if (problems == self.previous and link_problem == self.link_problem
                 and inspection_needed == self._announced_inspection_needed
+                and fault_category == self._announced_fault_category
                 and auto_attempt_at == self._announced_auto_attempt_at) and (
             self.announced or not (problems or link_problem)
         ):
@@ -262,6 +280,11 @@ class DeviceAlerts:
         recovered = [labels[key] for key in sorted(removed) if key in labels]
         excluded = len(removed - labels.keys())
         lines = [f"- {text}" for _, text in sorted(problems.items())]
+        if (problems or link_problem) and inspection.get("fault_summary"):
+            lines = [f"관측 분류: {inspection['fault_summary']}", "", *lines]
+            if ("control_unconfirmed" in inspection.get("fault_categories", [])
+                    and fault_category != "control_unconfirmed"):
+                lines += [f"별도 제어 결과 미확인: {inspection['control_failure_count']}개"]
         if link_problem:
             if inspection.get("inspection_needed"):
                 lines += ["", inspection["inspection_summary"],
@@ -292,10 +315,20 @@ class DeviceAlerts:
             lines += ["", "현재 감시 대상에 남은 감지 장애가 없습니다. "
                       "실제 기기 동작 성공을 보증하는 것은 아닙니다."]
         lines += ["", f"[EW11 기기 확인](/config/integrations/integration/{DOMAIN})"]
+        title = (f"EW11 확인 필요 · {len(problems)}개 기기" if problems
+                 else "EW11 감시 상태 갱신")
+        if link_problem and inspection_needed:
+            title = "EW11·네트워크 점검 필요"
+        if fault_category == "tcp_disconnected" and (problems or link_problem):
+            title = "EW11·네트워크 점검 필요"
+        elif fault_category == "shared_response_outage" and (problems or link_problem):
+            title = "여러 주소 응답 점검 필요"
+        elif fault_category == "endpoint_no_response" and problems:
+            title = f"기기 응답 점검 필요 · {len(problems)}개 기기"
+        elif fault_category == "control_unconfirmed" and problems:
+            title = f"제어 결과 점검 필요 · {len(problems)}개 기기"
         persistent_notification.async_create(
-            self.hass, "\n".join(lines),
-            title=("EW11·네트워크 점검 필요" if link_problem and inspection_needed else
-                   f"EW11 확인 필요 · {len(problems)}개 기기" if problems else "EW11 감시 상태 갱신"),
+            self.hass, "\n".join(lines), title=title,
             notification_id=self.coordinator.recovery_notification_id,
         )
         self.previous = problems.copy()
@@ -306,3 +339,4 @@ class DeviceAlerts:
         self.announced = True
         self._announced_inspection_needed = inspection_needed
         self._announced_auto_attempt_at = auto_attempt_at
+        self._announced_fault_category = fault_category

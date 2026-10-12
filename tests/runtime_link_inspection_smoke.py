@@ -157,6 +157,7 @@ async def lifecycle_case() -> None:
                  patch("asyncio.open_connection", AsyncMock(side_effect=AssertionError("network forbidden"))) as connection:
                 await coordinator.async_start()
                 assert sensor.extra_state_attributes["inspection_state"] == "starting"
+                assert sensor.extra_state_attributes["fault_category"] == "starting"
                 assert not sensor.extra_state_attributes["inspection_needed"]
                 await asyncio.sleep(0)
                 alerts = DeviceAlerts(coordinator, entry.entry_id)
@@ -177,6 +178,7 @@ async def lifecycle_case() -> None:
                 stopped = sensor.extra_state_attributes
                 assert not stopped["running"] and not stopped["inspection_needed"]
                 assert stopped["inspection_state"] == "stopped"
+                assert stopped["fault_category"] == "monitoring_stopped"
                 assert "복구 판정 아님" in stopped["inspection_summary"]
                 assert stopped["manual_restart_consideration"] is None
                 assert coordinator.recovery_notification_id not in notifications

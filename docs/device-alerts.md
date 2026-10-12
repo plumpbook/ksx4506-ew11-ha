@@ -58,11 +58,26 @@ live power cycle. Keep real-device interruptions separately approved.
 ## Shared communication inspection
 
 The existing **EW11 Link** entity keeps its unique ID and transport state values.
-Its attributes add `inspection_state`, `inspection_needed`, `inspection_summary`,
-the reason, failure duration, recovery attempts and failed endpoint count. The
-same per-entry HA notification displays "통신 복구 안 됨 · EW11·네트워크 점검 필요".
-It gives manual EW11 restart guidance after checking power, network, cabling and
-RS-485. It cannot establish that an EW11 hardware reboot is required.
+Its attributes include `inspection_state`, `inspection_needed`,
+`inspection_summary`, the reason, failure duration and recovery attempts.
+`fault_category`, `fault_categories`, `fault_summary`, failed/known endpoint
+counts and control-failure count distinguish observed symptoms:
+
+- `tcp_disconnected`: the TCP connection is down; inspect EW11 and network path.
+- `shared_response_outage`: three or more known queryable endpoints spanning at
+  least two device addresses all missed confirmed state probes. EW11 serial,
+  wallpad and RS485 remain possible causes; this is not an EW11 failure verdict.
+- `endpoint_no_response`: one or more addresses missed confirmed state probes.
+  `fault_peer_confirmed` is true only when a different address produced a valid
+  response within three minutes. Otherwise a shared cause remains unexcluded.
+- `control_unconfirmed`: the requested control result was not observed. It may
+  coexist with a connection or response problem and does not prove the physical
+  output state.
+
+The same HA notification uses the observed category in its title and summary.
+Starting and stopped monitors have separate categories; a normal diagnostic
+state is not proof that a physical output moved. Classification does not change
+the conservative socket-reconnect trigger or restart hardware automatically.
 
 Receive-age decisions use `seconds_since_valid_rx`, a monotonic elapsed time
 across TCP connections. Reconnection alone never restarts that receive clock.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 
@@ -50,7 +51,9 @@ class LinkInspectionPolicy:
             "inspection_needed": needed,
             "inspection_reason": reason,
             "inspection_summary": (
-                "통신 복구 안 됨 · EW11·네트워크 점검 필요" if needed
+                "TCP 복구 안 됨 · EW11·네트워크 점검 필요"
+                if needed and reason == "repeated_transport_failure"
+                else "여러 주소 응답 없음 · EW11 직렬측·월패드·RS485 경로 점검 필요" if needed
                 else "감시 중지" if not running
                 else "시작 후 통신 확인 중" if state == "starting"
                 else "공유 통신 장애 판정 조건에 해당하지 않음"
@@ -62,6 +65,9 @@ class LinkInspectionPolicy:
             "manual_restart_consideration": (
                 "EW11 전원·케이블·네트워크와 RS-485 배선을 확인한 뒤에도 "
                 "장애가 계속되면 EW11 재부팅을 검토하세요. 원인은 확정되지 않았습니다."
+                if needed and reason == "repeated_transport_failure"
+                else "EW11 직렬측·월패드·RS485 배선과 해당 기기를 확인하세요. "
+                     "TCP 재연결만으로 원인을 확정하거나 복구를 보장할 수 없습니다."
                 if needed else None
             ),
         }
@@ -69,6 +75,7 @@ class LinkInspectionPolicy:
 
 def inspection_monitoring_report(state: str) -> dict[str, Any]:
     """Lifecycle status is independent of the saved unresolved incident journal."""
+    fault_category = "monitoring_stopped" if state == "stopped" else "starting"
     return {
         "inspection_state": state,
         "inspection_needed": False,
@@ -79,6 +86,68 @@ def inspection_monitoring_report(state: str) -> dict[str, Any]:
         "inspection_failed_endpoints": 0,
         "inspection_recent_valid_rx": False,
         "manual_restart_consideration": None,
+        "fault_category": fault_category,
+        "fault_categories": [fault_category],
+        "fault_summary": "감시 중지 · 복구 판정 아님" if state == "stopped" else "시작 후 통신 확인 중",
+        "fault_peer_confirmed": False,
+        "failed_endpoint_count": 0,
+        "known_endpoint_count": 0,
+        "control_failure_count": 0,
+    }
+
+
+def classify_faults(
+    health: dict[str, Any], *, known_endpoints: Iterable[tuple[str, float]],
+    failed_endpoints: set[str], control_failures: int, now: float,
+    inspection_state: str,
+) -> dict[str, Any]:
+    known = dict(known_endpoints)
+    failed = failed_endpoints & known.keys()
+    failed_addresses = {key.split("/")[0] for key in failed}
+    peer_confirmed = bool(failed) and any(
+        key not in failed and key.split("/")[0] not in failed_addresses
+        and 0 <= now - last < 180
+        for key, last in known.items()
+    )
+    categories: list[str] = []
+    if not health.get("running"):
+        categories.append("monitoring_stopped")
+    elif inspection_state == "starting":
+        categories.append("starting")
+    elif health.get("connected") is False:
+        categories.append("tcp_disconnected")
+    elif (len(known) >= 3 and len({key.split("/")[0] for key in known}) >= 2
+          and failed == known.keys()):
+        categories.append("shared_response_outage")
+    elif failed:
+        categories.append("endpoint_no_response")
+    if control_failures and categories != ["monitoring_stopped"]:
+        if categories == ["starting"]:
+            categories.clear()
+        categories.append("control_unconfirmed")
+    if not categories:
+        categories.append("none")
+    primary = categories[0]
+    summaries = {
+        "monitoring_stopped": "감시 중지 · 복구 판정 아님",
+        "starting": "시작 후 통신 확인 중",
+        "tcp_disconnected": "EW11 TCP 연결 끊김 · EW11·네트워크 경로 확인 필요",
+        "shared_response_outage": "여러 주소의 상태 응답 공통 중단 · EW11 직렬측·월패드·RS485 원인 미확정",
+        "endpoint_no_response": (
+            "일부 주소 상태 응답 없음 · 다른 주소 응답 확인" if peer_confirmed
+            else "주소별 상태 응답 없음 · 공통 장애 여부 미확정"
+        ),
+        "control_unconfirmed": "요청한 제어 결과 미확인 · 상태 응답과 실제 동작은 별도 확인 필요",
+        "none": "감지된 통신·제어 장애 없음 · 실제 동작 보증 아님",
+    }
+    return {
+        "fault_category": primary,
+        "fault_categories": categories,
+        "fault_summary": summaries[primary],
+        "fault_peer_confirmed": peer_confirmed,
+        "failed_endpoint_count": len(failed),
+        "known_endpoint_count": len(known),
+        "control_failure_count": control_failures,
     }
 
 
