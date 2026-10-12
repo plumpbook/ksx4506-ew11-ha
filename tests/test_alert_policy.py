@@ -32,6 +32,17 @@ def test_multiple_kinds_require_three_probes_and_recover_independently():
     assert {a.endpoint for a in result.alerts} == {"fan", "climate", "switch"}
 
 
+def test_confirmed_failure_probes_back_off_to_five_minutes():
+    module = load_integration_module("alert_policy")
+    policy = module.AlertPolicy(started=0)
+    endpoint = module.Endpoint("light", ("light",), 3, 0, True)
+    for now in (180, 210, 240):
+        assert policy.scan((endpoint,), now=now).probes == ("light",)
+        policy.record_probe("light", success=False, now=now)
+    assert policy.scan((endpoint,), now=539).probes == ()
+    assert policy.scan((endpoint,), now=540).probes == ("light",)
+
+
 def test_event_devices_and_unsupported_queries_are_not_control_failures():
     module = load_integration_module("alert_policy")
     policy = module.AlertPolicy(started=0)

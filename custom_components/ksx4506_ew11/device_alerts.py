@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio  # noqa: ANYIO_OK - HA serial transactions use its asyncio loop
 from datetime import datetime
+import logging
 import time
 from time import monotonic
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
@@ -12,11 +13,14 @@ from homeassistant.helpers import area_registry as ar, device_registry as dr, en
 from homeassistant.helpers.storage import Store
 
 from .alert_policy import AlertPolicy, Endpoint
+from .auto_reconnect import AutoReconnectPolicy
 from .const import DOMAIN
 from .ew11_health import LinkInspectionPolicy, ew11_health_report_from_coordinator
 
 if TYPE_CHECKING:
     from .coordinator import Ksx4506Coordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AlertStorage(TypedDict):
@@ -25,6 +29,10 @@ class AlertStorage(TypedDict):
     controls: NotRequired[list[str]]
     link_problem: NotRequired[str | None]
     last_link_notice_at: NotRequired[float]
+    auto_incident_started_at: NotRequired[float | None]
+    auto_attempted_at: NotRequired[float | None]
+    auto_verified_at: NotRequired[float | None]
+    auto_action_result: NotRequired[str | None]
 
 
 class DeviceAlerts:
@@ -34,6 +42,7 @@ class DeviceAlerts:
         self.entry_id = entry_id
         self.policy = AlertPolicy(started=time.time())
         self.inspection = LinkInspectionPolicy(started=monotonic())
+        self.auto_reconnect = AutoReconnectPolicy()
         self.store = Store[AlertStorage](self.hass, 1, f"{DOMAIN}.{entry_id}.device_alerts")
         self.previous: dict[str, str] = {}
         self.controls: set[str] = set()
@@ -43,6 +52,8 @@ class DeviceAlerts:
         self.link_problem: str | None = None
         self.last_link_notice_at = 0.0
         self._link_notice_after = 0.0
+        self.auto_action_result: str | None = None
+        self._announced_auto_attempt_at: str | None = None
 
     async def async_load(self) -> None:
         saved = await self.store.async_load()
@@ -52,6 +63,12 @@ class DeviceAlerts:
             self.controls = set(saved.get("controls", []))
             self.link_problem = saved.get("link_problem")
             self.last_link_notice_at = saved.get("last_link_notice_at", 0.0)
+            self.auto_reconnect = AutoReconnectPolicy(
+                incident_started_at=saved.get("auto_incident_started_at"),
+                attempted_at=saved.get("auto_attempted_at"),
+                verified_at=saved.get("auto_verified_at"),
+            )
+            self.auto_action_result = saved.get("auto_action_result")
             if self.last_link_notice_at:
                 remaining = min(300, max(0, 300 - (time.time() - self.last_link_notice_at)))
                 self._link_notice_after = monotonic() + remaining
@@ -61,7 +78,11 @@ class DeviceAlerts:
                                      "problems": self.previous.copy(),
                                      "controls": sorted(self.controls),
                                      "link_problem": self.link_problem,
-                                     "last_link_notice_at": self.last_link_notice_at})
+                                     "last_link_notice_at": self.last_link_notice_at,
+                                     "auto_incident_started_at": self.auto_reconnect.incident_started_at,
+                                     "auto_attempted_at": self.auto_reconnect.attempted_at,
+                                     "auto_verified_at": self.auto_reconnect.verified_at,
+                                     "auto_action_result": self.auto_action_result})
         self.saved_at = time.time()
 
     def _labels(self) -> dict[str, str]:
@@ -114,6 +135,11 @@ class DeviceAlerts:
         previous_controls = self.controls.copy()
         previous_link = self.link_problem
         previous_notice = self.last_link_notice_at
+        previous_auto_state = (
+            self.auto_reconnect.incident_started_at,
+            self.auto_reconnect.attempted_at,
+            self.auto_reconnect.verified_at,
+        )
         labels = self._labels()
         endpoints = self._endpoints(labels)
         scan = self.policy.scan(endpoints, now=time.time())
@@ -161,14 +187,47 @@ class DeviceAlerts:
             if key in labels and (key in self.controls or key not in fresh):
                 problems.setdefault(key, text)
         self.controls.intersection_update(labels)
+        now = time.time()
+        known_queryable = tuple(
+            (endpoint.key, max(self.policy.known[endpoint.key], endpoint.last_response or 0))
+            for endpoint in endpoints
+            if endpoint.queryable and endpoint.key in self.policy.known
+        )
+        failed = {alert.endpoint for alert in scan.alerts if alert.reason == "no_response"}
+        should_reconnect = self.auto_reconnect.evaluate(
+            known_queryable, failed, now=now,
+            connected=bool(self.coordinator._client.health_report().get("connected")),
+            busy=self.coordinator._transaction_lock.locked(),
+        )
+        if should_reconnect:
+            async with self.coordinator._transaction_lock:
+                await self.async_save()
+                try:
+                    await self.coordinator._client.async_reconnect()
+                except Exception:
+                    self.auto_action_result = "socket_reconnect_failed"
+                    _LOGGER.exception("EW11 automatic socket reconnect failed")
+                else:
+                    self.auto_action_result = "socket_reconnect_requested"
+                    _LOGGER.warning("EW11 automatic socket reconnect requested after complete response outage")
         inspection = self.inspection.evaluate(
             ew11_health_report_from_coordinator(self.coordinator), now=monotonic(),
-            failed_endpoints=sum(alert.reason == "no_response" for alert in scan.alerts),
+            failed_endpoints=len(failed), known_endpoints=len(known_queryable),
+            responsive_endpoints=sum(
+                last >= now - 180 for _, last in known_queryable
+            ),
         )
+        inspection.update(self.auto_reconnect.attributes())
+        inspection["auto_reconnect_action_result"] = self.auto_action_result
         self.coordinator.link_inspection = inspection
         self._notify(problems, labels, inspection)
         if (previous != self.previous or previous_controls != self.controls
                 or previous_link != self.link_problem or previous_notice != self.last_link_notice_at
+                or previous_auto_state != (
+                    self.auto_reconnect.incident_started_at,
+                    self.auto_reconnect.attempted_at,
+                    self.auto_reconnect.verified_at,
+                )
                 or time.time() - self.saved_at >= 300):
             await self.async_save()
 
@@ -178,6 +237,7 @@ class DeviceAlerts:
     ) -> None:
         inspection = inspection or {}
         inspection_needed = bool(inspection.get("inspection_needed"))
+        auto_attempt_at = inspection.get("auto_reconnect_attempted_at")
         link_problem = inspection.get("inspection_reason") if inspection.get("inspection_needed") else None
         # Startup grace is not evidence that an old incident has recovered.
         if inspection.get("inspection_state") == "starting":
@@ -185,11 +245,14 @@ class DeviceAlerts:
             if not problems and problems == self.previous:
                 return
         if (problems == self.previous and link_problem == self.link_problem
-                and inspection_needed == self._announced_inspection_needed) and (
+                and inspection_needed == self._announced_inspection_needed
+                and auto_attempt_at == self._announced_auto_attempt_at) and (
             self.announced or not (problems or link_problem)
         ):
             return
-        if link_problem and problems == self.previous and monotonic() < self._link_notice_after:
+        if (link_problem and problems == self.previous
+                and auto_attempt_at == self._announced_auto_attempt_at
+                and monotonic() < self._link_notice_after):
             inspection["notification_cooldown_remaining_seconds"] = round(
                 self._link_notice_after - monotonic(), 1,
             )
@@ -211,16 +274,19 @@ class DeviceAlerts:
         elif link_removed:
             lines += ["", "통신 감시 중지 · 복구 판정 아님" if
                       inspection.get("inspection_state") == "stopped" else
-                      "최근 정상 패킷 수신으로 통신 점검 조건 해소" if
-                      inspection.get("inspection_recent_valid_rx") else
                       "공유 통신 점검 조건 변경 · 실제 기기 동작 재확인 필요"]
+        if auto_attempt_at is not None:
+            lines += ["", "전체 응답 중단 확인 후 EW11 소켓 재연결을 1회 요청했습니다. "
+                      "서로 다른 기기 2곳의 실제 응답을 확인하기 전까지 복구로 판정하지 않습니다."]
+            if inspection.get("auto_reconnect_action_result") == "socket_reconnect_failed":
+                lines += ["소켓 재연결 요청에 오류가 발생했습니다. EW11 연결을 확인하세요."]
         if recovered:
             lines += ["", "응답/제어 상태 재확인: " + ", ".join(recovered)]
         if excluded:
             lines += ["", f"삭제·비활성화 등으로 감시 제외: {excluded}개 (복구 판정 아님)"]
         if problems or link_problem:
             lines += ["", "전체 패킷이 수신 중이어도 개별 기기는 응답하지 않을 수 있습니다.",
-                      "자동 재시작은 하지 않았습니다. 연결과 기기 전원을 먼저 확인하세요.",
+                      "EW11·월패드의 전원을 자동으로 재시작하지는 않았습니다. 연결과 기기 전원을 확인하세요.",
                       "재시작을 직접 선택하면 연결된 모든 기기의 제어가 중단될 수 있습니다."]
         else:
             lines += ["", "현재 감시 대상에 남은 감지 장애가 없습니다. "
@@ -239,3 +305,4 @@ class DeviceAlerts:
             self._link_notice_after = monotonic() + 300
         self.announced = True
         self._announced_inspection_needed = inspection_needed
+        self._announced_auto_attempt_at = auto_attempt_at

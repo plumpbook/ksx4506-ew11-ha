@@ -70,7 +70,8 @@ async def main() -> None:
                 entity_ids[member] = entity.entity_id
 
         def response(addr: int, sub_id: int) -> None:
-            coordinator.device_vitality.observe(KsFrame(addr, 0x81, b"", 0, b"", sub_id))
+            payload = b"\x00\x00" if addr == 0x0E else b"\x00"
+            coordinator.device_vitality.observe(KsFrame(addr, 0x81, payload, 0, b"", sub_id))
 
         for addr, sub_id in {(d[1], d[2]) for d in definitions[:-1]}:
             for _ in range(3):
@@ -103,7 +104,7 @@ async def main() -> None:
                     assert "거실 · 조명3" in notification["message"]
                     assert "주방 · 주방 난방" in notification["message"]
                     assert "과거 기기" not in notification["message"]
-                    assert "자동 재시작은 하지 않았습니다" in notification["message"]
+                    assert "전원을 자동으로 재시작하지는 않았습니다" in notification["message"]
                     await watchdog.tick()
                     assert notifications[coordinator.recovery_notification_id] is notification
 

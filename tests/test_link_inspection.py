@@ -103,6 +103,20 @@ def test_receiving_link_with_residual_query_checksum_and_recovered_control_error
         assert report["manual_restart_consideration"] is None
 
 
+def test_request_traffic_does_not_hide_complete_confirmed_response_outage():
+    policy = _policy()
+    health = _health(state="receiving", seconds_since_valid_rx=0.1, connect_attempts=1)
+    assert not policy.evaluate(
+        health, now=180, failed_endpoints=3, known_endpoints=3, responsive_endpoints=0,
+    )["inspection_needed"]
+    health["connect_attempts"] = 2
+    report = policy.evaluate(
+        health, now=360, failed_endpoints=3, known_endpoints=3, responsive_endpoints=0,
+    )
+    assert report["inspection_needed"]
+    assert report["inspection_reason"] == "multiple_endpoints_no_response"
+
+
 @pytest.mark.parametrize("fault", ["connect", "rx_recovery"])
 def test_real_client_classifies_transport_evidence_without_network(monkeypatch, fault):
     async def scenario():

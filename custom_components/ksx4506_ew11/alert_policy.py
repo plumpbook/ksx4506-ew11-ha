@@ -62,7 +62,8 @@ class AlertPolicy:
             if now - last_seen < threshold:
                 continue
             if endpoint.queryable:
-                if now - self.probed_at.get(key, float("-inf")) >= 30:
+                probe_interval = 300 if self.failures.get(key, 0) >= 3 else 30
+                if now - self.probed_at.get(key, float("-inf")) >= probe_interval:
                     due.append(key)
                 if self.failures.get(key, 0) < 3:
                     continue

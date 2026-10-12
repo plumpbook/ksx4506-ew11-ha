@@ -9,7 +9,8 @@ NOW = datetime(2026, 9, 3, 0, 0, tzinfo=timezone.utc)
 
 
 def _frame(*, addr: int, sub_id: int, cmd: int):
-    return SimpleNamespace(addr=addr, sub_id=sub_id, cmd=cmd)
+    payload = b"\x00\x00" if addr == 0x0E else b"\x00"
+    return SimpleNamespace(addr=addr, sub_id=sub_id, cmd=cmd, payload=payload)
 
 
 def _device(*, key: str, addr: int, sub_id: int, status_sub_id: int | None = None):
@@ -36,6 +37,18 @@ def test_requests_do_not_count_as_device_vitality():
     assert report["devices"][0]["request_count"] == 1
     assert report["devices"][0]["response_count"] == 0
     assert report["devices"][0]["last_response_at"] is None
+
+
+def test_invalid_state_payload_cannot_confirm_device_recovery():
+    module = load_integration_module("device_vitality")
+    monitor = module.DeviceVitalityMonitor(now=lambda: NOW)
+    device = _device(key="0E11_light_1", addr=0x0E, sub_id=0x11)
+    monitor.record_probe(0x0E, 0x11, success=False)
+    frame = SimpleNamespace(addr=0x0E, sub_id=0x11, cmd=0x81, payload=b"")
+    monitor.observe(frame)
+    report = monitor.report([device])
+    assert report["devices"][0]["response_count"] == 0
+    assert report["devices"][0]["status"] == "unresponsive"
 
 
 def test_response_packets_mark_protocol_endpoint_alive():

@@ -10,6 +10,7 @@ from .discovery import (
     REQUEST_COMMANDS_BY_DEVICE,
     STATE_COMMANDS_BY_DEVICE,
 )
+from .response_validation import valid_response_payload
 
 _DEFAULT_STALE_AFTER: Final = timedelta(minutes=5)
 
@@ -18,6 +19,7 @@ class VitalityFrame(Protocol):
     addr: int
     sub_id: int
     cmd: int
+    payload: bytes
 
 
 class VitalityDevice(Protocol):
@@ -105,6 +107,10 @@ class DeviceVitalityMonitor:
         response_commands = STATE_COMMANDS_BY_DEVICE.get(frame.addr, set())
         event_commands = EVENT_COMMANDS_BY_DEVICE.get(frame.addr, set())
         if frame.cmd not in commands | response_commands | event_commands:
+            return
+        if frame.cmd in response_commands and not valid_response_payload(
+            frame.addr, frame.cmd, frame.payload,
+        ):
             return
 
         endpoint = self._endpoint(frame.addr, frame.sub_id)

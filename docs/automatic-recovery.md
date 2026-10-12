@@ -24,12 +24,24 @@ independent measurement of the physical lamp or relay.
   restart. New controls during that recovery window return an error; they are
   not silently queued for later.
 
-## Hub monitoring, not automatic restart
+## Hub monitoring and bounded socket recovery
 
 The watchdog checks every 15 seconds and reports individual device failures in
-one HA notification per integration entry. It never power-cycles the shared
-wallpad or forces a hub reconnect. Native transport reconnection after a lost
-connection and bounded command retries still apply.
+one HA notification per integration entry. A shared response outage can request
+one TCP socket reconnect: at least three known queryable endpoints across two
+device addresses must all fail three confirmed state probes, and the condition
+must persist for three minutes. At least three endpoints must have produced a
+valid response within the preceding 24 hours. An active user transaction and a
+disconnected socket block this additional reconnect; native transport reconnect
+handles disconnections. The one-shot attempt survives HA restarts and is not
+cleared until two distinct device addresses produce valid state responses after
+the attempt. Partial device failures never trigger it. No wallpad or EW11 power
+cycle is performed.
+
+After three missed probes, the watchdog checks a failed endpoint at most once
+every five minutes. The existing EW11 Link sensor exposes the incident start,
+attempt and response-verification timestamps. Request traffic alone does not
+count as device recovery.
 
 ## TCP recovery and partial frames
 

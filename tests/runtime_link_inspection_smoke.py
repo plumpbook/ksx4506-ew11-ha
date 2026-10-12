@@ -95,7 +95,7 @@ async def main() -> None:
                 await watchdog.tick()
                 assert not sensor.extra_state_attributes["inspection_needed"]
                 assert create.call_count == 3
-                assert "최근 정상 패킷 수신" in notifications[coordinator.recovery_notification_id]["message"]
+                assert "공유 통신 점검 조건 변경" in notifications[coordinator.recovery_notification_id]["message"]
                 assert "기기 동작 성공을 보증" in notifications[coordinator.recovery_notification_id]["message"]
                 # Another confirmed incident within the five-minute cooldown is
                 # visible in the existing sensor while notice delivery is delayed.
@@ -204,7 +204,7 @@ async def lifecycle_case() -> None:
                 clock[0] = 381
                 await reloaded.async_tick()
                 assert not sensor.extra_state_attributes["inspection_needed"]
-                assert "최근 정상 패킷 수신" in notifications[coordinator.recovery_notification_id]["message"]
+                assert "공유 통신 점검 조건 변경" in notifications[coordinator.recovery_notification_id]["message"]
                 await coordinator.async_stop()
                 await coordinator.async_stop()
                 assert sensor.extra_state_attributes["inspection_state"] == "stopped"

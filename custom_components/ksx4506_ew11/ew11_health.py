@@ -13,12 +13,17 @@ class LinkInspectionPolicy:
 
     def evaluate(
         self, health: dict[str, Any], *, now: float, failed_endpoints: int,
+        known_endpoints: int = 0, responsive_endpoints: int = 0,
     ) -> dict[str, Any]:
         running = bool(health.get("running"))
         age = health.get("seconds_since_valid_rx")
         recent_rx = isinstance(age, (int, float)) and 0 <= age < 180
         attempts = int(health.get("connect_attempts", 0))
-        if running and not recent_rx and failed_endpoints >= 2:
+        shared_response_outage = (
+            known_endpoints >= 3 and failed_endpoints == known_endpoints
+            and responsive_endpoints == 0
+        )
+        if running and (not recent_rx or shared_response_outage) and failed_endpoints >= 2:
             if self.multiple_since is None:
                 self.multiple_since = now
                 self.attempts_at_multiple = attempts
