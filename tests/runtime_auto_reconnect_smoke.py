@@ -46,7 +46,10 @@ async def main() -> None:
 
         coordinator._client.async_reconnect = AsyncMock(side_effect=reconnect)
         coordinator._power_cycle = AsyncMock()
-        coordinator.async_request_f7_state_until = AsyncMock(return_value=None)
+        async def no_response(addr, sub_id, **kwargs):
+            coordinator.state_query_results[(addr, sub_id)] = {'result': 'no_response'}
+            return None
+        coordinator.async_request_f7_state_until = AsyncMock(side_effect=no_response)
         responses = {"0x0E/0x11": 1000.0, "0x39/0x11": 1000.0,
                      "0x60/0x01": 1000.0}
         sensor = KsxEw11LinkSensor(coordinator, entry)
@@ -58,7 +61,7 @@ async def main() -> None:
                 alerts = DeviceAlerts(coordinator, entry.entry_id)
                 alerts._labels = lambda: {key: key for key in responses}
                 alerts._endpoints = lambda labels: tuple(
-                    Endpoint(key, (key,), 3, stamp, True)
+                    Endpoint(key, (key,), 3, stamp, True, max(0, clock[0] - stamp))
                     for key, stamp in responses.items()
                 )
                 alerts.policy.known = responses.copy()

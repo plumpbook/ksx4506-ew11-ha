@@ -51,12 +51,13 @@ from .devices.thermostat import THERMOSTAT_DEVICE_ID
 from .device_vitality import DeviceVitalityMonitor, DeviceVitalityReport
 from .discovery import DeviceRegistry, DeviceState
 from .ew11_client import Ew11Client
-from .ew11_health import inspection_monitoring_report
+from .ew11_health import inspection_monitoring_report, state_query_connection_changed
 from .packet_quality import PacketQualityMonitor, empty_packet_quality_report
 from .protocol import Ksx4506Codec, KsFrame
 from .recovery import CommandRecovery, HubRecoveryPolicy
 from .hub_recovery import HubRecovery
 from .response_validation import valid_response_payload
+from .state_check import StateCheck
 
 _LOGGER = logging.getLogger(__name__)
 _METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
@@ -154,6 +155,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._meter_probe_task: asyncio.Task[None] | None = None
         self._known_device_probe_task: asyncio.Task[None] | None = None
         self.recovery = CommandRecovery(self._publish_registry_state)
+        self.state_check = StateCheck(self)
+        self.state_query_results: dict[tuple[int, int], dict[str, Any]] = {}
         self.hub_recovery = HubRecoveryPolicy()
         self._recovery_task: asyncio.Task[None] | None = None
         self._power_cycle: Callable[[], Awaitable[bool]] | None = None
@@ -200,6 +203,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.link_inspection = inspection_monitoring_report("starting")
             self._publish_registry_state()
         self.recovery.resume()
+        self.state_check.resume()
         await self._client.start()
         if self._recovery_task is None or self._recovery_task.done():
             self._recovery_task = asyncio.create_task(HubRecovery(self).run())
@@ -216,6 +220,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_stop(self) -> None:
         self.link_inspection = inspection_monitoring_report("stopped")
         self._publish_registry_state()
+        check = getattr(self, 'state_check', None)
+        if check is not None:
+            await check.stop()
         if self._recovery_task is not None:
             self._recovery_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -250,7 +257,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         vitality = getattr(self, "device_vitality", None)
         if vitality is not None:
-            vitality.observe(frame)
+            client = getattr(self, '_client', None)
+            epoch = client.health_report().get('connection_epoch') if client is not None else None
+            vitality.observe(frame, connection_epoch=epoch)
         recovery = getattr(self, "recovery", None)
         if frame.addr == COMMON_ENTRANCE_DEVICE_ID:
             log_message = format_common_entrance_packet_log(
@@ -432,19 +441,25 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def device_vitality_report(self) -> DeviceVitalityReport:
         report = self.device_vitality.report(self.registry.devices.values())
-        recovery = getattr(self, "recovery", None)
-        if recovery is not None:
-            failed = {status.endpoint for status in recovery.status.values()
-                      if status.state == "failed"}
-            for device in report["devices"]:
-                endpoint = (int(device["device_id"], 16), int(device["sub_id"], 16))
-                if endpoint in failed and device["status"] != "unresponsive":
-                    report[device["status"]] -= 1
-                    report["unresponsive"] += 1
-                    device["status"] = "unresponsive"
-                    device["last_failure_reason"] = "control_not_confirmed"
-            if failed:
-                report["state"] = "unresponsive"
+        targets = set(self._known_state_request_targets())
+        client = getattr(self, '_client', None)
+        epoch = client.health_report().get('connection_epoch') if client is not None else None
+        report['connection_epoch'] = epoch
+        for device in report['devices']:
+            endpoint = (int(device['device_id'], 16), int(device['sub_id'], 16))
+            device['query_supported'] = endpoint in targets
+            device['last_query_result'] = self.state_query_results.get(endpoint, {}).copy()
+            previous_epoch = device.get('last_state_connection_epoch')
+            same = previous_epoch == epoch if previous_epoch is not None and epoch is not None else None
+            device['state_current_connection'] = same
+            if same is False:
+                device['status_summary'] = '이전 TCP 연결의 상태 기록 · 현재 연결에서는 해당 주소 상태 미확인'
+                if device['status'] == 'healthy':
+                    report['healthy'] -= 1
+                    report['unknown'] += 1
+                    device['status'] = 'unknown'
+                    device['observation_state'] = 'previous_connection'
+        report['state'] = self.device_vitality._overall_state(report, bool(report['devices']))
         return report
 
     @property
@@ -498,6 +513,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         matcher: Callable[[KsFrame], bool], *,
         confirmation_timeout: float = 1.0, guard: bool = False,
         recovery_key: str | None = None,
+        target_state: dict[str, Any] | None = None,
     ) -> KsFrame | None:
         async def operation() -> KsFrame | None:
             return await Ksx4506Coordinator._async_send_command_and_confirm_once(
@@ -509,7 +525,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             return await operation()
         return await recovery.execute(
             recovery_key or f"{addr:02X}_stx", (addr, 0), matcher,
-            operation, retry=not guard,
+            operation, retry=not guard, target_state=target_state,
         )
 
     async def _async_send_command_and_confirm_once(
@@ -601,6 +617,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload: bytes,
         *,
         guard: bool = False,
+        single_send: bool = False,
+        deadline: float | None = None,
     ) -> bool:
         if guard and not self._gas_unlock:
             _LOGGER.warning(
@@ -620,6 +638,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             len(payload),
             len(packet),
         )
+        if single_send:
+            return await self._client.send_with_retry(packet, max_attempts=1, deadline=deadline)
         return await self._client.send_with_retry(packet)
 
     async def async_send_f7_command_until(
@@ -633,6 +653,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_attempts: int | None = None,
         interval: float = 0.1,
         guard: bool = False,
+        query_receipt: dict[str, Any] | None = None,
     ) -> KsFrame | None:
         async with self._transaction_lock:
             return await self._async_send_f7_command_until_unlocked(
@@ -644,6 +665,7 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 max_attempts=max_attempts,
                 interval=interval,
                 guard=guard,
+                query_receipt=query_receipt,
             )
 
     async def _async_send_f7_command_until_unlocked(
@@ -657,6 +679,9 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_attempts: int | None = None,
         interval: float = 0.1,
         guard: bool = False,
+        single_send: bool = False,
+        query_receipt: dict[str, Any] | None = None,
+        deadline: float | None = None,
     ) -> KsFrame | None:
         if guard and not self._gas_unlock:
             _LOGGER.warning(
@@ -672,6 +697,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         fut: asyncio.Future[KsFrame] = loop.create_future()
         waiter = (matcher, fut)
         self._frame_waiters.append(waiter)
+        any_sent = False
+        before = self._client.health_report()
 
         try:
             for attempt in range(1, attempts + 1):
@@ -702,14 +729,14 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     len(payload),
                 )
 
-                sent = await self._async_send_f7_command_unlocked(
-                    dev_id,
-                    sub_id,
-                    cmd,
-                    payload,
-                )
+                if single_send:
+                    sent = await self._async_send_f7_command_unlocked(
+                        dev_id, sub_id, cmd, payload, single_send=True, deadline=deadline)
+                else:
+                    sent = await self._async_send_f7_command_unlocked(dev_id, sub_id, cmd, payload)
                 if not sent:
                     continue
+                any_sent = True
 
                 try:
                     matched = await asyncio.wait_for(asyncio.shield(fut), timeout=interval)
@@ -756,7 +783,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if is_state_request:
                 record_timeout = getattr(self._client, "record_response_timeout", None)
-                if callable(record_timeout):
+                if (any_sent and not state_query_connection_changed(before, health)
+                        and callable(record_timeout)):
                     record_timeout()
                 _LOGGER.debug(
                     "TX F7 state request gave up dev=0x%02X sub=0x%02X cmd=0x%02X "
@@ -801,6 +829,18 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     publish()
             return None
         finally:
+            if query_receipt is not None:
+                after = self._client.health_report()
+                query_receipt.update(
+                    sent=any_sent,
+                    transmission_attempts=max(0, int(after.get('tx_write_attempts', 0))
+                                              - int(before.get('tx_write_attempts', 0))),
+                    connection_changed=state_query_connection_changed(before, after),
+                    connection_epoch=after.get('connection_epoch'),
+                    connected=after.get('connected'),
+                    disconnect_count=after.get('disconnect_count'),
+                    transport_status=after.get('last_tx_status'),
+                )
             with suppress(ValueError):
                 self._frame_waiters.remove(waiter)
 
@@ -811,8 +851,14 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_attempts: int | None = None, interval: float = 0.1,
         confirmation_interval: float = 0.25, guard: bool = False,
         recovery_key: str | None = None,
+        channel: int | None = None, target_state: dict[str, Any] | None = None,
     ) -> KsFrame | None:
         recovery = getattr(self, "recovery", None)
+        original_matcher = confirmation_matcher
+        def verified_matcher(frame: KsFrame) -> bool:
+            return (valid_response_payload(frame.addr, frame.cmd, frame.payload)
+                    and original_matcher(frame))
+        confirmation_matcher = verified_matcher
         round_attempts = max_attempts
         if recovery is not None and not guard and dev_id != GAS_DEVICE_ID:
             round_attempts = min(max_attempts or self.max_attempts, 3)
@@ -835,6 +881,10 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             recovery_key or f"{dev_id:02X}{sub_id:02X}",
             (dev_id, status_sub_id), confirmation_matcher, operation, probe,
             retry=not guard and dev_id != GAS_DEVICE_ID,
+            channel=channel, target_state=target_state,
+            ack_matcher=lambda frame: frame.cmd != _status_response_command(dev_id)
+            and valid_response_payload(frame.addr, frame.cmd, frame.payload)
+            and response_matcher(frame),
         )
 
     async def _async_send_f7_command_and_confirm_once(
@@ -914,15 +964,27 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and valid_response_payload(frame.addr, frame.cmd, frame.payload)
             )
 
-        return await self.async_send_f7_command_until(
-            dev_id,
-            sub_id,
-            request_cmd,
-            b"",
-            matcher,
-            interval=interval,
-            max_attempts=max_attempts,
-        )
+        receipt: dict[str, Any] = {}
+        matched = None
+        cancelled = False
+        try:
+            matched = await self.async_send_f7_command_until(
+                dev_id, sub_id, request_cmd, b'', matcher,
+                interval=interval, max_attempts=max_attempts, query_receipt=receipt,
+            )
+            return None if receipt.get('connection_changed') else matched
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        finally:
+            result = ('cancelled' if cancelled else 'connection_changed'
+                      if receipt.get('connection_changed') and (receipt.get('sent') or matched is not None)
+                      else 'confirmed' if matched is not None else 'no_response' if receipt.get('sent')
+                      else 'transport_unconfirmed' if receipt.get('transmission_attempts') else 'not_sent')
+            results = getattr(self, 'state_query_results', None)
+            if results is not None:
+                results[(dev_id, sub_id)] = {'result': result, **receipt,
+                                           'updated_at': datetime.now(timezone.utc).isoformat()}
 
     async def async_monitor_known_device_states(self) -> None:
         try:
@@ -977,7 +1039,8 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     max_attempts=max_attempts,
                 )
                 vitality = getattr(self, "device_vitality", None)
-                if vitality is not None:
+                outcome = getattr(self, 'state_query_results', {}).get((dev_id, sub_id), {}).get('result')
+                if vitality is not None and (matched is not None or outcome == 'no_response'):
                     vitality.record_probe(
                         dev_id,
                         sub_id,

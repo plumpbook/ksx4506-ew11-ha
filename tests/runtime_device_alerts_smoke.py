@@ -90,7 +90,10 @@ async def main() -> None:
                 watchdog.alerts = alerts
                 notifications = pn._async_get_or_create_notifications(hass)
                 targets = [(14, 17), (96, 1), (57, 17), (54, 31)]
-                with patch.object(coordinator, "async_request_f7_state_until", AsyncMock(return_value=None)) as probe, \
+                async def no_response(addr, sub_id, **kwargs):
+                    coordinator.state_query_results[(addr, sub_id)] = {'result': 'no_response'}
+                    return None
+                with patch.object(coordinator, "async_request_f7_state_until", AsyncMock(side_effect=no_response)) as probe, \
                      patch.object(coordinator, "_known_state_request_targets", return_value=targets):
                     await watchdog.tick()
                     assert not notifications

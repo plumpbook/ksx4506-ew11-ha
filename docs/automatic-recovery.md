@@ -1,5 +1,19 @@
 # Automatic control recovery
 
+## Choosing a recovery path
+
+For a particular endpoint, first use the explicit state check and inspect its
+device ID / sub ID, last valid status, and any separate channel-control result.
+If valid state responses remain absent, inspect that device and its wallpad
+path. A wallpad restart can be considered after this evidence persists; the
+diagnostics do not establish that it is necessary or will succeed. EW11 restart
+is not the default recommendation for a particular endpoint.
+
+TCP disconnection directs EW11/network checks. A common response outage directs
+EW11 serial-side, wallpad and RS485-path checks without assigning the cause.
+The existing bounded socket recovery remains distinct from hardware or power
+restart. The explicit check does not invoke either recovery action.
+
 Receive activity is not proof that an individual output changed. A failed
 command is tracked separately for each controlled device/channel. It clears
 only when the latest requested state is observed for that channel, or a new

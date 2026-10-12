@@ -129,6 +129,34 @@ def test_guarded_operation_has_no_additional_retries():
     asyncio.run(scenario())
 
 
+def test_ack_context_and_target_confirmation_are_separate():
+    async def scenario():
+        monitor = recovery.CommandRecovery(lambda: None, delays=())
+        entered, release = asyncio.Event(), asyncio.Event()
+        target = {'on': False}
+        async def operation():
+            entered.set()
+            await release.wait()
+            return None
+        matcher = lambda f: f.cmd == 0x81 and f.payload[2] == 0
+        task = asyncio.create_task(monitor.execute('channel_3', (14, 17), matcher,
+            operation, channel=3, target_state=target, ack_matcher=lambda f: f.cmd == 0xC1))
+        await entered.wait()
+        target['on'] = True
+        ack = KsFrame(14, 0xC1, b'\0\0', 0, b'', 17)
+        assert monitor.observe(ack)
+        attrs = monitor.attributes('channel_3')
+        assert attrs['control_last_ack_at'] and attrs['target_state_confirmed_at'] is None
+        assert attrs['control_channel'] == 3 and attrs['control_target_state'] == {'on': False}
+        release.set()
+        await task
+        assert monitor.attributes('channel_3')['control_status'] == 'failed'
+        assert not monitor.observe(frame())
+        assert monitor.observe(frame(b'\0\0\0'))
+        assert monitor.attributes('channel_3')['target_state_confirmed_at']
+    asyncio.run(scenario())
+
+
 def test_hub_needs_independent_endpoints_and_rate_limits_power():
     policy = recovery.HubRecoveryPolicy()
 

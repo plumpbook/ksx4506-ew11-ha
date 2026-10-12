@@ -51,6 +51,8 @@ async def async_send_thermostat_heat_control(
         interval=0.5,
         confirmation_interval=0.5,
         recovery_key=recovery_key,
+        channel=channel,
+        target_state={'on': turn_on},
     )
     if matched is None:
         raise HomeAssistantError("KSX thermostat heat state was not confirmed")
@@ -92,6 +94,8 @@ async def async_send_thermostat_temperature_control(
         interval=0.5,
         confirmation_interval=0.5,
         recovery_key=recovery_key,
+        channel=channel,
+        target_state={'target_temp': temperature},
     )
     if matched is None:
         raise HomeAssistantError(

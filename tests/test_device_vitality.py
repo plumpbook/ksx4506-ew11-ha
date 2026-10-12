@@ -48,7 +48,7 @@ def test_invalid_state_payload_cannot_confirm_device_recovery():
     monitor.observe(frame)
     report = monitor.report([device])
     assert report["devices"][0]["response_count"] == 0
-    assert report["devices"][0]["status"] == "unresponsive"
+    assert report["devices"][0]["status"] == "unknown"
 
 
 def test_response_packets_mark_protocol_endpoint_alive():
@@ -73,7 +73,7 @@ def test_response_packets_mark_protocol_endpoint_alive():
     assert report["devices"][0]["response_count"] == 1
 
 
-def test_failed_probe_overrides_older_passive_response():
+def test_repeated_failed_probes_override_older_passive_response():
     module = load_integration_module("device_vitality")
     current = NOW
     monitor = module.DeviceVitalityMonitor(now=lambda: current)
@@ -81,7 +81,8 @@ def test_failed_probe_overrides_older_passive_response():
 
     monitor.observe(_frame(addr=0x39, sub_id=0x11, cmd=0x81))
     current += timedelta(seconds=10)
-    monitor.record_probe(0x39, 0x11, success=False)
+    for _ in range(3):
+        monitor.record_probe(0x39, 0x11, success=False)
     report = monitor.report([device])
 
     assert report["state"] == "unresponsive"
@@ -118,7 +119,7 @@ def test_command_failure_is_visible_until_the_endpoint_responds():
     )
     failed = monitor.report([device])["devices"][0]
 
-    assert failed["status"] == "unresponsive"
+    assert failed["status"] == "unknown"
     assert failed["consecutive_failures"] == 1
     assert failed["last_failure_reason"] == "control_not_confirmed"
     assert failed["last_failure_at"] == NOW.isoformat()
@@ -161,6 +162,7 @@ def test_known_device_probe_records_each_traversal_result():
 
     fake = SimpleNamespace(
         _known_state_request_targets=lambda: [(0x39, 0x11), (0x39, 0x12)],
+        state_query_results={(0x39, 0x12): {'result': 'no_response'}},
         async_request_f7_state_until=request,
         device_vitality=SimpleNamespace(
             record_probe=lambda addr, sub_id, *, success: probe_results.append(

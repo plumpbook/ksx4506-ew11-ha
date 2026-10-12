@@ -187,6 +187,8 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
             ),
             status_sub_id=status_sub,
             recovery_key=self.dev_key,
+            channel=self.channel,
+            target_state={'on': turn_on},
             confirmation_matcher=self._state_confirmation_matcher(
                 status_sub=status_sub,
                 turn_on=turn_on,
@@ -221,6 +223,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
             b"\x01",
             lambda frame: frame.addr == self.addr and self.is_on is True,
             recovery_key=self._recovery_key,
+            target_state={'on': True},
         )
         if matched is None:
             raise HomeAssistantError(
@@ -242,6 +245,7 @@ class KsxLight(KsxEntity, RestoreEntity, LightEntity):
             b"\x00",
             lambda frame: frame.addr == self.addr and self.is_on is False,
             recovery_key=self._recovery_key,
+            target_state={'on': False},
         )
         if matched is None:
             raise HomeAssistantError(

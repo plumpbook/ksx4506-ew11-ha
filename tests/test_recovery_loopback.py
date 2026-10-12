@@ -73,7 +73,8 @@ async def _scenario(recover_on_retry):
             )[0])
             assert entity.extra_state_attributes["control_status"] == "failed"
             assert entity.assumed_state
-            assert coordinator.device_vitality_report()["state"] == "unresponsive"
+            assert coordinator.device_vitality_report()["state"] == "healthy"
+            assert coordinator.recovery.report()[dev.key]['control_status'] == 'failed'
             assert len(controls) == 3
         assert coordinator._client.health_report()["state"] == "receiving"
         assert commands[0:2] == [0x41, 0x01]

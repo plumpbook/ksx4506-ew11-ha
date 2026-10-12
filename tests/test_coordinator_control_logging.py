@@ -17,6 +17,8 @@ def _bind_method(instance, name: str, method):
 
 class _FakeCoordinator:
     def __init__(self, matched_frame, *, match_after_attempts=2):
+        self._client = _FakeClient()
+        self.state_query_results = {}
         self.max_attempts = 3
         self._frame_waiters = []
         self._transaction_lock = asyncio.Lock()
@@ -303,9 +305,9 @@ async def _assert_control_transactions_remain_serialized():
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
 
-    first_ack = types.SimpleNamespace(kind="first_ack")
-    first_state = types.SimpleNamespace(kind="first_state")
-    second_state = types.SimpleNamespace(kind="second_state")
+    first_ack = types.SimpleNamespace(kind="first_ack", addr=14, sub_id=17, cmd=0xC1, payload=b'\0\0')
+    first_state = types.SimpleNamespace(kind="first_state", addr=14, sub_id=17, cmd=0x81, payload=b'\0\0')
+    second_state = types.SimpleNamespace(kind="second_state", addr=14, sub_id=18, cmd=0x81, payload=b'\0\0')
 
     class FakeCoordinator:
         def __init__(self):

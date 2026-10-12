@@ -15,6 +15,7 @@ class Endpoint:
     responses: int
     last_response: float | None
     queryable: bool
+    state_age: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,8 +73,10 @@ class AlertPolicy:
         due.sort(key=lambda key: (self.probed_at.get(key, float("-inf")), key))
         return AlertScan(tuple(due[:4]), tuple(alerts))
 
-    def record_probe(self, key: str, *, success: bool, now: float) -> None:
+    def record_probe(self, key: str, *, success: bool | None, now: float) -> None:
         self.probed_at[key] = now
+        if success is None:
+            return
         if success:
             self.known[key] = now
             self.failures.pop(key, None)

@@ -20,6 +20,8 @@ async def async_prepare_discovery(hass: HomeAssistant, entry: ConfigEntry,
     await runtime.async_load()
     hass.data.setdefault(DATA_KEY, {})[entry.entry_id] = runtime
     _register_review_service(hass)
+    from .state_check import register_state_check_service
+    register_state_check_service(hass)
 
 
 def start_discovery(hass: HomeAssistant, entry: ConfigEntry) -> None:

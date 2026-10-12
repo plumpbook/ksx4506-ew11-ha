@@ -111,6 +111,7 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
             build_generic_switch_payload(turn_on=True),
             lambda frame: frame.addr == self.addr and self.is_on is True,
             recovery_key=self._recovery_key,
+            target_state={'on': True},
         )
         if matched is None:
             raise HomeAssistantError(
@@ -124,6 +125,7 @@ class KsxSwitch(KsxEntity, RestoreEntity, SwitchEntity):
             build_generic_switch_payload(turn_on=False),
             lambda frame: frame.addr == self.addr and self.is_on is False,
             recovery_key=self._recovery_key,
+            target_state={'on': False},
         )
         if matched is None:
             raise HomeAssistantError(
@@ -173,6 +175,8 @@ class KsxOutletSwitch(KsxSwitch):
             ),
             status_sub_id=status_sub,
             recovery_key=self.dev_key,
+            channel=self.channel,
+            target_state={'on': turn_on},
             confirmation_matcher=self._status_confirmation_matcher(
                 target_sub=target_sub,
                 status_sub=status_sub,

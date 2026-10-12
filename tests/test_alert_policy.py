@@ -3,6 +3,18 @@ from dataclasses import replace
 from ._integration_loader import load_integration_module
 
 
+def test_deferred_probe_keeps_schedule_without_creating_failure_evidence():
+    module = load_integration_module('alert_policy')
+    policy = module.AlertPolicy(started=0, known={'0x0E/0x11': 0})
+    endpoint = module.Endpoint('0x0E/0x11', ('light',), 3, 0, True)
+    for now in (180, 210, 240, 270):
+        assert policy.scan((endpoint,), now=now).probes == ('0x0E/0x11',)
+        policy.record_probe(endpoint.key, success=None, now=now)
+        assert not policy.scan((endpoint,), now=now + 10).probes
+        assert not policy.scan((endpoint,), now=now + 10).alerts
+    assert policy.failures == {} and policy.known[endpoint.key] == 0
+
+
 def test_ghosts_and_brief_silence_remain_quiet():
     module = load_integration_module("alert_policy")
     policy = module.AlertPolicy(started=0)

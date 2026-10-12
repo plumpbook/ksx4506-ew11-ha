@@ -4,6 +4,13 @@ from collections.abc import Iterable
 from typing import Any
 
 
+def state_query_connection_changed(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    return after.get('connected') is False or any(
+        before.get(field) != after.get(field)
+        for field in ('connected', 'connection_epoch', 'connect_successes', 'disconnect_count')
+    )
+
+
 class LinkInspectionPolicy:
     """Explain sustained shared-link evidence; never request a hardware action."""
 
@@ -100,13 +107,15 @@ def classify_faults(
     health: dict[str, Any], *, known_endpoints: Iterable[tuple[str, float]],
     failed_endpoints: set[str], control_failures: int, now: float,
     inspection_state: str,
+    recent_state_endpoints: set[str] | None = None,
 ) -> dict[str, Any]:
     known = dict(known_endpoints)
     failed = failed_endpoints & known.keys()
     failed_addresses = {key.split("/")[0] for key in failed}
     peer_confirmed = bool(failed) and any(
         key not in failed and key.split("/")[0] not in failed_addresses
-        and 0 <= now - last < 180
+        and (key in recent_state_endpoints if recent_state_endpoints is not None
+             else 0 <= now - last < 180)
         for key, last in known.items()
     )
     categories: list[str] = []
@@ -140,6 +149,17 @@ def classify_faults(
         "control_unconfirmed": "요청한 제어 결과 미확인 · 상태 응답과 실제 동작은 별도 확인 필요",
         "none": "감지된 통신·제어 장애 없음 · 실제 동작 보증 아님",
     }
+    guidance = {
+        'endpoint_no_response': '먼저 해당 device ID/sub ID의 상태를 다시 확인하고 월패드·기기 반응을 확인하세요. '
+            '같은 주소의 유효 상태 응답 누락이 계속되면 월패드 재시작을 검토할 수 있습니다. '
+            '필요성·원인은 확정되지 않았으며 연결된 기기 제어가 중단될 수 있습니다.',
+        'control_unconfirmed': '주소 응답과 요청한 채널 목표 상태를 따로 확인하세요. '
+            '상태 다시 확인은 출력을 바꾸지 않으며 실제 동작 성공을 보증하지 않습니다.',
+        'shared_response_outage': '여러 주소의 실제 상태 응답과 EW11 직렬측·월패드·RS485 경로를 확인하세요. '
+            '공통 응답 중단만으로 전원 재시작 필요성을 확정할 수 없습니다.',
+        'tcp_disconnected': 'EW11 전원·네트워크와 TCP 연결을 확인하세요. '
+            'TCP 복구 후에도 해당 주소의 유효 상태 응답을 별도로 확인해야 합니다.',
+    }.get(primary)
     return {
         "fault_category": primary,
         "fault_categories": categories,
@@ -148,6 +168,7 @@ def classify_faults(
         "failed_endpoint_count": len(failed),
         "known_endpoint_count": len(known),
         "control_failure_count": control_failures,
+        'recovery_guidance': guidance,
     }
 
 

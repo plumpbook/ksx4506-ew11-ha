@@ -24,6 +24,7 @@ class _QueuedCommand:
     payload: bytes
     future: asyncio.Future[bool]
     deadline: float
+    max_attempts: int | None = None
 
 
 class Ew11Client:
@@ -80,6 +81,7 @@ class Ew11Client:
         self._last_tx_status: str | None = None
         self._last_tx_attempts = 0
         self._last_tx_error: str | None = None
+        self._tx_write_attempts = 0
         self._health_listener: Callable[[], None] | None = None
         self._last_health_signature: (
             tuple[
@@ -196,6 +198,7 @@ class Ew11Client:
             "last_tx_status": self._last_tx_status,
             "last_tx_attempts": self._last_tx_attempts,
             "last_tx_error": self._last_tx_error,
+            'tx_write_attempts': self._tx_write_attempts,
         }
         report.update(
             self._connection_stats.report(
@@ -203,9 +206,16 @@ class Ew11Client:
                 self._connected_monotonic,
             )
         )
+        report['connection_epoch'] = report['connect_successes']
+        report['link_summary'] = (
+            'TCP 연결 끊김' if not self._connected else
+            'TCP 연결 · 최근 유효 프레임 수신 (주소별 상태는 별도 확인)' if state == 'receiving'
+            else 'TCP 연결 · 유효 수신 없음 또는 오래됨 (조용함만으로 고장 확정 불가)'
+        )
         return report
 
-    async def send_with_retry(self, payload: bytes) -> bool:
+    async def send_with_retry(self, payload: bytes, *, max_attempts: int | None = None,
+                              deadline: float | None = None) -> bool:
         if not self._running:
             self._record_tx_result(
                 status="not_running",
@@ -221,7 +231,9 @@ class Ew11Client:
         command = _QueuedCommand(
             payload=payload,
             future=fut,
-            deadline=loop.time() + self._command_timeout(),
+            deadline=min(loop.time() + self._command_timeout(), deadline)
+            if deadline is not None else loop.time() + self._command_timeout(),
+            max_attempts=max(1, min(self._retry + 1, max_attempts)) if max_attempts is not None else None,
         )
         try:
             self._cmd_queue.put_nowait(command)
@@ -393,7 +405,7 @@ class Ew11Client:
 
     async def _send_queued_command(self, command: _QueuedCommand) -> bool:
         loop = asyncio.get_running_loop()
-        attempts = self._retry + 1
+        attempts = command.max_attempts or (self._retry + 1)
         attempt = 0
         while attempt < attempts:
             if (
@@ -427,6 +439,7 @@ class Ew11Client:
 
             attempt += 1
             try:
+                self._tx_write_attempts += 1
                 writer.write(command.payload)
                 remaining = command.deadline - loop.time()
                 if remaining <= 0:

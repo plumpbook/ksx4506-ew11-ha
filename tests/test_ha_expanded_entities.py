@@ -59,6 +59,7 @@ class _FakeCoordinator:
         confirmation_timeout=1.0,
         recovery_key=None,
         guard=False,
+        target_state=None,
     ):
         _ = confirmation_timeout
         self.sent.append((addr, cmd, payload, guard))
@@ -112,6 +113,8 @@ class _FakeCoordinator:
         interval=0.1,
         confirmation_interval=0.25,
         guard=False,
+        channel=None,
+        target_state=None,
     ):
         _ = (interval, confirmation_interval)
         for _ in range(max_attempts or self.max_attempts):

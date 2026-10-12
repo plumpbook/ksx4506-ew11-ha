@@ -128,11 +128,13 @@ class DeviceAlerts:
             ))
             if not keys:
                 continue
-            stamp = device["last_response_at"]
+            stamp = device.get('last_state_response_at', device['last_response_at'])
             result.append(Endpoint(
-                device["endpoint"], keys, device["response_count"],
+                device["endpoint"], keys, device.get('state_response_count', device['response_count']),
                 datetime.fromisoformat(stamp).timestamp() if stamp else None,
                 (int(device["device_id"], 16), int(device["sub_id"], 16)) in targets,
+                device.get('seconds_since_state_response', device['seconds_since_response'])
+                if device.get('state_current_connection') is not False else None,
             ))
         return tuple(result)
 
@@ -162,8 +164,11 @@ class DeviceAlerts:
                 success = matched is not None
             except (TimeoutError, OSError):
                 success = False
-            self.coordinator.device_vitality.record_probe(addr, sub_id, success=success)
-            self.policy.record_probe(key, success=success, now=time.time())
+            outcome = self.coordinator.state_query_results.get((addr, sub_id), {}).get('result')
+            proved = success or outcome == 'no_response'
+            if proved:
+                self.coordinator.device_vitality.record_probe(addr, sub_id, success=success)
+            self.policy.record_probe(key, success=success if proved else None, now=time.time())
         # Responses received during probing must be considered before notifying.
         endpoints = self._endpoints(labels)
         scan = self.policy.scan(endpoints, now=time.time())
@@ -221,7 +226,8 @@ class DeviceAlerts:
             health, now=monotonic(),
             failed_endpoints=len(failed), known_endpoints=len(known_queryable),
             responsive_endpoints=sum(
-                last >= now - 180 for _, last in known_queryable
+                endpoint.state_age is not None and 0 <= endpoint.state_age < 180
+                for endpoint in endpoints if endpoint.key in self.policy.known and endpoint.queryable
             ),
         )
         inspection.update(self.auto_reconnect.attributes())
@@ -229,6 +235,8 @@ class DeviceAlerts:
             health, known_endpoints=known_queryable, failed_endpoints=failed,
             control_failures=len(self.controls), now=now,
             inspection_state=inspection["inspection_state"],
+            recent_state_endpoints={endpoint.key for endpoint in endpoints
+                                    if endpoint.state_age is not None and 0 <= endpoint.state_age < 180},
         ))
         inspection["auto_reconnect_action_result"] = self.auto_action_result
         self.coordinator.link_inspection = inspection
@@ -285,6 +293,8 @@ class DeviceAlerts:
             if ("control_unconfirmed" in inspection.get("fault_categories", [])
                     and fault_category != "control_unconfirmed"):
                 lines += [f"별도 제어 결과 미확인: {inspection['control_failure_count']}개"]
+            if inspection.get('recovery_guidance'):
+                lines += ['', inspection['recovery_guidance']]
         if link_problem:
             if inspection.get("inspection_needed"):
                 lines += ["", inspection["inspection_summary"],

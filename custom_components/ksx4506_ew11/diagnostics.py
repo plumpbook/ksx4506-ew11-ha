@@ -62,6 +62,8 @@ async def async_get_config_entry_diagnostics(
             coordinator.recovery.report()
             if coordinator is not None and hasattr(coordinator, "recovery") else {}
         ),
+        'state_check': coordinator.state_check.report()
+        if coordinator is not None and hasattr(coordinator, 'state_check') else {},
         "ew11_connection": async_redact_data(
             ew11_health_report_from_coordinator(coordinator),
             TO_REDACT,

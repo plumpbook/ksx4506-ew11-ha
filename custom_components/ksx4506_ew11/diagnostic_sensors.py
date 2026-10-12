@@ -187,6 +187,16 @@ class KsxDeviceVitalitySensor(_KsxDiagnosticSensor):
             "problem_count": len(problem_devices),
             "stale_after_seconds": report["stale_after_seconds"],
             "problem_devices": problem_devices,
+            'observed_since': report.get('observed_since'),
+            'connection_epoch': report.get('connection_epoch'),
+            'endpoint_summary': [{key: device.get(key) for key in (
+                'endpoint', 'device_keys', 'status', 'observation_state', 'status_summary',
+                'last_state_response_at', 'last_command_ack_at', 'query_supported',
+                'last_state_connection_epoch', 'state_current_connection',
+                'last_query_result',
+            )} for device in report['devices']],
+            'state_check': self.coordinator.state_check.report()
+            if hasattr(self.coordinator, 'state_check') else {},
             "cleanup_candidate_count": cleanup["count"],
             "cleanup_candidates": cleanup["candidates"],
             "control_problems": (

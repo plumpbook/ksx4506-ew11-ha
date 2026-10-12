@@ -6,6 +6,67 @@ should not automatically become Home Assistant devices.
 
 ## Diagnostic Surfaces
 
+### Connection and endpoint evidence
+
+`EW11 Link` keeps its existing states and adds `link_summary`, `connection_epoch`,
+and the cumulative `tx_write_attempts`. `receiving` means framing-valid traffic;
+requests, ACKs, and other endpoints can keep it receiving while a particular
+endpoint has no valid state reply.
+
+`RS485 Device Vitality` now exposes `endpoint_summary` for registered endpoints,
+including healthy records, and `state_check` for the last explicit check. Full
+diagnostics and problem records additionally separate:
+
+- `state_response_count`, `last_state_response_at`, and monotonic
+  `seconds_since_state_response`: validated status replies.
+- `command_ack_count` and `last_command_ack_at`: observed acknowledgement
+  frames; these do not confirm the requested output state.
+- `probe_failure_count`, `consecutive_probe_failures`, and the existing last
+  probe result: status-query evidence.
+- `invalid_response_count`: framing-valid response candidates rejected by the
+  existing payload rules; vendor variants may still need investigation.
+- `observation_state` and `status_summary`: unobserved, ACK-only, event-only,
+  stale, or observed state. A restored identity with no valid state history
+  stays unknown after query failures. A confirmed endpoint needs repeated
+  query failures before becoming unresponsive; silence alone becomes stale.
+- `last_state_connection_epoch` and `state_current_connection`: whether the
+  stored state belongs to the current TCP connection. Reconnecting is not
+  evidence that every endpoint has recovered.
+
+Control entities retain `control_status` and add the requested channel/target,
+request/finish times, `control_last_ack_at`, and `target_state_confirmed_at`.
+An endpoint can have a valid current status while a requested channel remains
+unconfirmed. Other channels or ACKs do not clear that failed target.
+
+### Explicit state check
+
+1. Open **Developer tools → Actions** and choose **KS X 4506 EW11: 상태 다시 확인**.
+2. Select the integration entry and copy an endpoint from `endpoint_summary`,
+   for example `0E/11` or `0x0E/0x11`. This is device ID / sub ID; a light
+   channel such as `11-3` is not an endpoint.
+3. Run the action once and inspect `state_check` or the action response. A
+   confirmed result means a valid state frame was received, not that a physical
+   lamp or relay was independently measured.
+
+The action accepts only an active registered endpoint supported by the existing
+status-query path. It sends no output command and cannot approve discovery.
+It permits one actual write attempt, a two-second total deadline, one check per
+entry at a time, a thirty-second endpoint cooldown and a five-second entry
+cooldown. Checks are deferred while a user command is being processed. Queued work is cancelled on timeout,
+cancel, or unload. A socket change during the check is reported separately.
+
+`not_sent`, `transport_unconfirmed`, `no_response`, `busy`, `cooldown`,
+`cancelled`, and `stopped` explain different outcomes. A failed write completion
+may have transmitted bytes and is not proof that the device ignored a request.
+Neither busy nor unsent checks create endpoint failure evidence.
+
+The same distinction applies to background known-device and alert probes:
+`last_query_result` records confirmed transmission versus unsent/uncertain
+transport, response timeout, cancellation, and connection changes. Only an
+exhausted query with confirmed transmission counts as a response failure.
+An unsent alert probe still observes its scheduling interval without increasing
+the endpoint failure count.
+
 ### Unsupported Packets
 
 `Unsupported Packets` is a cumulative diagnostic sensor. Its state is the number

@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio  # noqa: ANYIO_OK - Home Assistant owns the asyncio event loop
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import time
+from typing import Any
 
 from .protocol_types import KsFrame
 
@@ -19,6 +21,14 @@ class CommandStatus:
     attempts: int = 0
     reason: str | None = None
     failed_at: float | None = None
+    channel: int | None = None
+    target_state: dict[str, Any] | None = None
+    ack_matcher: Callable[[KsFrame], bool] | None = None
+    started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    started_clock: float = field(default_factory=time.monotonic)
+    last_ack_at: str | None = None
+    confirmed_at: str | None = None
+    finished_at: str | None = None
 
 
 class CommandRecovery:
@@ -37,11 +47,16 @@ class CommandRecovery:
         self, key: str, endpoint: tuple[int, int],
         matcher: Callable[[KsFrame], bool], operation: Operation,
         probe: Operation | None = None, *, retry: bool = True,
+        channel: int | None = None, target_state: dict[str, Any] | None = None,
+        ack_matcher: Callable[[KsFrame], bool] | None = None,
     ) -> KsFrame | None:
         previous = self._tasks.get(key)
         if previous is not None:
             previous.cancel()
         status = CommandStatus(endpoint, matcher)
+        status.channel = channel
+        status.target_state = target_state.copy() if target_state is not None else None
+        status.ack_matcher = ack_matcher
         self.status[key] = status
         if not self._accepting:
             status.state = "failed"
@@ -61,11 +76,13 @@ class CommandRecovery:
                                 matched = await probe()
                                 if matched is not None and matcher(matched):
                                     status.state = "healthy"
+                                    status.confirmed_at = datetime.now(timezone.utc).isoformat()
                                     return matched
                         status.attempts += 1
                         matched = await operation()
                         if matched is not None and matcher(matched):
                             status.state = "healthy"
+                            status.confirmed_at = datetime.now(timezone.utc).isoformat()
                             return matched
                     status.reason = "state_not_confirmed"
             except TimeoutError:
@@ -81,6 +98,7 @@ class CommandRecovery:
                 status.failed_at = time.monotonic()
                 raise
             finally:
+                status.finished_at = datetime.now(timezone.utc).isoformat()
                 self._publish()
             status.state = "failed"
             status.failed_at = time.monotonic()
@@ -104,22 +122,33 @@ class CommandRecovery:
     def observe(self, frame: KsFrame) -> bool:
         changed = False
         for status in self.status.values():
+            if (status.state in {'pending', 'recovering'} and status.ack_matcher is not None
+                    and status.ack_matcher(frame)):
+                status.last_ack_at = datetime.now(timezone.utc).isoformat()
+                changed = True
             if status.state == "failed" and status.matcher(frame):
                 status.state = "healthy"
                 status.reason = None
                 status.failed_at = None
+                status.confirmed_at = datetime.now(timezone.utc).isoformat()
                 changed = True
         return changed
 
-    def attributes(self, key: str) -> dict[str, str | int | None]:
+    def attributes(self, key: str) -> dict[str, Any]:
         status = self.status.get(key)
         return {
             "control_status": status.state if status else "unknown",
             "recovery_attempts": status.attempts if status else 0,
             "control_error": status.reason if status else None,
+            "control_channel": status.channel if status else None,
+            "control_target_state": status.target_state if status else None,
+            "control_started_at": status.started_at if status else None,
+            "control_finished_at": status.finished_at if status else None,
+            "control_last_ack_at": status.last_ack_at if status else None,
+            "target_state_confirmed_at": status.confirmed_at if status else None,
         }
 
-    def report(self) -> dict[str, dict[str, str | int | None]]:
+    def report(self) -> dict[str, dict[str, Any]]:
         return {key: self.attributes(key) for key in self.status
                 if self.status[key].state != "healthy"}
 
