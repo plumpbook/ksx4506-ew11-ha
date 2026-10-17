@@ -8,7 +8,7 @@ from .ha_stubs import install_homeassistant_stubs
 
 
 @pytest.mark.parametrize('sent', [False, True])
-def test_periodic_failures_require_confirmed_transmission(sent):
+def test_silent_device_checks_require_confirmed_transmission(sent):
     async def scenario():
         install_homeassistant_stubs()
         module = load_integration_module('coordinator')
@@ -29,12 +29,23 @@ def test_periodic_failures_require_confirmed_transmission(sent):
                                         attempts=1 if sent else 0, error=None)
             return sent
         co._client.send_with_retry = send
-        for _ in range(3):
-            await co.async_probe_known_device_states(delay=0, interval=0, max_attempts=1)
+        policy_module = load_integration_module('alert_policy')
+        policy = policy_module.AlertPolicy(started=0, known={'0E/11': 0})
+        endpoint = policy_module.Endpoint('0E/11', (device.key,), 3, 0, True)
+        for now in (180, 210, 240):
+            assert policy.scan((endpoint,), now=now).probes == ('0E/11',)
+            matched = await co.async_request_f7_state_until(14, 17, interval=0, max_attempts=1)
+            outcome = co.state_query_results[(14, 17)]['result']
+            proved = matched is not None or outcome == 'no_response'
+            if proved:
+                co.device_vitality.record_probe(14, 17, success=matched is not None)
+            policy.record_probe('0E/11', success=matched is not None if proved else None,
+                                now=now)
         report = co.device_vitality_report()['devices'][0]
         assert len(calls) == 3
         assert report['status'] == ('unresponsive' if sent else 'healthy')
         assert report.get('probe_failure_count') == (3 if sent else 0)
         assert co.state_query_results[(14, 17)]['result'] == ('no_response' if sent else 'not_sent')
         assert co._client.health_report()['response_failures_since_rx'] == (3 if sent else 0)
+        assert len(policy.scan((endpoint,), now=241).alerts) == (1 if sent else 0)
     asyncio.run(scenario())

@@ -45,7 +45,7 @@ from .devices.common_entrance import (
 from .devices.entrance import ENTRANCE_PANEL_DEVICE_ID
 from .devices.gas import GAS_DEVICE_ID
 from .devices.lighting import LIGHT_DEVICE_ID
-from .devices.meter import METER_DEVICE_ID, METER_WHOLE_ORDER
+from .devices.meter import METER_DEVICE_ID
 from .devices.outlet import OUTLET_DEVICE_ID
 from .devices.thermostat import THERMOSTAT_DEVICE_ID
 from .device_vitality import DeviceVitalityMonitor, DeviceVitalityReport
@@ -60,10 +60,8 @@ from .response_validation import valid_response_payload
 from .state_check import StateCheck
 
 _LOGGER = logging.getLogger(__name__)
-_METER_STARTUP_PROBE_SUB_IDS = (0x0F, *METER_WHOLE_ORDER)
 _F7_STATUS_REQUEST = 0x01
 _F7_STATUS_RESPONSE = 0x81
-_DEVICE_VITALITY_SCAN_INTERVAL = 300.0
 GENERIC_SENSOR_DEVICE_ID = 0x60
 REQUESTABLE_F7_DEVICE_IDS = {
     LIGHT_DEVICE_ID,
@@ -152,8 +150,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         ] = {}
         self._frame_waiters: list[tuple[Callable[[KsFrame], bool], asyncio.Future[KsFrame]]] = []
         self._transaction_lock = asyncio.Lock()
-        self._meter_probe_task: asyncio.Task[None] | None = None
-        self._known_device_probe_task: asyncio.Task[None] | None = None
         self.recovery = CommandRecovery(self._publish_registry_state)
         self.state_check = StateCheck(self)
         self.state_query_results: dict[tuple[int, int], dict[str, Any]] = {}
@@ -207,15 +203,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._client.start()
         if self._recovery_task is None or self._recovery_task.done():
             self._recovery_task = asyncio.create_task(HubRecovery(self).run())
-        if self._meter_probe_task is None or self._meter_probe_task.done():
-            self._meter_probe_task = asyncio.create_task(self.async_probe_meter_states())
-        if (
-            self._known_device_probe_task is None
-            or self._known_device_probe_task.done()
-        ):
-            self._known_device_probe_task = asyncio.create_task(
-                self.async_monitor_known_device_states()
-            )
 
     async def async_stop(self) -> None:
         self.link_inspection = inspection_monitoring_report("stopped")
@@ -229,16 +216,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._recovery_task
             self._recovery_task = None
         await self.recovery.stop()
-        if self._known_device_probe_task:
-            self._known_device_probe_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._known_device_probe_task
-            self._known_device_probe_task = None
-        if self._meter_probe_task:
-            self._meter_probe_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._meter_probe_task
-            self._meter_probe_task = None
         await self._client.stop()
         # The watchdog has already exited; it cannot publish another tick.
         # Its finally block preserves unresolved evidence before closing the notice.
@@ -941,10 +918,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
                     publish()
             return confirmed
 
-    async def async_request_f7_state(self, dev_id: int, sub_id: int) -> bool:
-        cmd = _status_request_command(dev_id)
-        return await self.async_send_f7_command(dev_id, sub_id, cmd, b"")
-
     async def async_request_f7_state_until(
         self,
         dev_id: int,
@@ -985,77 +958,6 @@ class Ksx4506Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             if results is not None:
                 results[(dev_id, sub_id)] = {'result': result, **receipt,
                                            'updated_at': datetime.now(timezone.utc).isoformat()}
-
-    async def async_monitor_known_device_states(self) -> None:
-        try:
-            await asyncio.sleep(1.5)
-            while True:
-                await self.async_probe_known_device_states(
-                    delay=0,
-                    max_attempts=1,
-                )
-                await asyncio.sleep(_DEVICE_VITALITY_SCAN_INTERVAL)
-        except asyncio.CancelledError:
-            raise
-
-    async def async_probe_meter_states(
-        self,
-        *,
-        delay: float = 1.0,
-        interval: float = 0.2,
-    ) -> None:
-        try:
-            if delay > 0:
-                await asyncio.sleep(delay)
-            for sub_id in _METER_STARTUP_PROBE_SUB_IDS:
-                ok = await self.async_request_f7_state(METER_DEVICE_ID, sub_id)
-                _LOGGER.debug(
-                    "Meter startup probe sub=0x%02X ok=%s",
-                    sub_id,
-                    ok,
-                )
-                if interval > 0:
-                    await asyncio.sleep(interval)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            _LOGGER.exception("Meter startup probe failed")
-
-    async def async_probe_known_device_states(
-        self,
-        *,
-        delay: float = 1.5,
-        interval: float = 0.15,
-        max_attempts: int | None = None,
-    ) -> None:
-        try:
-            if delay > 0:
-                await asyncio.sleep(delay)
-            for dev_id, sub_id in self._known_state_request_targets():
-                matched = await self.async_request_f7_state_until(
-                    dev_id,
-                    sub_id,
-                    interval=interval,
-                    max_attempts=max_attempts,
-                )
-                vitality = getattr(self, "device_vitality", None)
-                outcome = getattr(self, 'state_query_results', {}).get((dev_id, sub_id), {}).get('result')
-                if vitality is not None and (matched is not None or outcome == 'no_response'):
-                    vitality.record_probe(
-                        dev_id,
-                        sub_id,
-                        success=matched is not None,
-                    )
-                _LOGGER.debug(
-                    "Known device startup probe dev=0x%02X sub=0x%02X matched=%s",
-                    dev_id,
-                    sub_id,
-                    matched is not None,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            _LOGGER.exception("Known device startup probe failed")
 
     def _known_state_request_targets(self) -> list[tuple[int, int]]:
         targets: set[tuple[int, int]] = set()

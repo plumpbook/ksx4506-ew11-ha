@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-import asyncio
 from types import SimpleNamespace
 
 from ._integration_loader import load_integration_module
@@ -149,35 +148,3 @@ def test_old_response_becomes_stale_without_a_new_probe():
     assert report["state"] == "stale"
     assert report["stale"] == 1
     assert report["devices"][0]["seconds_since_response"] == 360.0
-
-
-def test_known_device_probe_records_each_traversal_result():
-    coordinator_module = load_integration_module("coordinator")
-    probe_results = []
-
-    async def request(addr, sub_id, *, interval, max_attempts):
-        assert interval == 0
-        assert max_attempts == 1
-        return object() if sub_id == 0x11 else None
-
-    fake = SimpleNamespace(
-        _known_state_request_targets=lambda: [(0x39, 0x11), (0x39, 0x12)],
-        state_query_results={(0x39, 0x12): {'result': 'no_response'}},
-        async_request_f7_state_until=request,
-        device_vitality=SimpleNamespace(
-            record_probe=lambda addr, sub_id, *, success: probe_results.append(
-                (addr, sub_id, success)
-            )
-        ),
-    )
-
-    asyncio.run(
-        coordinator_module.Ksx4506Coordinator.async_probe_known_device_states(
-            fake,
-            delay=0,
-            interval=0,
-            max_attempts=1,
-        )
-    )
-
-    assert probe_results == [(0x39, 0x11, True), (0x39, 0x12, False)]

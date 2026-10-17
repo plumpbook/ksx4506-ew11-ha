@@ -146,8 +146,6 @@ async def lifecycle_case() -> None:
             await asyncio.Event().wait()
 
         coordinator._client._run_loop = park
-        coordinator.async_probe_meter_states = AsyncMock()
-        coordinator.async_monitor_known_device_states = AsyncMock()
         try:
             with patch.object(client_module, "time", SimpleNamespace(monotonic=lambda: clock[0])), \
                  patch("custom_components.ksx4506_ew11.device_alerts.monotonic", lambda: clock[0]), \

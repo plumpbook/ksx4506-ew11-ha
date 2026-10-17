@@ -1,7 +1,5 @@
-"""HA-owned evidence storage and rate-limited read-only candidate verification."""
 import asyncio  # noqa: ANYIO_OK - Home Assistant owns this task and transaction lock
 from contextlib import suppress
-from dataclasses import replace
 import logging
 import json
 from pathlib import Path
@@ -118,29 +116,6 @@ class DiscoveryRuntime:
         self.guard.expire()
         self.guard.verification_enabled = False
         self._record_rx_error()
-        if self._link_healthy():
-            for observation in self.guard.probe_candidates():
-                if self.coordinator._transaction_lock.locked():
-                    break
-                addr, sub_id = (int(part, 16) for part in observation.endpoint.split("/"))
-                from .coordinator import _status_request_command
-                request = self.coordinator.codec.build_f7(addr, sub_id, _status_request_command(addr), b"")
-                self.guard.record(replace(observation, raw_hex=request.hex()), "probe_requested")
-                result = replace(observation, raw_hex="")
-                try:
-                    async with asyncio.timeout(2):
-                        matched = await self.coordinator.async_request_f7_state_until(
-                            addr, sub_id, max_attempts=1, interval=0.5,
-                        )
-                    current = self.guard.pending.get(observation.endpoint)
-                    success = (matched is not None and current is not None
-                               and current.observation.keys == observation.keys
-                               and current.observation.raw_hex.upper() == matched.raw.hex().upper())
-                    if matched is not None:
-                        result = replace(observation, raw_hex=matched.raw.hex())
-                except (TimeoutError, OSError):
-                    success = False
-                self.guard.record_probe(result, success)
         await self.async_save()
         self.guard.verification_enabled = self._link_healthy()
         self._notify()
@@ -172,8 +147,7 @@ class DiscoveryRuntime:
             return
         links = device_review_links(self.coordinator.hass, self.entry_id)
         lines = [f"사용자 승인 대기 {len(rows)}개 통신 지점 · 기존 기기 검토 {len(existing)}개", ""]
-        lines += [f"- {r['endpoint']}: {', '.join(r['keys'])} — "
-                  + ("수동 확인 필요" if r["action"] == "review_required" else "상태 조회 검증 중")
+        lines += [f"- {r['endpoint']}: {', '.join(r['keys'])} — 수동 확인 필요"
                   for r in rows[:20]]
         lines += [f"- {links.get(c['device_key'], c['device_key'] + ' · 기기 등록 정보 없음')}"
                   "\n  채널 구성 재확인 필요 · 삭제하지 않고 보존" for c in existing]

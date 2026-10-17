@@ -60,7 +60,7 @@ cancel, or unload. A socket change during the check is reported separately.
 may have transmitted bytes and is not proof that the device ignored a request.
 Neither busy nor unsent checks create endpoint failure evidence.
 
-The same distinction applies to background known-device and alert probes:
+The same distinction applies to automatic silence-check queries:
 `last_query_result` records confirmed transmission versus unsent/uncertain
 transport, response timeout, cancellation, and connection changes. Only an
 exhausted query with confirmed transmission counts as a response failure.
@@ -130,14 +130,13 @@ Useful attributes:
 - `tx.giveups`: commands or state requests that exhausted confirmation attempts
 - `tx.control_giveups`: user-facing control commands that exhausted
   ACK/status confirmation attempts
-- `tx.state_request_giveups`: startup or follow-up state requests that exhausted
-  status confirmation attempts
+- `tx.state_request_giveups`: silence checks, manual checks, or control follow-up
+  state requests that exhausted status confirmation attempts
 - `tx.last_giveup`: most recent command that was abandoned after retry attempts
 
 Only recent RX errors and recent `tx.control_giveups` affect `state`. State
-request giveups are kept in attributes for diagnosis, but they do not mark the
-sensor unhealthy by themselves because restored historical entities may be
-probed during startup.
+request giveups are kept in attributes for diagnosis; the endpoint health
+monitor evaluates confirmed silence-check failures separately.
 
 Resync events are separated from checksum/frame errors because TCP/EW11 chunks
 can contain a damaged or stale frame candidate immediately followed by a valid

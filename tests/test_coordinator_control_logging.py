@@ -380,41 +380,19 @@ async def _assert_control_transactions_remain_serialized():
     assert [call[3] for call in fake.calls] == [b"first", b"", b"second"]
 
 
-def test_meter_startup_probe_requests_whole_and_individual_meter_states():
+def test_meter_status_response_decodes_without_a_startup_request():
     install_homeassistant_stubs()
-    coordinator_module = load_integration_module("coordinator")
-
-    class FakeCoordinator:
-        def __init__(self):
-            self.state_requests = []
-
-        async def async_request_f7_state(self, dev_id, sub_id):
-            self.state_requests.append((dev_id, sub_id))
-            return True
-
-    fake = FakeCoordinator()
-    probe_meter_states = _bind_method(
-        fake,
-        "async_probe_meter_states",
-        coordinator_module.Ksx4506Coordinator.async_probe_meter_states,
+    meter_module = load_integration_module("devices.meter")
+    state = meter_module.decode_meter_state(
+        bytes.fromhex("00 00 12 34 12 34 56"), sub_id=0x01, command_type=0x81,
     )
-
-    asyncio.run(probe_meter_states(delay=0, interval=0))
-
-    assert fake.state_requests == [
-        (0x30, 0x0F),
-        (0x30, 0x01),
-        (0x30, 0x02),
-        (0x30, 0x03),
-        (0x30, 0x04),
-        (0x30, 0x05),
-    ]
+    assert state["meter"] == "water"
+    assert state["total"] == 12345.6
 
 
-def test_known_device_startup_probe_retries_until_status_response():
+def test_explicit_status_request_retries_until_status_response():
     install_homeassistant_stubs()
     coordinator_module = load_integration_module("coordinator")
-    discovery_module = load_integration_module("discovery")
     protocol_module = load_integration_module("protocol")
 
     matched = protocol_module.KsFrame(
@@ -426,32 +404,19 @@ def test_known_device_startup_probe_retries_until_status_response():
         raw=bytes.fromhex("f70e11810400010000a5f6"),
     )
     fake = _FakeCoordinator(matched)
-    registry = discovery_module.DeviceRegistry()
-    setattr(fake, "registry", registry)
-    registry.restore_device_from_key("0E11_light_1")
     _bind_method(
         fake,
         "async_send_f7_command_until",
         coordinator_module.Ksx4506Coordinator.async_send_f7_command_until,
     )
-    _bind_method(
+    request_state = _bind_method(
         fake,
         "async_request_f7_state_until",
         coordinator_module.Ksx4506Coordinator.async_request_f7_state_until,
     )
-    probe_known_device_states = _bind_method(
-        fake,
-        "async_probe_known_device_states",
-        coordinator_module.Ksx4506Coordinator.async_probe_known_device_states,
-    )
-    _bind_method(
-        fake,
-        "_known_state_request_targets",
-        coordinator_module.Ksx4506Coordinator._known_state_request_targets,
-    )
+    result = asyncio.run(request_state(0x0E, 0x11, interval=0))
 
-    asyncio.run(probe_known_device_states(delay=0, interval=0))
-
+    assert result is matched
     assert fake.sent == [
         (0x0E, 0x11, 0x01, b"", False),
         (0x0E, 0x11, 0x01, b"", False),

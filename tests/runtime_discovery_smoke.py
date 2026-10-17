@@ -26,18 +26,15 @@ from custom_components.ksx4506_ew11.protocol import Ksx4506Codec
 async def main() -> None:
     commands: list[int] = []
     done = asyncio.Event()
-    ignore_probes = False
+    connection: asyncio.Future[asyncio.StreamWriter] = asyncio.get_running_loop().create_future()
 
     async def wallpad(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         codec = Ksx4506Codec()
+        connection.set_result(writer)
         try:
             while data := await reader.read(1024):
                 for frame in codec.feed(data):
                     commands.append(frame.cmd)
-                    if not ignore_probes:
-                        state = b"\x00\x01\x00" if frame.sub_id == 79 else b"\x00\x01"
-                        writer.write(codec.build_f7(frame.addr, frame.sub_id, 129, state))
-                        await writer.drain()
         finally:
             writer.close()
             await writer.wait_closed()
@@ -79,26 +76,44 @@ async def main() -> None:
         unsub = async_dispatcher_connect(hass, SIGNAL_DEVICE_ADDED, added.append)
         try:
             await coordinator._client.start()
+            writer = await asyncio.wait_for(connection, 2)
+            observed: asyncio.Queue[tuple[int, int]] = asyncio.Queue()
+            on_frame = coordinator._client._on_frame
+
+            async def capture(frame):
+                await on_frame(frame)
+                observed.put_nowait((frame.addr, frame.sub_id))
+
+            coordinator._client._on_frame = capture
+
+            async def observe(addr: int, sub_id: int, payload: bytes) -> None:
+                writer.write(Ksx4506Codec().build_f7(addr, sub_id, 0x81, payload))
+                await writer.drain()
+                assert await asyncio.wait_for(observed.get(), 2) == (addr, sub_id)
+
             # A burst produces pending evidence but no device additions.
             for _ in range(10):
-                await coordinator.async_request_f7_state_until(14, 79, max_attempts=1)
+                await observe(14, 79, b"\x00\x01\x00")
             assert "0E/4F" in runtime.guard.pending
             assert not added
-            await coordinator.async_request_f7_state_until(14, 19, max_attempts=1)
+            await observe(14, 19, b"\x00\x01")
+            before_tick = len(commands)
             await runtime.async_tick()
-            assert runtime.guard.pending["0E/13"].probes == 1
+            assert len(commands) == before_tick
+            assert runtime.guard.pending["0E/13"].probes == 0
             clock[0] += 600
+            await observe(14, 19, b"\x00\x01")
             await runtime.async_tick()
-            assert runtime.guard.pending["0E/13"].probes == 2
+            assert runtime.guard.pending["0E/13"].probes == 0
             clock[0] += 60
-            await coordinator.async_request_f7_state_until(14, 19, max_attempts=1)
+            await observe(14, 19, b"\x00\x01")
             await hass.async_block_till_done()
             assert not added
             await hass.services.async_call(DOMAIN, "review_discovery", {
                 "entry_id": entry.entry_id, "endpoint": "0E/13", "approve": True,
             }, blocking=True)
             await runtime.async_tick()
-            await coordinator.async_request_f7_state_until(14, 19, max_attempts=1)
+            await observe(14, 19, b"\x00\x01")
             await hass.async_block_till_done()
             assert added == ["0E13_light_1"], added
             # The grouped response remains untrusted even while other devices work.
@@ -106,11 +121,9 @@ async def main() -> None:
             notifications = pn._async_get_or_create_notifications(hass)
             assert runtime.notification_id in notifications
             # A timeout never removes previously registered devices.
-            ignore_probes = True
-            await coordinator.async_probe_known_device_states(delay=0, interval=0.01, max_attempts=1)
+            await runtime.async_tick()
             assert before == set(devices.devices)
             assert all(f"0E11_light_{c}" in coordinator.registry.devices for c in (1, 2, 3))
-            ignore_probes = False
             # A failed approval save cannot allow a subsequent packet to register.
             with patch.object(type(runtime.store), "_write_prepared_data", side_effect=WriteError("disk full")):
                 try:
@@ -122,7 +135,7 @@ async def main() -> None:
                 else:
                     raise AssertionError("Expected evidence storage failure")
             assert runtime.guard.verification_enabled is False
-            await coordinator.async_request_f7_state_until(14, 79, max_attempts=1)
+            await observe(14, 79, b"\x00\x01\x00")
             assert "0E4F_light_1" not in coordinator.registry.devices
             # Review is a real HA service, scoped to a current candidate.
             await hass.services.async_call(DOMAIN, "review_discovery", {
@@ -144,7 +157,7 @@ async def main() -> None:
             assert any(e.raw_hex for e in reloaded.guard.evidence.events)
             start_discovery(hass, entry)
             assert reloaded.task is not None
-            assert set(commands) == {1}, commands
+            assert commands == [], commands
             assert before == set(devices.devices)
         finally:
             unsub()
@@ -154,7 +167,7 @@ async def main() -> None:
             await hass.async_stop()
             server.close()
             await server.wait_closed()
-        print("HA discovery admission, read-only TCP probes, services, storage and lifecycle passed")
+        print("HA discovery admission from passive TCP frames, services, storage and lifecycle passed")
 
 
 if __name__ == "__main__":

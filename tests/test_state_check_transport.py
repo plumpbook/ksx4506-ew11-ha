@@ -120,7 +120,7 @@ def test_cancel_during_write_completion_never_retries_or_leaves_waiters(monkeypa
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize('path', ['periodic', 'manual'])
+@pytest.mark.parametrize('path', ['outage', 'manual'])
 @pytest.mark.parametrize('closure', ['counted', 'uncounted', 'restored', 'reconnected'])
 def test_tcp_close_after_completed_send_is_not_endpoint_no_response(path, closure):
     async def scenario():
@@ -146,14 +146,14 @@ def test_tcp_close_after_completed_send_is_not_endpoint_no_response(path, closur
 
         co._client._worker_task = asyncio.create_task(co._client._command_worker())
         try:
-            for attempt in range(3 if path == 'periodic' else 1):
+            for attempt in range(3 if path == 'outage' else 1):
                 co._client._writer = Writer()
                 if not co._client.health_report()['connected']:
                     co._client._mark_connected()
                 before = co._client.health_report()
                 task = asyncio.create_task(
-                    co.async_probe_known_device_states(delay=0, interval=0.05, max_attempts=1)
-                    if path == 'periodic' else co.state_check.check((14, 17)))
+                    co.async_request_f7_state_until(14, 17, interval=0.05, max_attempts=1)
+                    if path == 'outage' else co.state_check.check((14, 17)))
                 # Queue completion proves drain and the send result finished before TCP closes.
                 while len(writes) == attempt:
                     await asyncio.sleep(0)
@@ -171,12 +171,12 @@ def test_tcp_close_after_completed_send_is_not_endpoint_no_response(path, closur
                     assert after['connect_successes'] == before['connect_successes']
                     assert after['connection_epoch'] == before['connection_epoch']
                 result = await task
-                outcome = (co.state_query_results[(14, 17)] if path == 'periodic' else result)
+                outcome = (co.state_query_results[(14, 17)] if path == 'outage' else result)
                 assert outcome['result'] == 'connection_changed'
                 assert co.device_vitality._endpoints[(14, 17)].probe_failure_count == 0
                 assert co.device_vitality_report()['devices'][0]['status'] != 'unresponsive'
                 assert co._client.health_report()['response_failures_since_rx'] == 0
-            assert len(writes) == (3 if path == 'periodic' else 1)
+            assert len(writes) == (3 if path == 'outage' else 1)
             assert not co._frame_waiters and not co._transaction_lock.locked()
         finally:
             await co.state_check.stop()

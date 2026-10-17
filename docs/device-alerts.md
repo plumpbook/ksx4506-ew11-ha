@@ -12,6 +12,9 @@ raise an alert. Never-seen registry remnants and event-only devices are not
 treated as silent failures. Devices without a supported query are labelled as
 stale observations, not proven control failures. Explicit failed user controls
 are reported even when passive traffic from another channel continues.
+This silence check is the only automatic background status-query path. Startup,
+periodic whole-registry, and new-discovery-candidate queries are not sent.
+User-requested state checks and control-result confirmation remain available.
 
 The notification lists affected device names, areas, and reasons. It is updated
 in place when membership changes; unchanged errors do not produce new alerts.

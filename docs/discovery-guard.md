@@ -10,19 +10,17 @@ API, additional server, or additional diagnostic sensor is used.
 - A decoded new identity remains a candidate, not an HA device/entity.
 - Every new identity requires explicit user approval. Admission also needs at
   least three observations spaced at least 60 seconds apart, spanning at least
-  10 minutes. Matching state queries strengthen the evidence but never replace
-  approval. HA's separate "enable new entities" setting does not bypass this gate.
+  10 minutes. These observations come from passive receive traffic; discovery
+  does not request candidate states. HA's separate "enable new entities" setting
+  does not bypass this gate.
 - The proposed set of device/channel keys must remain consistent. Changing or
   disappearing topology resets the proof, including any user approval.
 - Group-address replies alone cannot prove individual physical channel identity.
 - Empty replies cannot establish a new identity. Gas and lighting status evidence
   must also satisfy their KS X payload lengths and reserved-bit rules. These
-  checks gate new identities and query matches; existing registered identities
+  checks gate new identities; existing registered identities
   remain protected and their decoder behavior is preserved.
-- Candidate queries are read-only status requests: at most two candidates per
-  minute, at least 10 minutes between attempts per endpoint, one attempt per
-  query, and a two-second deadline. No on/off, temperature, valve, or power-cycle
-  commands are sent. A busy command lock causes probing to defer.
+- The maintenance tick does not transmit candidate queries or output commands.
 - Registration pauses while the link is not receiving, recent packet quality is
   not `ok`, or evidence persistence has failed. Receiving/matching a frame is not
   proof of physical command success. Protocols without transaction identifiers
@@ -56,7 +54,8 @@ requirements is replaced by a timeout count.
 
 The per-entry HA Store key is
 `ksx4506_ew11.<entry_id>.discovery_evidence` (storage schema 1, policy revision 1).
-It holds up to 256 decision/query/error events, retained for at most 30 days.
+It holds up to 256 decision/error events and any historical query events,
+retained for at most 30 days.
 Each event contains the timestamp, endpoint, proposed keys, decision, bounded raw
 hex and up to four preceding/recent decoded frame samples. Raw hex is capped at
 1024 characters per sample. Recent decoder checksum/frame error samples are also
@@ -115,7 +114,7 @@ The action never deletes registered devices.
 
 Run unit tests, the isolated installed-HA/TCP loopback scenario, full repository
 pytest, type checking, compilation and public-artifact checks. The loopback uses
-no physical bridge and tests storage, notifications, services and read-only probes.
+no physical bridge and tests storage, notifications, services and passive frames.
 It does not establish live RS485 timing or physical device correctness. Follow
 `development-and-test.md` for controlled NAS and HACS production rollout; only one
 HA instance may connect to a real EW11.
